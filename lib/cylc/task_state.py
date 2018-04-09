@@ -75,6 +75,16 @@ TASK_STATUSES_RESTRICTED = set([
     TASK_STATUS_RETRYING
 ])
 
+# Tasks statuses to show in restricted monitoring mode.
+TASK_STATUSES_NO_JOB_FILE = set([
+    TASK_STATUS_RUNAHEAD,
+    TASK_STATUS_WAITING,
+    TASK_STATUS_HELD,
+    TASK_STATUS_READY,
+    TASK_STATUS_EXPIRED,
+    TASK_STATUS_QUEUED
+])
+
 # Task statuses we can manually reset a task TO.
 TASK_STATUSES_CAN_RESET_TO = set([
     TASK_STATUS_SUBMITTED,
