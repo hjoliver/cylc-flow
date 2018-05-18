@@ -121,10 +121,12 @@ def suicide():
     while True:
         if os.getppid() != ppid:
             # case 1)
-            os.killpg(pid, signal.SIGTERM)
+            os.killpg(pid, signal.SIGINT)
+            break
         elif get_proc_ancestors(pid) != orig_anc:
             # case 2)
-            os.killpg(ppid, signal.SIGTERM)
+            os.killpg(ppid, signal.SIGINT)
+            break
         else:
             sleep(1)
 
@@ -209,12 +211,14 @@ def view_log(logpath, mode, tailer_tmpl, batchview_cmd=None, remote=False):
                 if proc.poll() is not None:
                     break
                 if os.getppid() != ppid:
-                    os.killpg(proc.pid, signal.SIGTERM)
+                    os.killpg(proc.pid, signal.SIGINT)
                     break
-        except KeyboardInterrupt:
-            pass
-        proc.wait()
-        return 0
+        except KeyboardInterrupt as exc:
+            try:
+                os.killpg(proc.pid, signal.SIGINT)
+            except OSError:
+                pass
+        return proc.wait()
 
 
 def get_option_parser():
@@ -341,6 +345,8 @@ def main():
         # Invoked on job hosts for job logs only, as a wrapper to view_log().
         # Tail and batchview commands come from global config on suite host).
         logpath, mode, tail_tmpl = options.remote_args[0:3]
+        if mode == 'tail':
+            threading.Thread(target=suicide).start()
         if logpath.startswith('$'):
             logpath = os.path.expandvars(logpath)
         elif logpath.startswith('~'):
@@ -487,8 +493,8 @@ def main():
                 point, task, options.submit_num, options.filename))
             tail_tmpl = str(glbl_cfg().get_host_item("tail command template"))
             out = view_log(logpath, mode, tail_tmpl, batchview_cmd)
-            if out == 1:
-                sys.exit(1)
+            if mode != 'edit':
+                sys.exit(out)
         if mode == 'edit':
             tmpfile_edit(out, options.geditor)
 
