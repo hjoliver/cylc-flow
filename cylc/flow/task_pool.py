@@ -344,7 +344,7 @@ class TaskPool(object):
         if row_idx == 0:
             LOG.info("LOADING task proxies")
         # Create a task proxy corresponding to this DB entry.
-        (cycle, name, flow_label, is_late, status, satisfied, parents_finished,
+        (cycle, name, flow_label, is_late, status, satisfied,
          is_held, submit_num, _, user_at_host, time_submit, time_run, timeout,
          outputs_str) = row
         try:
@@ -425,12 +425,6 @@ class TaskPool(object):
             for pre in itask.state.prerequisites:
                 for k, v in pre.satisfied.items():
                     pre.satisfied[k] = sat[k]
-
-            # Update parents-finished status from DB
-            itask.parents_finished.update({
-                tuple(json.loads(k)): v
-                for k, v in json.loads(parents_finished).items()
-            })
 
             itask.state.reset(status)
             self.add_to_runahead_pool(itask, is_new=False)
@@ -547,8 +541,6 @@ class TaskPool(object):
                         # TODO: USE PROXY METHOD
                         c_task.state.satisfy_me(
                             set([(p_name, str(p_point), trig.output)]))
-                        # TODO: USE PROXY METHOD
-                        c_task.parents_finished[(p_name, str(p_point))] = True
             if c_task is not None:
                 # If parent is held, hold child (this makes hold more useful in
                 # SoD where there aren't many waiting tasks out front to hold).
@@ -1043,45 +1035,22 @@ class TaskPool(object):
         return self.abort_task_failed
 
     def spawn_on_output(self, itask, output):
-        """Spawn and update children of itask:output or just update if exists.
+        """Spawn and update children, remove finished tasks.
 
-        Also:
-        - update parent-finished status.
-        - set a the abort-on-task-failed flag if necessary.
-
+        Also set a the abort-on-task-failed flag if necessary.
         If not itask.reflow update existing children but don't spawn them.
+
         """
         if output == TASK_OUTPUT_FAILED:
             if (self.expected_failed_tasks is not None
                     and itask.identity not in self.expected_failed_tasks):
                 self.abort_task_failed = True
 
-        # Determine the children of task:output.
-        if output in [TASK_OUTPUT_SUCCEEDED, TASK_OUTPUT_EXPIRED,
-                      TASK_OUTPUT_FAILED]:
-            # Spawn all children, to record parent finished status.
-            childrens = itask.children.values()
-            children = list(chain(*childrens))
-            if (output == TASK_OUTPUT_FAILED and not itask.failure_handled):
-                p_finished = False
-            else:
-                p_finished = True
-        else:
-            # Spawn children of the specific output.
-            p_finished = False
-            try:
-                children = itask.children[output]
-            except KeyError:
-                # No children depend on this ouput
-                children = []
-
-        # Record parent name and point, then remove it if finished.
-        p_name = itask.tdef.name
-        p_point = itask.point
-        if p_finished:
-            self.remove(itask, 'finished')
-            if itask.identity == self.stop_task_id:
-                self.stop_task_finished = True
+        try:
+            children = itask.children[output]
+        except KeyError:
+            # No children depend on this ouput
+            children = []
 
         for c_name, c_point in children:
             # TODO: to stimulate pool summary update?
@@ -1097,24 +1066,19 @@ class TaskPool(object):
             # Update downstream prerequisites directly.
             if c_task is not None:
                 if itask.state.is_held:
-                    # If parent is held, hold child (this makes hold more useful in
-                    # SoD where there aren't many waiting tasks out front to hold).
+                    # If parent is held hold the child (this makes hold more
+                    # useful in SoD where tasks often aren't waiting ahead).
                     c_task.state.reset(is_held=True)
                 # TODO: USE PROXY METHOD
-                c_task.state.satisfy_me(set([(p_name, str(p_point), output)]))
-                if p_finished:
-                    # TODO: USE PROXY METHOD
-                    c_task.parents_finished[(p_name, str(p_point))] = True
-                    # Remove if all parents are finished but prerequisites are
-                    # not satisfied, regardless of clock and external triggers.
-                    # TODO test for waiting is not necessary here?
-                    if(
-                            c_task.state(TASK_STATUS_WAITING)
-                            and all(c_task.parents_finished.values())
-                            and not all(pre.is_satisfied()
-                                        for pre in c_task.state.prerequisites)
-                    ):
-                        self.remove(c_task, 'stuck waiting')
+                c_task.state.satisfy_me(
+                    set([(itask.tdef.name, str(itask.point), output)]))
+
+        # Remove the parent task if finished.
+        if (output in [TASK_OUTPUT_SUCCEEDED, TASK_OUTPUT_EXPIRED] 
+                or output == TASK_OUTPUT_FAILED and itask.failure_handled):
+            if itask.identity == self.stop_task_id:
+                self.stop_task_finished = True
+            self.remove(itask, 'finished')
 
     def get_or_spawn_task(self, name, point, flow_label=None, reflow=True,
                           parent_id=None):
@@ -1576,7 +1540,6 @@ class TaskPool(object):
         infrequently and doesn't do anything if there is only one flow.
 
         """
-        print("PRUEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE")
         if self.flow_label_mgr.get_num_inuse() == 1:
             # Nothing to do.
             return

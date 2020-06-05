@@ -286,7 +286,6 @@ class CylcSuiteDAO(object):
             ["flow_label", {"is_primary_key": True}],
             ["status"],
             ["satisfied"],
-            ["parents_finished"],
             ["is_held", {"datatype": "INTEGER"}],
         ],
         TABLE_XTRIGGERS: [
@@ -300,7 +299,6 @@ class CylcSuiteDAO(object):
             ["flow_label", {"is_primary_key": True}],
             ["status"],
             ["satisfied"],
-            ["parents_finished"],
             ["is_held", {"datatype": "INTEGER"}],
         ],
         TABLE_TASK_STATES: [
@@ -747,7 +745,6 @@ class CylcSuiteDAO(object):
                 %(task_late_flags)s.value,
                 %(task_pool)s.status,
                 %(task_pool)s.satisfied,
-                %(task_pool)s.parents_finished,
                 %(task_pool)s.is_held,
                 %(task_states)s.submit_num,
                 %(task_jobs)s.try_num,

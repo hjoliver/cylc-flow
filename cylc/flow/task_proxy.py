@@ -125,8 +125,6 @@ class TaskProxy(object):
             graph children: {msg: [(name, point), ...]}
         .failure_handled (bool)
             task failure is handled (by children)
-        .parents_finished (dict)
-            graph parents: {(name, point): finished(T/F)}
         .flow_label (str)
             flow label
         .reflow (bool)
@@ -181,7 +179,6 @@ class TaskProxy(object):
         'try_timers',
         'children',
         'failure_handled',
-        'parents_finished',
         'flow_label',
         'reflow',
     ]
@@ -282,18 +279,6 @@ class TaskProxy(object):
                         # foo should trigger only if it is on the T06 sequence
                         self.children[output].append((name, child_point))
 
-        # Determine parents of this task (to record if finished or not).
-        self.parents_finished = {}
-        for seq, ups in tdef.upstreams.items():
-            if not seq.is_on_sequence(self.point):
-                continue
-            for name, trigger in ups:
-                point = trigger.get_parent_point(self.point)
-                if point < initial_point:
-                    # pre-initial dependence
-                    continue
-                self.parents_finished[(name, str(point))] = False
-
         if tdef.sequential:
             # Add next-instance child.
             nexts = []
@@ -308,16 +293,6 @@ class TaskProxy(object):
                     self.children[TASK_OUTPUT_SUCCEEDED] = []
                 self.state.outputs.add(TASK_OUTPUT_SUCCEEDED)
                 self.children[TASK_OUTPUT_SUCCEEDED].append((tdef.name, nxt))
-            # Add prev-instance parent_finished.
-            prevs = []
-            for seq in tdef.sequences:
-                prv = seq.get_prev_point(self.point)
-                if prv:
-                    # None if out of sequence bounds.
-                    prevs.append(prv)
-            if prevs:
-                prv = max(prevs)
-                self.parents_finished[(tdef.name, str(prv))] = False
 
         if TASK_OUTPUT_FAILED in self.children:
             self.failure_handled = True
@@ -347,7 +322,6 @@ class TaskProxy(object):
         reload_successor.state.is_updated = self.state.is_updated
         reload_successor.state.prerequisites = self.state.prerequisites
         reload_successor.children = self.children
-        reload_successor.parents_finished = self.parents_finished
 
     @staticmethod
     def get_offset_as_seconds(offset):
