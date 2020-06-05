@@ -1069,9 +1069,11 @@ class TaskPool(object):
                     # If parent is held hold the child (this makes hold more
                     # useful in SoD where tasks often aren't waiting ahead).
                     c_task.state.reset(is_held=True)
-                # TODO: USE PROXY METHOD
+                # TODO USE PROXY METHOD
                 c_task.state.satisfy_me(
                     set([(itask.tdef.name, str(itask.point), output)]))
+                # TODO event-driven task start: just check if all prereqs are
+                # satisfied right now.
 
         # Remove the parent task if finished.
         if (output in [TASK_OUTPUT_SUCCEEDED, TASK_OUTPUT_EXPIRED] 
