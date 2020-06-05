@@ -541,11 +541,6 @@ class TaskPool(object):
                         # TODO: USE PROXY METHOD
                         c_task.state.satisfy_me(
                             set([(p_name, str(p_point), trig.output)]))
-            if c_task is not None:
-                # If parent is held, hold child (this makes hold more useful in
-                # SoD where there aren't many waiting tasks out front to hold).
-                if itask.state.is_held:
-                    c_task.state.reset(is_held=True)
 
     def remove(self, itask, reason=""):
         """Remove a task from the pool."""
@@ -1065,10 +1060,6 @@ class TaskPool(object):
 
             # Update downstream prerequisites directly.
             if c_task is not None:
-                if itask.state.is_held:
-                    # If parent is held hold the child (this makes hold more
-                    # useful in SoD where tasks often aren't waiting ahead).
-                    c_task.state.reset(is_held=True)
                 # TODO USE PROXY METHOD
                 c_task.state.satisfy_me(
                     set([(itask.tdef.name, str(itask.point), output)]))
