@@ -8,7 +8,8 @@
     final cycle point = 2010-01-05
     max active cycle points = 2 # marker
     [[graph]]
-        R1/T00 = "foo & reloader"
+        # oops is stuck waiting task to hold back runahead
+        R1/T00 = "foo & reloader => oops"
         T00/PT6H = "foo => bar"
 [runtime]
     [[foo]]

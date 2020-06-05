@@ -29,7 +29,7 @@ from cylc.flow.job_pool import JobPool
 from cylc.flow.parsec.config import ParsecConfig
 from cylc.flow.scheduler import Scheduler
 from cylc.flow.suite_db_mgr import SuiteDatabaseManager
-from cylc.flow.task_pool import TaskPool
+from cylc.flow.task_pool import TaskPool, FlowLabelMgr
 from cylc.flow.task_proxy import TaskProxy
 
 """Set of utility methods and classes for writing tests for Cylc."""
@@ -163,7 +163,7 @@ def create_task_proxy(task_name: str, suite_config: SuiteConfig,
         task_def,
         suite_config.start_point,
         suite_config.start_point,
-        self.pool.flow_label_mgr.get_new_label(),
+        FlowLabelMgr().get_new_label(),
         is_startup=is_startup)
 
 
