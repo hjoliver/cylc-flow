@@ -22,9 +22,9 @@ releaser[1990] & t2[2010] & t3 => stopper"""
     [[holder]]
         script = """
 sleep 4
-cylc__job__poll_grep_suite_log 'Spawned t1.19900101T0000Z'
-cylc__job__poll_grep_suite_log 'Spawned t2.20100101T0000Z'
-cylc__job__poll_grep_suite_log 'Spawned t3.20300101T0000Z'
+cylc__job__poll_grep_suite_log 'spawned t1.19900101T0000Z'
+cylc__job__poll_grep_suite_log 'spawned t2.20100101T0000Z'
+cylc__job__poll_grep_suite_log 'spawned t3.20300101T0000Z'
 cylc hold "${CYLC_SUITE_NAME}" '*/t*'
           """
     [[releaser]]

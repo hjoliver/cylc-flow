@@ -33,14 +33,14 @@ init_suite "${TEST_NAME_BASE}" <<'__SUITERC__'
     [[holdrelease]]
         script = """
 wait
-cylc__job__poll_grep_suite_log -F 'Spawned foo.1'
-cylc__job__poll_grep_suite_log -F 'Spawned bar.1'
-cylc__job__poll_grep_suite_log -F 'Spawned cheese.1'
-cylc__job__poll_grep_suite_log -F 'Spawned jam.1'
-cylc__job__poll_grep_suite_log -F 'Spawned cat1.1'
-cylc__job__poll_grep_suite_log -F 'Spawned cat2.1'
-cylc__job__poll_grep_suite_log -F 'Spawned dog1.1'
-cylc__job__poll_grep_suite_log -F 'Spawned dog2.1'
+cylc__job__poll_grep_suite_log -F 'spawned foo.1'
+cylc__job__poll_grep_suite_log -F 'spawned bar.1'
+cylc__job__poll_grep_suite_log -F 'spawned cheese.1'
+cylc__job__poll_grep_suite_log -F 'spawned jam.1'
+cylc__job__poll_grep_suite_log -F 'spawned cat1.1'
+cylc__job__poll_grep_suite_log -F 'spawned cat2.1'
+cylc__job__poll_grep_suite_log -F 'spawned dog1.1'
+cylc__job__poll_grep_suite_log -F 'spawned dog2.1'
 cylc hold ${CYLC_SUITE_NAME} '*FF.1'  # inexact fam
 cylc hold ${CYLC_SUITE_NAME} 'TOAST.1'  # exact fam
 cylc hold ${CYLC_SUITE_NAME} 'cat*.1'  # inexact tasks

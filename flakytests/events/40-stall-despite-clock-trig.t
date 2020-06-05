@@ -29,8 +29,6 @@ sed -n 's/^.* WARNING - //p' "${SUITE_RUN_DIR}/log/suite/log" \
 TODAY="$(date -u '+%Y%m%d')"
 contains_ok "${SUITE_RUN_DIR}/log/suite/log.edited" <<__OUT__
 suite stalled
-Unmet prerequisites for t3.${TODAY}:
- * t2.${TODAY} succeeded
 __OUT__
 
 purge_suite "${SUITE_NAME}"

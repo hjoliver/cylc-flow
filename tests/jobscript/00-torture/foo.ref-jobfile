@@ -28,6 +28,7 @@ cylc__job__inst__cylc_env() {
     export CYLC_TASK_NAMESPACE_HIERARCHY=
     export CYLC_TASK_DEPENDENCIES=
     export CYLC_TASK_TRY_NUMBER=
+    export CYLC_TASK_FLOW_LABEL=
 }
 
 cylc__job__inst__user_env() {

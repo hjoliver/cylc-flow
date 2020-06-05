@@ -139,7 +139,8 @@ def main(parser, options, suite, *task_ids):
         pool,
         db_mgr,
         BroadcastMgr(db_mgr),
-        job_pool
+        job_pool,
+        True
     )
     schd.task_events_mgr.spawn_func = lambda x, y: None
 
