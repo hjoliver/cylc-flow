@@ -60,7 +60,8 @@ batch_sys.submit(job_file_path, submit_opts) => ret_code, out, err
     * Submit a job and return an instance of the Popen object for the
       submission. This method is useful if the job submission requires logic
       beyond just running a system or shell command. See also
-      "batch_sys.SUBMIT_CMD".
+      "batch_sys.SUBMIT_CMD". You must pass "env=submit_opts.get('env')" to
+      Popen - see background.py for example.
 
 batch_sys.manip_job_id(job_id) => job_id
     * Modify the job ID that is returned by the job submit command.
@@ -216,6 +217,13 @@ class BatchSysManager():
             suite_py = os.path.join(suite_run_dir, sub_dir)
             if os.path.isdir(suite_py) and suite_py not in sys.path:
                 sys.path.append(suite_py)
+
+    def __init__(self, clean_env=False, env=None, path=None):
+        """Initialise BatchSysManager."""
+        # Job submission environment.
+        self.clean_env = clean_env
+        self.path = path
+        self.env = env
 
     def _get_sys(self, batch_sys_name):
         """Return an instance of the class for "batch_sys_name"."""
@@ -637,7 +645,21 @@ class BatchSysManager():
 
         # Submit job
         batch_sys = self._get_sys(batch_sys_name)
+        if not self.clean_env:
+            # Pass the whole environment, and selected extras, to the job
+            # submission subprocess. (Note this runs on the job host).
+            env = os.environ
+        else:
+            # $HOME is required by job.sh on the job host.
+            env = {'HOME': os.environ.get('HOME', '')}
+        # Pass selected extra variables to job submit subprocess.
+        for var in self.env:
+            env[var] = os.environ.get(var, '')
+        if self.path is not None:
+            path = ':'.join(self.path)
+            env['PATH'] = path + ':' + os.environ.get('PATH', '')
         if hasattr(batch_sys, "submit"):
+            submit_opts['env'] = env
             # batch_sys.submit should handle OSError, if relevant.
             ret_code, out, err = batch_sys.submit(job_file_path, submit_opts)
         else:
@@ -650,9 +672,7 @@ class BatchSysManager():
                     job_file_path, submit_opts)
                 if isinstance(proc_stdin_value, str):
                     proc_stdin_value = proc_stdin_value.encode()
-            env = None
             if hasattr(batch_sys, "SUBMIT_CMD_ENV"):
-                env = dict(os.environ)
                 env.update(batch_sys.SUBMIT_CMD_ENV)
             batch_submit_cmd_tmpl = submit_opts.get("batch_submit_cmd_tmpl")
             if batch_submit_cmd_tmpl:

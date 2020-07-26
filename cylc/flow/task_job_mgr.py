@@ -71,6 +71,8 @@ from cylc.flow.remote import construct_ssh_cmd
 from cylc.flow.exceptions import (
     PlatformLookupError, SuiteConfigError, TaskRemoteMgmtError
 )
+from cylc.flow.cfgspec.glbl_cfg import glbl_cfg
+from cylc.flow.cfgspec.globalcfg import SYSPATH
 
 
 class TaskJobManager:
@@ -295,6 +297,15 @@ class TaskJobManager:
                 cmd.append('--remote-mode')
             else:
                 remote_mode = False
+            if itask.platform[
+                    'clean job submission environment']:
+                cmd.append('--clean-env')
+            for var in itask.platform[
+                    'job submission environment pass-through']:
+                cmd.append(f"--env={var}")
+            for path in itask.platform[
+                    'job submission executable paths'] + SYSPATH:
+                cmd.append(f"--path={path}")
             cmd.append('--')
             cmd.append(
                 get_remote_suite_run_job_dir(
