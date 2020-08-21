@@ -1,0 +1,39 @@
+Currently test.yml installs cylc-flow into the selected Python version.
+
+If we ever want to install cylc-flow into a virtual environment instead:
+
+- name: IntallCylcVenv
+  run: |
+    python -m venv venv
+    source venv/bin/activate
+    pip install ."[all]"
+
+The venv has to be activated again in every action; its location will be
+/home/runner/work/cylc-flow/cylc-flow/venv
+
+The tests are run without global "clean job submission environment" enabled, so
+that task job submission shells inherit the scheduler environment and task jobs
+can find cylc commands without a central wrapper or global "cylc executable"
+setting. To run the tests with cleaned job submission environments:
+
+- name: InstallGlobalConfig:
+  run: |
+    source venv/bin/activate   # (if using a venv as above)
+    CONF_DIR=$HOME/.cylc/flow/$(cylc --version)
+    mkdir -p $CONF_DIR
+    echo "[platforms]" > $CONF_DIR/global-tests.cylc
+    echo "[[localhost]]" >> $CONF_DIR/global-tests.cylc
+    echo "cylc executable = $(which cylc" >> $CONF_DIR/global-tests.cylc
+
+But note that any tests using a custom platform via "create_test_global_config"
+will need to do set the cylc executable location again in the test script:
+
+create_test_global_config "" "
+[platforms]
+   [[my_custom_platform]]
+       hosts = localhost
+       cylc executable = $(which cylc)
+"
+
+Note also that several tests rely on the job submission shell inheriting the
+scheduler environment, so these would need to be modified.
