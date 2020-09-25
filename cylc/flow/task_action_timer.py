@@ -1,5 +1,5 @@
 # THIS FILE IS PART OF THE CYLC SUITE ENGINE.
-# Copyright (C) 2008-2019 NIWA & British Crown (Met Office) & Contributors.
+# Copyright (C) NIWA & British Crown (Met Office) & Contributors.
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -22,6 +22,7 @@ from cylc.flow.wallclock import (
     get_seconds_as_interval_string, get_time_string_from_unix_time)
 
 
+<<<<<<< HEAD
 class TimerFlags:
 
     EXECUTION_RETRY = 'execution-retry'
@@ -29,6 +30,9 @@ class TimerFlags:
 
 
 class TaskActionTimer(object):
+=======
+class TaskActionTimer:
+>>>>>>> master
     """A timer with delays for task actions."""
 
     # Memory optimization - constrain possible attributes to this list.
