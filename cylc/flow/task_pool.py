@@ -240,33 +240,21 @@ class TaskPool:
                 self.suite_db_mgr.put_insert_task_outputs(itask)
         return itask
 
-    def release_runahead_tasks(self):
+    def compute_runahead_limit(self):
         """Restrict the number of active cycle points.
 
         Compute runahead limit, and release tasks to the main pool if they are
         below that point (and <= the stop point, if there is a stop point).
         Return True if any tasks released, else False.
 
+        RETURN FALSE IF NO LIMIT, ELSE latest_allowed_point
+
         """
         released = False
-        if not self.runahead_pool:
-            return released
-
-        # Any finished tasks can be released immediately (this can happen at
-        # restart when all tasks are initially loaded into the runahead pool).
-        for itask_id_maps in self.runahead_pool.copy().values():
-            for itask in itask_id_maps.copy().values():
-                if itask.state(
-                    TASK_STATUS_FAILED,
-                    TASK_STATUS_SUCCEEDED,
-                    TASK_STATUS_EXPIRED
-                ):
-                    self.release_runahead_task(itask)
-                    released = True
 
         points = []
         for point, itasks in sorted(
-                self.get_tasks_by_point(incl_runahead=True).items()):
+                self.get_tasks_by_point(incl_runahead=False).items()):
             has_unfinished_itasks = False
             for itask in itasks:
                 if not itask.state(
@@ -343,13 +331,8 @@ class TaskPool:
             self._prev_runahead_base_point = runahead_base_point
         if self.stop_point and latest_allowed_point > self.stop_point:
             latest_allowed_point = self.stop_point
-
-        for point, itask_id_map in self.runahead_pool.copy().items():
-            if point <= latest_allowed_point:
-                for itask in itask_id_map.copy().values():
-                    self.release_runahead_task(itask)
-                    released = True
-        return released
+        print('XXXXXXXXXXXXXXXXXXXXXXxxx', latest_allowed_point)
+        return latest_allowed_point
 
     def load_abs_outputs_for_restart(self, row_idx, row):
         cycle, name, output = row
@@ -517,8 +500,8 @@ class TaskPool:
                 {"id": id_, "ctx_key": ctx_key_raw})
             return
 
-    def release_runahead_task(self, itask):
-        """Release itask to the appropriate queue in the active pool.
+    def add_to_pool(self, itask):
+        """Add itask to the appropriate queue in the task pool.
 
         Also auto-spawn next instance if:
         - no parents to do it
@@ -534,11 +517,9 @@ class TaskPool:
         self.pool[itask.point][itask.identity] = itask
         self.pool_changed = True
         self.pool_changes.append(itask)
-        LOG.debug("[%s] -released to the task pool", itask)
-        del self.runahead_pool[itask.point][itask.identity]
-        if not self.runahead_pool[itask.point]:
-            del self.runahead_pool[itask.point]
-        self.rhpool_changed = True
+        LOG.debug("[%s] -added to the task pool", itask)
+
+    def auto_spawn(self, itask):
         if itask.tdef.max_future_prereq_offset is not None:
             self.set_max_future_offset()
         if itask.tdef.sequential:
@@ -678,6 +659,7 @@ class TaskPool:
         """
         ready_tasks = []
         qconfig = self.config.cfg['scheduling']['queues']
+        runahead_limit = self.compute_runahead_limit()
 
         for queue in self.queues:
             # 1) queue unqueued tasks that are ready to run or manually forced
@@ -716,11 +698,14 @@ class TaskPool:
                     # (This excludes tasks remaining TASK_STATUS_READY because
                     # job submission has been stopped with 'cylc shutdown').
                     continue
+                if runahead_limit and itask.point > runahead_limit:
+                    continue
                 if itask.manual_trigger or not n_limit or n_release > 0:
                     # manual release, or no limit, or not currently limited
                     n_release -= 1
                     ready_tasks.append(itask)
                     itask.reset_manual_trigger()
+                    self.auto_spawn(itask)
                     # (Set to 'ready' is done just before job submission).
                 # else leaved queued
 
@@ -1234,7 +1219,7 @@ class TaskPool:
         if itask.state.prerequisites_are_not_all_satisfied():
             itask.state.satisfy_me(self.abs_outputs_done)
 
-        self.add_to_runahead_pool(itask)
+        self.add_to_pool(itask)
         LOG.info(msg, name, point, flow_label)
         return itask
 

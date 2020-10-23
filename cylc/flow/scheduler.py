@@ -701,8 +701,7 @@ class Scheduler:
             parent_points = tdef.get_parent_points(point)
             if not parent_points or all(
                     x < self.config.start_point for x in parent_points):
-                self.pool.add_to_runahead_pool(
-                    TaskProxy(tdef, point, flow_label))
+                self.pool.add_to_pool(TaskProxy(tdef, point, flow_label))
 
     def load_tasks_for_restart(self):
         """Load tasks for restart."""
@@ -1430,11 +1429,6 @@ class Scheduler:
                 self.count, get_current_time_string()))
         self.count += 1
 
-    def release_tasks(self):
-        if self.pool.release_runahead_tasks():
-            self.is_updated = True
-            self.task_events_mgr.pflag = True
-
     async def main_loop(self):
         """The scheduler main loop."""
         while True:  # MAIN LOOP
@@ -1448,7 +1442,6 @@ class Scheduler:
                 has_reloaded = True
 
             self.process_command_queue()
-            self.release_tasks()
             self.proc_pool.process()
 
             if self.should_process_tasks():
