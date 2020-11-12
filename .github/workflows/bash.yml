@@ -46,3 +46,10 @@ jobs:
             tests/functional/shutdown/09-now2.t \
             tests/functional/shutdown/13-no-port-file-check.t \
             tests/functional/shutdown/14-no-dir-check.t
+
+      - name: Upload
+        if: failure()
+        uses: actions/upload-artifact@v2
+        with:
+          name: cylc-run
+          path: cylc-run
