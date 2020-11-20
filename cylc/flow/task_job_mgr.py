@@ -71,7 +71,6 @@ from cylc.flow.remote import construct_ssh_cmd
 from cylc.flow.exceptions import (
     PlatformLookupError, SuiteConfigError, TaskRemoteMgmtError
 )
-from cylc.flow.cfgspec.glbl_cfg import glbl_cfg
 from cylc.flow.cfgspec.globalcfg import SYSPATH
 
 
