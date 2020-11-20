@@ -565,13 +565,13 @@ with Conf('global.cylc', desc='''
                 scheduler environment. This means local jobs see the scheduler
                 environment unless the local batch system prevents it, which
                 can cause problems - e.g. scheduler ``$PYTHON...`` variables
-                can affect Python job applications). For consistent handling of
-                local and remote jobs a clean job submission environment is
-                recommended, but it is not the default because it prevents
-                local task jobs from running unless the ``cylc`` version
-                selection wrapper script is installed in ``$PATH`` (a clean
-                environment prevents local jobs from seeing the scheduler's
-                virtual environment).
+                can affect Python programs executed by task job scripts). For
+                consistent handling of local and remote jobs a clean job
+                submission environment is recommended, but it is not the
+                default because it prevents local task jobs from running unless
+                the ``cylc`` version selection wrapper script is installed in
+                ``$PATH`` (a clean environment prevents local jobs from seeing
+                the scheduler's virtual environment).
 
                 Specific environment variables can be singled out to pass
                 through to the clean environment, if necessary.
