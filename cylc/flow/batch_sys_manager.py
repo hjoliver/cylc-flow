@@ -646,18 +646,21 @@ class BatchSysManager():
         # Submit job
         batch_sys = self._get_sys(batch_sys_name)
         if not self.clean_env:
-            # Pass the whole environment, and selected extras, to the job
-            # submission subprocess. (Note this runs on the job host).
+            # Pass the whole environment to the job submit subprocess.
+            # (Note this runs on the job host).
             env = os.environ
         else:
             # $HOME is required by job.sh on the job host.
             env = {'HOME': os.environ.get('HOME', '')}
-        # Pass selected extra variables to job submit subprocess.
+        # Pass selected extra variables to the job submit subprocess.
         for var in self.env:
             env[var] = os.environ.get(var, '')
         if self.path is not None:
-            path = ':'.join(self.path)
-            env['PATH'] = path + ':' + os.environ.get('PATH', '')
+            # append to avoid overriding (e.g.) Python in inherited venvs.
+            env['PATH'] = (
+                os.environ.get('PATH', '') +
+                ':' + ':'.join(self.path)
+            )
         if hasattr(batch_sys, "submit"):
             submit_opts['env'] = env
             # batch_sys.submit should handle OSError, if relevant.
