@@ -120,4 +120,4 @@ jobs:
         uses: actions/upload-artifact@v2
         with:
           name: Upload cylc-run artifact
-          path: cylc-run
+          path: ${HOME}/cylc-run
