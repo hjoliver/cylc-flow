@@ -118,9 +118,8 @@ jobs:
         if: failure()
         run: |
           for container in $(etc/bin/swarm ps); do
-              docker cp $container:/root/cylc-run cylc-run-$container
+            docker cp $container:/root/cylc-run ${HOME}/cylc-run/cylc-run-$container
           done
-          mv cylc-run-* ${HOME}/cylc-run
 
       - name: Upload
         if: failure()
