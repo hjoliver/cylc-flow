@@ -90,13 +90,7 @@ jobs:
           # NOTE: $BASE is purposefully un-quoted
           etc/bin/run-functional-tests \
               -j "${NPROC}" \
-              --state=save ${BASE} \
-          || (
-              echo '=== Re-running Failed Tests ==='
-              CHUNK= etc/bin/run-functional-tests \
-                  -j "${NPROC}" \
-                  --state=save,failed
-          )
+               --state=save ${BASE}/cylc-poll
 
       - name: Shutdown
         if: always()
@@ -114,7 +108,7 @@ jobs:
           find "${TMPDIR:-/tmp}/${USER}/cylctb-"* -type f \
               -exec echo '==== {} ====' \; -exec cat '{}' \;
 
-      - name: Copy cylc-run out of container
+      - name: Copy cylc-run out of containers
         if: failure()
         run: |
           for container in $(etc/bin/swarm ps); do
