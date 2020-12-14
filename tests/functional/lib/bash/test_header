@@ -260,6 +260,8 @@ suite_run_fail() {
 }
 
 cmp_ok() {
+    echo ASS
+    fail "${TEST_NAME}"
     local FILE_TEST="$1"
     local FILE_CONTROL="${2:--}"
     local TEST_NAME
