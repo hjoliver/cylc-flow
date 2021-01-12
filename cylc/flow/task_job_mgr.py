@@ -96,7 +96,6 @@ from cylc.flow.task_remote_mgr import (
     TaskRemoteMgr
 )
 from cylc.flow.task_state import (
-    TASK_STATUS_PREPARING,
     TASK_STATUS_RUNNING,
     TASK_STATUS_SUBMITTED,
     TASK_STATUSES_ACTIVE
@@ -234,12 +233,11 @@ class TaskJobManager:
 
         # Prepare tasks for job submission
         prepared_tasks, bad_tasks = self.prep_submit_task_jobs(suite, itasks)
+        if not prepared_tasks:
+            return bad_tasks
 
         # Reset consumed host selection results
         self.task_remote_mgr.subshell_eval_reset()
-
-        if not prepared_tasks:
-            return bad_tasks
 
         # Group task jobs by (install target)
         auth_itasks = {}  # {install target: [itask, ...], ...}
@@ -263,6 +261,7 @@ class TaskJobManager:
                 self.task_remote_mgr.remote_init(
                     platform, curve_auth, client_pub_key_dir)
                 for itask in itasks:
+                    itask.waiting_on_remote = True
                     itask.set_summary_message(self.REMOTE_INIT_MSG)
                     self.data_store_mgr.delta_job_msg(
                         get_task_job_id(
@@ -332,6 +331,7 @@ class TaskJobManager:
                     self.task_events_mgr.process_message(
                         itask, CRITICAL,
                         self.task_events_mgr.EVENT_SUBMIT_FAILED)
+                    itask.waiting_on_remote = False
                 continue
             # Build the "cylc jobs-submit" command
             cmd = [self.JOBS_SUBMIT]
@@ -395,8 +395,9 @@ class TaskJobManager:
                     # write flag so that subsequent manual retrigger will
                     # generate a new job file.
                     itask.local_job_file_path = None
-                    if itask.state.reset(TASK_STATUS_PREPARING):
-                        self.data_store_mgr.delta_task_state(itask)
+
+                    itask.waiting_on_remote = False
+
                     if itask.state.outputs.has_custom_triggers():
                         self.suite_db_mgr.put_update_task_outputs(itask)
 
