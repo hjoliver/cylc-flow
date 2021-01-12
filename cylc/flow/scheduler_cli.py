@@ -314,6 +314,7 @@ def scheduler_cli(parser, options, args, is_restart=False):
     functionality.
 
     """
+    from cylc.flow import patch_pudb; import pudb; pudb.set_trace()
     reg = os.path.normpath(args[0])
     # Check suite is not already running before start of host selection.
     try:

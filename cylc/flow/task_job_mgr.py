@@ -96,7 +96,6 @@ from cylc.flow.task_remote_mgr import (
     TaskRemoteMgr
 )
 from cylc.flow.task_state import (
-    TASK_STATUS_PREPARING,
     TASK_STATUS_RUNNING,
     TASK_STATUS_SUBMITTED,
     TASK_STATUSES_ACTIVE
@@ -228,18 +227,19 @@ class TaskJobManager:
         This method uses prep_submit_task_job() as helper.
 
         Return (list): list of tasks that attempted submission.
+
         """
         if is_simulation:
             return self._simulation_submit_task_jobs(itasks)
 
         # Prepare tasks for job submission
         prepared_tasks, bad_tasks = self.prep_submit_task_jobs(suite, itasks)
+        if not prepared_tasks:
+            self.task_remote_mgr.subshell_eval_reset()
+            return bad_tasks
 
         # Reset consumed host selection results
         self.task_remote_mgr.subshell_eval_reset()
-
-        if not prepared_tasks:
-            return bad_tasks
 
         # Group task jobs by (install target)
         auth_itasks = {}  # {install target: [itask, ...], ...}
@@ -263,6 +263,7 @@ class TaskJobManager:
                 self.task_remote_mgr.remote_init(
                     platform, curve_auth, client_pub_key_dir)
                 for itask in itasks:
+                    itask.waiting_on_job_prep = True
                     itask.set_summary_message(self.REMOTE_INIT_MSG)
                     self.data_store_mgr.delta_job_msg(
                         get_task_job_id(
@@ -321,6 +322,7 @@ class TaskJobManager:
                 # init map and set submit-failed for all affected tasks
                 del ri_map[install_target]
                 for itask in itasks:
+                    itask.waiting_on_job_prep = False
                     itask.local_job_file_path = None  # reset for retry
                     log_task_job_activity(
                         SubProcContext(
@@ -333,6 +335,7 @@ class TaskJobManager:
                         itask, CRITICAL,
                         self.task_events_mgr.EVENT_SUBMIT_FAILED)
                 continue
+            itask.waiting_on_job_prep = False
             # Build the "cylc jobs-submit" command
             cmd = [self.JOBS_SUBMIT]
             if LOG.isEnabledFor(DEBUG):
@@ -395,8 +398,7 @@ class TaskJobManager:
                     # write flag so that subsequent manual retrigger will
                     # generate a new job file.
                     itask.local_job_file_path = None
-                    if itask.state.reset(TASK_STATUS_PREPARING):
-                        self.data_store_mgr.delta_task_state(itask)
+
                     if itask.state.outputs.has_custom_triggers():
                         self.suite_db_mgr.put_update_task_outputs(itask)
 
@@ -898,6 +900,7 @@ class TaskJobManager:
                 )
         except TaskRemoteMgmtError as exc:
             # Submit number not yet incremented
+            itask.waiting_on_job_prep = False
             itask.submit_num += 1
             itask.summary['platforms_used'][itask.submit_num] = ''
             # Retry delays, needed for the try_num
@@ -908,6 +911,7 @@ class TaskJobManager:
             return False
         else:
             # host/platform select not ready
+            itask.waiting_on_job_prep = True
             if host_n is None and platform_n is None:
                 itask.set_summary_message(self.REMOTE_SELECT_MSG)
                 return
@@ -928,6 +932,7 @@ class TaskJobManager:
                 platform = get_platform(rtconfig)
             except PlatformLookupError as exc:
                 # Submit number not yet incremented
+                itask.waiting_on_job_prep = False
                 itask.submit_num += 1
                 itask.summary['platforms_used'][itask.submit_num] = ''
                 # Retry delays, needed for the try_num
@@ -960,6 +965,7 @@ class TaskJobManager:
                                        check_syntax=check_syntax)
         except Exception as exc:
             # Could be a bad command template, IOError, etc
+            itask.waiting_on_job_prep = False
             self._prep_submit_task_job_error(
                 suite, itask, '(prepare job file)', exc)
             return False
