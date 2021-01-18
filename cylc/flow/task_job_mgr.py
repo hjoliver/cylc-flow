@@ -910,6 +910,7 @@ class TaskJobManager:
         else:
             # host/platform select not ready
             if host_n is None and platform_n is None:
+                itask.waiting_on_remote = True
                 itask.set_summary_message(self.REMOTE_SELECT_MSG)
                 return
             elif host_n is None and rtconfig['platform'] != platform_n:

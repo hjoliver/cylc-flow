@@ -16,7 +16,7 @@
 
 """Cylc task queue."""
 
-from typing import List, Dict, Deque
+from typing import List, Set, Dict, Deque
 from collections import deque
 
 from cylc.flow.task_proxy import TaskProxy
@@ -27,7 +27,7 @@ from cylc.flow.task_state import (
 
 
 class Limiter:
-    def __init__(self, name: str, limit: int, members: List[str]) -> None:
+    def __init__(self, name: str, limit: int, members: Set[str]) -> None:
         """Initialize limiter for active tasks."""
         self.name = name  # limiter name
         self.limit = limit  # max active tasks
@@ -83,28 +83,22 @@ class TaskQueue:
             except IndexError:
                 # Empty: all tasks released or limited.
                 break
-            print(candidate.identity)
             free_map = self.get_free_map(candidate, active)
-            print(free_map)
             if not free_map.get("default", True):
                 # Global limit exists and reached.
                 rejects.append(candidate)
-                print("GLOB")
                 break
             if all(free_map.values()):
                 # not limited by any groups
                 candidate.state.reset(TASK_STATUS_PREPARING)
-                print("REL")
                 released.append(candidate)
                 active.update({candidate.tdef.name: 1})
             else:
-                print("rej")
                 rejects.append(candidate)
 
         # Re-queue the rejected tasks in the original order.
         for itask in reversed(rejects):
             self.task_deque.append(itask)
-        print("RELEASING:", len(released))
         return released
 
     def remove(self, itask):

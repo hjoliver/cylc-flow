@@ -792,7 +792,7 @@ class TaskPool:
 
         # Reassign live tasks to the internal queue
         self.task_queue = TaskQueue(self.config.cfg['scheduling']['queues'])
-        self.task_queue.queue_tasks_if_ready(new_tasks)
+        self.queue_tasks_if_ready()
 
         LOG.info("Reload completed.")
         self.do_reload = False

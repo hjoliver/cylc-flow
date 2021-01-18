@@ -556,8 +556,7 @@ class SuiteConfig:
         self.mem_log("config.py: after load_graph()")
 
         self.process_runahead_limit()
-
-        self.configure_queues()
+        self._expand_task_queue()
 
         if self.run_mode('simulation', 'dummy', 'dummy-local'):
             self.configure_sim_modes()
@@ -1215,40 +1214,28 @@ class SuiteConfig:
             self.runtime['linearized ancestors'][orphan] = [orphan, 'root']
             queues[self.Q_DEFAULT]['members'].append(orphan)
 
-    def configure_queues(self):
-        """Assign tasks to internal queues."""
-        # Note this modifies the parsed config dict.
+    def _expand_task_queue(self):
+        """Expand family names in the task queue config.
+
+        Ignore unused or undefined tasks (no impact on queue limits).
+        """
         queues = self.cfg['scheduling']['queues']
-
-        LOG.debug("Configuring internal queues")
-
-        # First add all tasks to the default queue.
-        all_task_names = self.get_task_name_list()
-        queues[self.Q_DEFAULT]['members'] = all_task_names
-
-        # Replace family names with member task names.
         for qname, queue in queues.items():
-            if qname == self.Q_DEFAULT:
-                continue
             qmembers = set()
-            for qmember in queue['members']:
-                if qmember in self.runtime['descendants']:
-                    for fmem in self.runtime['descendants'][qmember]:
-                        # This includes sub-families.
-                        qmembers.add(fmem)
-                else:
-                    # Is a task.
-                    qmembers.add(qmember)
-            if qmembers:
-                queues[qname]['members'] = list(qmembers)
-
-        if cylc.flow.flags.verbose and len(queues) > 1:
-            log_msg = "Internal queues created:"
-            for qname, queue in queues.items():
-                if qname == self.Q_DEFAULT:
-                    continue
-                log_msg += "\n+ %s: %s" % (qname, ', '.join(queue['members']))
-            LOG.debug(log_msg)
+            if qname == self.Q_DEFAULT:
+                # Add all tasks to the default queue.
+                qmembers = self.get_task_name_list()
+            else:
+                for mem in queue['members']:
+                    if mem in self.runtime['descendants']:
+                        # Family name.
+                        for fmem in self.runtime['descendants'][mem]:
+                            # This includes sub-families.
+                            qmembers.add(fmem)
+                    else:
+                        # Task name.
+                        qmembers.add(mem)
+            queues[qname]['members'] = qmembers
 
     def configure_suite_state_polling_tasks(self):
         # Check custom script is not defined for automatic suite polling tasks.
