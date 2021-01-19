@@ -1226,6 +1226,7 @@ class Scheduler:
             for itask in released_tasks:
                 # Status has changed to PREPARING
                 self.data_store_mgr.delta_task_state(itask)
+                self.data_store_mgr.delta_task_queued(itask)
 
             self.pre_submit_tasks += released_tasks
             if self.pre_submit_tasks:

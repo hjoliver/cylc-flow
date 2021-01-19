@@ -44,7 +44,6 @@ from cylc.flow.task_state import (
     TASK_STATUSES_FAILURE,
     TASK_STATUS_WAITING,
     TASK_STATUS_EXPIRED,
-    TASK_STATUS_QUEUED,
     TASK_STATUS_PREPARING,
     TASK_STATUS_SUBMITTED,
     TASK_STATUS_RUNNING,
@@ -531,6 +530,7 @@ class TaskPool:
         self.data_store_mgr.increment_graph_window(itask)
         self.data_store_mgr.delta_task_state(itask)
         self.data_store_mgr.delta_task_held(itask)
+        self.data_store_mgr.delta_task_queued(itask)
 
         del self.runahead_pool[itask.point][itask.identity]
         if not self.runahead_pool[itask.point]:
@@ -649,7 +649,7 @@ class TaskPool:
         """Queue tasks that are ready to run."""
         queue_me = []
         for itask i self.get_tasks():
-            if itask.state(TASK_STATUS_QUEUED):
+            if itask.state.is_queued:
                 continue
             ready_check_items = itask.is_ready()
             # use this periodic checking point for data-store delta
@@ -662,6 +662,7 @@ class TaskPool:
  
         self.task_queue.add(queue_me)
         self.data_store_mgr.delta_task_state(itask)
+        self.data_store_mgr.delta_task_queued(itask)
 
     def release_queued_tasks(self):
         """Return list of queue-released tasks for job prep."""
@@ -760,11 +761,9 @@ class TaskPool:
         for itask in tasks:
             if itask.tdef.name in self.orphans:
                 if (
-                        itask.state(
-                            TASK_STATUS_WAITING,
-                            TASK_STATUS_QUEUED,
-                        )
+                        itask.state(TASK_STATUS_WAITING)
                         or itask.state.is_held
+                        or itask.state.is_queued
                 ):
                     # Remove orphaned task if it hasn't started running yet.
                     self.remove(itask, 'task definition removed')
@@ -810,7 +809,7 @@ class TaskPool:
                     and itask.point > self.stop_point
                     and itask.state(
                         TASK_STATUS_WAITING,
-                        TASK_STATUS_QUEUED,
+                        is_queued=True,
                         is_held=False
                     )
             ):
@@ -970,7 +969,7 @@ class TaskPool:
 
     def hold_all_tasks(self):
         """Hold all tasks."""
-        LOG.info("Holding all waiting or queued tasks now")
+        LOG.info("Holding all waiting tasks now")
         self.is_held = True
         for itask in self.get_all_tasks():
             if itask.state.reset(is_held=True):

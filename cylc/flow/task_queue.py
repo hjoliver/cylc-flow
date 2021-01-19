@@ -20,10 +20,7 @@ from typing import List, Set, Dict, Deque
 from collections import deque
 
 from cylc.flow.task_proxy import TaskProxy
-from cylc.flow.task_state import (
-    TASK_STATUS_PREPARING,
-    TASK_STATUS_QUEUED,
-)
+from cylc.flow.task_state import TASK_STATUS_PREPARING
 
 
 class Limiter:
@@ -60,9 +57,9 @@ class TaskQueue:
                 Limiter(name, config['limit'], config['members']))
 
     def add(self, itasks: List[TaskProxy]) -> None:
-        """queue tasks"""
+        """Queue tasks."""
         for itask in itasks:
-            itask.state.reset(TASK_STATUS_QUEUED)
+            itask.state.reset(is_queued=True)
             itask.reset_manual_trigger()
             self.task_deque.appendleft(itask)
 
@@ -74,7 +71,6 @@ class TaskQueue:
 
     def release(self, active: Dict[str, int]) -> List[TaskProxy]:
         """Release queued tasks."""
-
         released: List[TaskProxy] = []
         rejects: List[TaskProxy] = []
         while True:
@@ -89,14 +85,14 @@ class TaskQueue:
                 rejects.append(candidate)
                 break
             if all(free_map.values()):
-                # not limited by any groups
+                # Not limited by any groups.
                 candidate.state.reset(TASK_STATUS_PREPARING)
                 released.append(candidate)
                 active.update({candidate.tdef.name: 1})
             else:
                 rejects.append(candidate)
 
-        # Re-queue the rejected tasks in the original order.
+        # Re-queue rejected tasks in the original order.
         for itask in reversed(rejects):
             self.task_deque.append(itask)
         return released
