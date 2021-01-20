@@ -648,7 +648,7 @@ class TaskPool:
     def queue_tasks_if_ready(self):
         """Queue tasks that are ready to run."""
         queue_me = []
-        for itask i self.get_tasks():
+        for itask in self.get_tasks():
             if itask.state.is_queued:
                 continue
             ready_check_items = itask.is_ready()
@@ -658,7 +658,7 @@ class TaskPool:
                 self.data_store_mgr.delta_task_clock_trigger(
                     itask, check_items)
             if all(ready_check_items):
-                queue_me.add(itask)
+                queue_me.append(itask)
  
         self.task_queue.add(queue_me)
         self.data_store_mgr.delta_task_state(itask)
