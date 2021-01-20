@@ -56,12 +56,11 @@ class TaskQueue:
             self.limiters.append(
                 Limiter(name, config['limit'], config['members']))
 
-    def add(self, itasks: List[TaskProxy]) -> None:
+    def add(self, itask: TaskProxy) -> None:
         """Queue tasks."""
-        for itask in itasks:
-            itask.state.reset(is_queued=True)
-            itask.reset_manual_trigger()
-            self.task_deque.appendleft(itask)
+        itask.state.reset(is_queued=True)
+        itask.reset_manual_trigger()
+        self.task_deque.appendleft(itask)
 
     def get_free_map(self, itask: TaskProxy, active: Dict[str, int]):
         map: dict = {}
@@ -87,6 +86,7 @@ class TaskQueue:
             if all(free_map.values()):
                 # Not limited by any groups.
                 candidate.state.reset(TASK_STATUS_PREPARING)
+                candidate.state.reset(is_queued=False)
                 released.append(candidate)
                 active.update({candidate.tdef.name: 1})
             else:

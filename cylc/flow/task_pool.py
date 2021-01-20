@@ -647,7 +647,6 @@ class TaskPool:
 
     def queue_tasks_if_ready(self):
         """Queue tasks that are ready to run."""
-        queue_me = []
         for itask in self.get_tasks():
             if itask.state.is_queued:
                 continue
@@ -656,13 +655,11 @@ class TaskPool:
             # creation, some items aren't event driven (i.e. clock).
             if itask.tdef.clocktrigger_offset is not None:
                 self.data_store_mgr.delta_task_clock_trigger(
-                    itask, check_items)
+                    itask, ready_check_items)
             if all(ready_check_items):
-                queue_me.append(itask)
- 
-        self.task_queue.add(queue_me)
-        self.data_store_mgr.delta_task_state(itask)
-        self.data_store_mgr.delta_task_queued(itask)
+                self.task_queue.add(itask)
+                self.data_store_mgr.delta_task_state(itask)
+                self.data_store_mgr.delta_task_queued(itask)
 
     def release_queued_tasks(self):
         """Return list of queue-released tasks for job prep."""

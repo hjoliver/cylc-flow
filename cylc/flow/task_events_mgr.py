@@ -1008,6 +1008,7 @@ class TaskEventsManager():
                 self.setup_event_handlers(
                     itask, self.EVENT_SUBMITTED, f'job {self.EVENT_SUBMITTED}')
                 self.data_store_mgr.delta_task_state(itask)
+                self.data_store_mgr.delta_task_queued(itask)
             self._reset_job_timers(itask)
 
     def _setup_job_logs_retrieval(self, itask, event):
