@@ -182,7 +182,11 @@ class TaskPool:
 
         self.orphans = []
         self.task_name_list = self.config.get_task_name_list()
-        self.task_queue = TaskQueue(self.config.cfg['scheduling']['queues'])
+        self.task_queue = TaskQueue(
+            self.config.cfg['scheduling']['queues'],
+            self.config.get_task_name_list(),
+            self.config.runtime['descendants']
+            )
         self.ready_tasks = []
 
     def set_stop_task(self, task_id):
@@ -730,6 +734,7 @@ class TaskPool:
                 self.orphans.remove(name)
         # adjust the new suite config to handle the orphans
         self.config.adopt_orphans(self.orphans)
+        self.task_queue.adopt_orphans(self.orphans)
 
     def reload_taskdefs(self):
         """Reload the definitions of task proxies in the pool.
@@ -787,7 +792,12 @@ class TaskPool:
                         itask.submit_num)
 
         # Reassign live tasks to the internal queue
-        self.task_queue = TaskQueue(self.config.cfg['scheduling']['queues'])
+        self.task_queue = TaskQueue(
+            self.config.cfg['scheduling']['queues'],
+            self.config.get_task_name_list(),
+            self.config.runtime['descendants']
+            )
+ 
         self.queue_tasks_if_ready()
 
         LOG.info("Reload completed.")

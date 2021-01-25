@@ -16,8 +16,9 @@
 
 """Cylc task queue."""
 
-from typing import List, Set, Dict, Deque
+from copy import deepcopy
 from collections import deque
+from typing import List, Set, Dict, Deque
 
 from cylc.flow.task_proxy import TaskProxy
 from cylc.flow.task_state import TASK_STATUS_PREPARING
@@ -42,15 +43,50 @@ class Limiter:
             n_active += active[mem]
         return n_active < self.limit
 
+    def adopt(self, limiter_name: str, orphans: List[str]) -> None:
+        if limiter_name != self.name:
+            return
+        self.members.update(orphans)
+
 
 class TaskQueue:
     """Cylc task queue."""
+    Q_DEFAULT = 'default'
 
-    def __init__(self, qconfig: dict) -> None:
-        """Configure the task queue..."""
+    def __init__(
+            self,
+            qconfig: dict,
+            all_task_names: List[str],
+            descendants: dict
+            ) -> None:
+        """Configure the task queue.
+
+        Expand family names in the queue config. Ignore unused or undefined
+        tasks (they have no impact on limiting).
+
+        """
         self.task_deque: Deque = deque()
         self.limiters: List[Limiter] = []
-        for name, config in qconfig.items():
+
+        queues = deepcopy(qconfig)
+        for qname, queue in queues.items():
+            qmembers = set()
+            if qname == self.Q_DEFAULT:
+                # Add all tasks to the default queue.
+                qmembers = set(all_task_names)
+            else:
+                for mem in queue['members']:
+                    if mem in descendants:
+                        # Family name.
+                        for fmem in descendants[mem]:
+                            # This includes sub-families.
+                            qmembers.add(fmem)
+                    else:
+                        # Task name.
+                        qmembers.add(mem)
+            queues[qname]['members'] = qmembers
+
+        for name, config in queues.items():
             if name == "default" and not config['limit']:
                 continue
             self.limiters.append(
@@ -102,3 +138,7 @@ class TaskQueue:
             self.task_deque.remove(itask)
         except ValueError:
             pass
+
+    def adopt_orphans(self, orphans: List[str]) -> None:
+        for limiter in self.limiters:
+            limiter.adopt(self.Q_DEFAULT, orphans)

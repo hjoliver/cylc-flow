@@ -131,7 +131,6 @@ def interpolate_template(tmpl, params_dict):
 class SuiteConfig:
     """Class for suite configuration items and derived quantities."""
 
-    Q_DEFAULT = 'default'
     CHECK_CIRCULAR_LIMIT = 100  # If no. tasks > this, don't check circular
 
     def __init__(
@@ -556,7 +555,6 @@ class SuiteConfig:
         self.mem_log("config.py: after load_graph()")
 
         self.process_runahead_limit()
-        self._expand_task_queue()
 
         if self.run_mode('simulation', 'dummy', 'dummy-local'):
             self.configure_sim_modes()
@@ -1212,30 +1210,6 @@ class SuiteConfig:
         queues = self.cfg['scheduling']['queues']
         for orphan in orphans:
             self.runtime['linearized ancestors'][orphan] = [orphan, 'root']
-            queues[self.Q_DEFAULT]['members'].append(orphan)
-
-    def _expand_task_queue(self):
-        """Expand family names in the task queue config.
-
-        Ignore unused or undefined tasks (no impact on queue limits).
-        """
-        queues = self.cfg['scheduling']['queues']
-        for qname, queue in queues.items():
-            qmembers = set()
-            if qname == self.Q_DEFAULT:
-                # Add all tasks to the default queue.
-                qmembers = self.get_task_name_list()
-            else:
-                for mem in queue['members']:
-                    if mem in self.runtime['descendants']:
-                        # Family name.
-                        for fmem in self.runtime['descendants'][mem]:
-                            # This includes sub-families.
-                            qmembers.add(fmem)
-                    else:
-                        # Task name.
-                        qmembers.add(mem)
-            queues[qname]['members'] = qmembers
 
     def configure_suite_state_polling_tasks(self):
         # Check custom script is not defined for automatic suite polling tasks.
