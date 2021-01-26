@@ -69,6 +69,7 @@ class TaskQueue:
         # Add all tasks to the default queue.
         queues[self.Q_DEFAULT]['members'] = set(all_task_names)
 
+        seen = {}
         for qname, queue in qconfig.items():
             if qname == self.Q_DEFAULT:
                 continue
@@ -83,11 +84,25 @@ class TaskQueue:
                 else:
                     # Task name.
                     qmembers.add(mem)
+
+            for qmem in qmembers:
+                # Remove from default queue
+                try:
+                    queues[self.Q_DEFAULT]['members'].remove(qmem)
+                except KeyError:
+                    # Already removed.
+                    pass
+                if qmem in seen:
+                    # Override previous queue assignment.
+                    print("OVERRIDE", qmem, seen[qmem])
+                    oldq = seen[qmem]
+                    queues[oldq]['members'].remove(qmem)
+                seen[qmem] = qname
             queues[qname]['members'] = qmembers
 
         for name, config in queues.items():
             if name == "default" and not config['limit']:
-                # No global limit.
+                # No default limit.
                 continue
             self.limiters[name] = Limiter(config['limit'], config['members'])
 
