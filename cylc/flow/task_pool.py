@@ -55,7 +55,7 @@ from cylc.flow.task_state import (
 )
 from cylc.flow.wallclock import get_current_time_string
 from cylc.flow.platforms import get_platform
-from cylc.flow.task_queue import TaskQueue
+from cylc.flow.task_queues.overlapping import TaskQueue
 
 
 class FlowLabelMgr:

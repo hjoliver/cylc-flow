@@ -25,27 +25,24 @@ from cylc.flow.task_state import TASK_STATUS_PREPARING
 
 
 class Limiter:
-    def __init__(self, name: str, limit: int, members: Set[str]) -> None:
+    def __init__(self, limit: int, members: Set[str]) -> None:
         """Initialize limiter for active tasks."""
-        self.name = name  # limiter name
         self.limit = limit  # max active tasks
         self.members = members  # member task names
 
-    def is_free(self, itask: TaskProxy, active: Dict[str, int]) -> bool:
-        """Return True if itask can be released from the queue, else False.
+    def is_limited(self, itask: TaskProxy, active: Dict[str, int]) -> bool:
+        """Return True if itask is limited, else False.
 
         The "active" arg is a Counter object, for active tasks by name.
         """
         if itask.tdef.name not in self.members:
-            return True
+            return False
         n_active: int = 0
         for mem in self.members:
             n_active += active[mem]
-        return n_active < self.limit
+        return n_active >= self.limit
 
-    def adopt(self, limiter_name: str, orphans: List[str]) -> None:
-        if limiter_name != self.name:
-            return
+    def adopt(self, orphans: List[str]) -> None:
         self.members.update(orphans)
 
 
@@ -66,31 +63,31 @@ class TaskQueue:
 
         """
         self.task_deque: Deque = deque()
-        self.limiters: List[Limiter] = []
+        self.limiters: Dict[str, Limiter] = {}
 
         queues = deepcopy(qconfig)
-        for qname, queue in queues.items():
-            qmembers = set()
+        # Add all tasks to the default queue.
+        queues[self.Q_DEFAULT]['members'] = set(all_task_names)
+
+        for qname, queue in qconfig.items():
             if qname == self.Q_DEFAULT:
-                # Add all tasks to the default queue.
-                qmembers = set(all_task_names)
-            else:
-                for mem in queue['members']:
-                    if mem in descendants:
-                        # Family name.
-                        for fmem in descendants[mem]:
-                            # This includes sub-families.
-                            qmembers.add(fmem)
-                    else:
-                        # Task name.
-                        qmembers.add(mem)
+                continue
+            qmembers = set()
+            for mem in queue['members']:
+                if mem in descendants:
+                    # Family name.
+                    for fmem in descendants[mem]:
+                        # This includes sub-families.
+                        qmembers.add(fmem)
+                else:
+                    # Task name.
+                    qmembers.add(mem)
             queues[qname]['members'] = qmembers
 
         for name, config in queues.items():
             if name == "default" and not config['limit']:
                 continue
-            self.limiters.append(
-                Limiter(name, config['limit'], config['members']))
+            self.limiters[name] = Limiter(config['limit'], config['members'])
 
     def add(self, itask: TaskProxy) -> None:
         """Queue tasks."""
@@ -98,11 +95,12 @@ class TaskQueue:
         itask.reset_manual_trigger()
         self.task_deque.appendleft(itask)
 
-    def get_free_map(self, itask: TaskProxy, active: Dict[str, int]):
-        map: dict = {}
-        for limiter in self.limiters:
-            map[limiter.name] = limiter.is_free(itask, active)
-        return map
+    def is_limited(self, itask: TaskProxy, active: Dict[str, int]) -> bool:
+        """Return True if the task is limited, else False."""
+        for name, limiter in self.limiters.items():
+            if limiter.is_limited(itask, active):
+                return True
+        return False
 
     def release(self, active: Dict[str, int]) -> List[TaskProxy]:
         """Release queued tasks."""
@@ -112,21 +110,16 @@ class TaskQueue:
             try:
                 candidate = self.task_deque.pop()
             except IndexError:
-                # Empty: all tasks released or limited.
+                # queue empty
                 break
-            free_map = self.get_free_map(candidate, active)
-            if not free_map.get("default", True):
-                # Global limit exists and reached.
+            if self.is_limited(candidate, active):
                 rejects.append(candidate)
-                break
-            if all(free_map.values()):
+            else:
                 # Not limited by any groups.
                 candidate.state.reset(TASK_STATUS_PREPARING)
                 candidate.state.reset(is_queued=False)
                 released.append(candidate)
                 active.update({candidate.tdef.name: 1})
-            else:
-                rejects.append(candidate)
 
         # Re-queue rejected tasks in the original order.
         for itask in reversed(rejects):
@@ -140,5 +133,4 @@ class TaskQueue:
             pass
 
     def adopt_orphans(self, orphans: List[str]) -> None:
-        for limiter in self.limiters:
-            limiter.adopt(self.Q_DEFAULT, orphans)
+        limiters[self.Q_DEFAULT].adopt(orphans)
