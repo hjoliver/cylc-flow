@@ -64,8 +64,38 @@ class TaskQueue:
         self.task_deque: Deque = deque()
         self.limiters: Dict[str, Limiter] = {}
 
-        queues = self._expand_families(qconfig, all_task_names, descendants)
-        print(queues)
+        expanded_queues = self._expand_families(
+            qconfig, all_task_names, descendants)
+        queues = self._manipulate_queues(expanded_queues)
+        self._define_limiters(queues)
+
+    def _manipulate_queues(self, in_queues):
+        queues = {}
+        seen = {}
+        for qname, qconfig in in_queues.items():
+            queues[qname] = {}
+            queues[qname]['members'] = qconfig['members']
+            queues[qname]['limit'] = qconfig['limit']
+            if qname == self.Q_DEFAULT:
+                continue
+            for qmem in qconfig['members']:
+                # Remove from default queue
+                try:
+                    queues[self.Q_DEFAULT]['members'].remove(qmem)
+                except KeyError:
+                    # Already removed.
+                    pass
+                if qmem in seen:
+                    # Override previous queue assignment.
+                    print("OVERRIDE", qmem, seen[qmem])
+                    oldq = seen[qmem]
+                    queues[oldq]['members'].remove(qmem)
+                else:
+                   queues[qname]['members'].add(qmem)
+                seen[qmem] = qname
+        return queues
+
+    def _define_limiters(self, queues):
         for name, config in queues.items():
             if name == self.Q_DEFAULT and not config['limit']:
                 # No global limit.
@@ -90,7 +120,7 @@ class TaskQueue:
                     else:
                         # Task name.
                         qmembers.add(mem)
-            queues[qname] = {}       
+            queues[qname] = {}
             queues[qname]['members'] = qmembers
             queues[qname]['limit'] = queue['limit']
         return queues
