@@ -16,7 +16,6 @@
 
 """Cylc task queue."""
 
-from copy import deepcopy
 from collections import deque
 from typing import List, Set, Dict, Deque
 
@@ -65,31 +64,36 @@ class TaskQueue:
         self.task_deque: Deque = deque()
         self.limiters: Dict[str, Limiter] = {}
 
-        queues = deepcopy(qconfig)
-        # Add all tasks to the default queue.
-        queues[self.Q_DEFAULT]['members'] = set(all_task_names)
-
-        for qname, queue in qconfig.items():
-            if qname == self.Q_DEFAULT:
-                continue
-            qmembers = set()
-            for mem in queue['members']:
-                if mem in descendants:
-                    # Family name.
-                    for fmem in descendants[mem]:
-                        if fmem not in descendants:
-                            # Task name.
-                            qmembers.add(fmem)
-                else:
-                    # Task name.
-                    qmembers.add(mem)
-            queues[qname]['members'] = qmembers
-
+        queues = self._expand_families(qconfig, all_task_names, descendants)
+        print(queues)
         for name, config in queues.items():
-            if name == "default" and not config['limit']:
+            if name == self.Q_DEFAULT and not config['limit']:
                 # No global limit.
                 continue
             self.limiters[name] = Limiter(config['limit'], config['members'])
+
+    def _expand_families(self, qconfig, all_task_names, descendants):
+        queues = {}
+        for qname, queue in qconfig.items():
+            if qname == self.Q_DEFAULT:
+                # Add all tasks to the default queue.
+                qmembers = set(all_task_names)
+            else:
+                qmembers = set()
+                for mem in queue['members']:
+                    if mem in descendants:
+                        # Family name.
+                        for fmem in descendants[mem]:
+                            if fmem not in descendants:
+                                # Task name.
+                                qmembers.add(fmem)
+                    else:
+                        # Task name.
+                        qmembers.add(mem)
+            queues[qname] = {}       
+            queues[qname]['members'] = qmembers
+            queues[qname]['limit'] = queue['limit']
+        return queues
 
     def add(self, itask: TaskProxy) -> None:
         """Queue tasks."""
