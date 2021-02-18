@@ -46,17 +46,8 @@ class Limiter:
 
 
 class TaskQueue:
-    """Cylc task queue with multiple limit groups.
+    """Cylc independent limited task queues."""
 
-    A single queue that is FIFO for not-limited tasks; others remain in place.
-
-    1. "classic" queue (as for Cylc 7 and earlier):
-     No overlap between limit groups; "default" retains only un-assigned tasks.
-
-    2. "overlapping" queue:
-     Tasks can appear in multiple limit groups; "default" is a global limit.
-
-    """
     Q_DEFAULT = "default"
 
     def __init__(self,
@@ -73,6 +64,7 @@ class TaskQueue:
             qconfig, all_task_names, descendants)
         if qconfig["type"] == "classic":
             queues = self._make_indep(queues)
+        print(queues) 
         self._configure_limiters(queues)
 
     def _expand_families(self, qconfig: dict, all_task_names: List[str],

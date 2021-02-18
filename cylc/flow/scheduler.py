@@ -28,7 +28,7 @@ import sys
 from threading import Barrier
 from time import sleep, time
 import traceback
-from typing import Optional
+from typing import Optional, List
 from uuid import uuid4
 import zmq
 from zmq.auth.thread import ThreadAuthenticator
@@ -231,6 +231,9 @@ class Scheduler:
     message_queue: Optional[Queue] = None
     ext_trigger_queue: Optional[Queue] = None
 
+    # queue-released tasks still in prep
+    pre_submit_tasks:Optional[List[TaskProxy]] = None
+
     # profiling
     _profile_amounts: Optional[dict] = None
     _profile_update_times: Optional[dict] = None
@@ -261,14 +264,12 @@ class Scheduler:
         # mutable defaults
         self._profile_amounts = {}
         self._profile_update_times = {}
+        self.pre_submit_tasks = []
 
         self.restored_stop_task_id = None
 
         # create thread sync barrier for setup
         self.barrier = Barrier(3, timeout=10)
-
-        # queue-released tasks yet to complete prep (host select, remote init)
-        self.pre_submit_tasks = []
 
     async def install(self):
         """Get the filesystem in the right state to run the flow.
