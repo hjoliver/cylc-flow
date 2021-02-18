@@ -1213,7 +1213,10 @@ class Scheduler:
 
         if self.stop_mode is None and self.auto_restart_time is None:
             # Add newly released tasks to those still preparing.
+            from datetime import datetime
+            pre = datetime.now()
             self.pre_submit_tasks += self.pool.queue_and_release()
+            print('\n TIMER:', datetime.now() - pre)
             if self.pre_submit_tasks:
                 self.is_updated = True
                 self.task_job_mgr.task_remote_mgr.rsync_includes = (

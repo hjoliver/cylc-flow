@@ -55,7 +55,7 @@ from cylc.flow.task_state import (
 )
 from cylc.flow.wallclock import get_current_time_string
 from cylc.flow.platforms import get_platform
-from cylc.flow.task_queue import TaskQueue
+from cylc.flow.task_queues.independent import IndepQueueManager
 
 
 class FlowLabelMgr:
@@ -182,7 +182,7 @@ class TaskPool:
 
         self.orphans = []
         self.task_name_list = self.config.get_task_name_list()
-        self.task_queue = TaskQueue(
+        self.task_queue_mgr = IndepQueueManager(
             self.config.cfg['scheduling']['queues'],
             self.config.get_task_name_list(),
             self.config.runtime['descendants']
@@ -584,7 +584,7 @@ class TaskPool:
                 if not self.pool[itask.point]:
                     del self.pool[itask.point]
                 self.pool_changed = True
-                self.task_queue.remove_task(itask)
+                self.task_queue_mgr.remove_task(itask)
                 if itask.tdef.max_future_prereq_offset is not None:
                     self.set_max_future_offset()
         else:
@@ -674,7 +674,7 @@ class TaskPool:
                 self.data_store_mgr.delta_task_state(itask)
                 self.data_store_mgr.delta_task_queued(itask)
 
-        self.task_queue.push_tasks(queue_me)
+        self.task_queue_mgr.push_tasks(queue_me)
         LOG.debug(
             "Queue pushed:\n"
             + '\n'.join(f"* {t.identity}" for t in queue_me)
@@ -682,7 +682,7 @@ class TaskPool:
 
     def _release_tasks(self):
         """Return list of queue-released tasks for job prep."""
-        released = self.task_queue.release_tasks(
+        released = self.task_queue_mgr.release_tasks(
             Counter(
                 [
                     t.tdef.name for t in self.get_tasks()
@@ -819,12 +819,12 @@ class TaskPool:
                         itask.submit_num)
 
         # Reassign live tasks to the internal queue
-        self.task_queue = TaskQueue(
+        self.task_queue_mgr = IndepQueueManager(
             self.config.cfg['scheduling']['queues'],
             self.config.get_task_name_list(),
             self.config.runtime['descendants']
         )
-        self.task_queue.adopt_tasks(self.orphans)
+        self.task_queue_mgr.adopt_tasks(self.orphans)
         self._queue_tasks()
 
         LOG.info("Reload completed.")

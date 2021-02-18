@@ -14,58 +14,17 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
-# Tests for the task queue module
+# Tests for the task queue manager module
 
 import pytest
 from unittest.mock import Mock
 from collections import Counter
-from cylc.flow.task_queue import TaskQueue, Limiter
+from cylc.flow.task_queues.independent import IndepQueueManager
 from cylc.flow.task_state import TASK_STATUS_PREPARING
 
 
 MEMBERS = {"a", "b", "c", "d", "e", "f"}
 ACTIVE = Counter(["a", "a", "d"])
-
-
-@pytest.mark.parametrize(
-    "limit,task_name,expected",
-    [
-        (  # limited: limit reached
-            3,
-            "c",
-            True
-        ),
-        (  # not limited: not a member
-            3,
-            "g",
-            False
-        ),
-        (  # not limited: limit not reached
-            4,
-            "c",
-            False
-        )
-    ]
-)
-def test_limiter(limit, task_name, expected):
-    """Test the queue limiter."""
-    itask = Mock()
-    itask.tdef.name = task_name
-    limiter = Limiter(limit, MEMBERS)
-    assert limiter.is_limited(itask, ACTIVE) == expected
-
-
-def test_limiter_adopt():
-    """Test queue limiter adoption."""
-    limiter = Limiter(3, MEMBERS)
-    itask = Mock()
-    itask.tdef.name = "g"
-    # not limited: not a member
-    assert not limiter.is_limited(itask, ACTIVE)
-    limiter.adopt(["g"])
-    # limited: is now a member
-    assert limiter.is_limited(itask, ACTIVE)
-
 
 ALL_TASK_NAMES = [
     "o1", "o2", "o3", "o4", "o5", "o6", "o7",
@@ -74,7 +33,6 @@ ALL_TASK_NAMES = [
     "foo"
 ]
 
-
 DESCENDANTS = {
     "root": ALL_TASK_NAMES + ["BIG", "SML", "OTH", "foo"],
     "BIG": ["b1", "b2", "b3", "b4", "b5"],
@@ -82,12 +40,10 @@ DESCENDANTS = {
     "OTH": ["o1", "o2", "o3", "o4", "o5", "o6", "o7"]
 }
 
-
 QCONFIG = {
-    "type": None,
     "default": {
         "limit": 6,
-        "members": []  # (populated with all tasks, in TaskQueue init)
+        "members": []  # (auto: all task names)
     },
     "big": {
         "members": ["BIG", "foo"],
@@ -99,43 +55,28 @@ QCONFIG = {
     }
 }
 
-
 READY_TASK_NAMES = ["b3", "s4", "o2", "s3", "b4", "o3", "o4", "o5", "o6", "o7"]
 
 
 @pytest.mark.parametrize(
-    "queue_type,"
     "active,"
     "expected_released,"
-    "expected_still_queued,"
     "expected_foo_groups",
     [
         (
-            "overlapping",
-            Counter(["b1", "b2", "s1", "o1"]),
-            ["s4", "o2"],
-            ["b3", "s3", "b4", "o3", "o4", "o5", "o6", "o7"],
-            ["big", "sml"]
-        ),
-        (
-            "classic",
             Counter(["b1", "b2", "s1", "o1"]),
             ["s4", "o2", "s3", "o3", "o4", "o5", "o6"],
-            ["b3", "b4", "o7"],
             ["sml"]
         )
     ]
 )
 def test_queue_and_release(
-        queue_type,
         active,
         expected_released,
-        expected_still_queued,
         expected_foo_groups):
     """Test task queue and release."""
     # configure the queue
-    QCONFIG["type"] = queue_type
-    queue = TaskQueue(QCONFIG, ALL_TASK_NAMES, DESCENDANTS)
+    queue_mgr = IndepQueueManager(QCONFIG, ALL_TASK_NAMES, DESCENDANTS)
 
     # add newly ready tasks to the queue
     queue_me = []
@@ -144,29 +85,23 @@ def test_queue_and_release(
         itask.tdef.name = name
         itask.state.is_held = False
         queue_me.append(itask)
-    queue.push_tasks(queue_me)
+    queue_mgr.push_tasks(queue_me)
 
     # release tasks, given current active task counter
-    released = queue.release_tasks(active)
-    assert [r.tdef.name for r in released] == expected_released
+    released = queue_mgr.release_tasks(active)
+    assert sorted([r.tdef.name for r in released]) == sorted(expected_released)
 
     # check released tasks change state to "preparing", and not is_queued
     for r in released:
         assert r.state.reset.called_with(TASK_STATUS_PREPARING)
         assert r.state.reset.called_with(is_queued=False)
 
-    # check unreleased tasks pushed back in the correct order
-    assert (
-        [r.tdef.name for r in queue.queue] == expected_still_queued
-    )
-
     # check that adopted orphans end up in the default queue
     orphans = ["orphan1", "orphan2"]
-    queue.adopt_tasks(orphans)
+    queue_mgr.adopt_tasks(orphans)
     for orphan in orphans:
-        assert orphan in queue.limiters["default"].members
+        assert orphan in queue_mgr.queues["default"].members
 
-    # check multiply-assigned "foo" ends up in expected groups (overlapping:
-    # all assigned groups; classic: only the last assignment sticks)
+    # check second assignment overrides first
     for group in expected_foo_groups:
-        assert "foo" in queue.limiters[group].members
+        assert "foo" in queue_mgr.queues[group].members
