@@ -16,8 +16,7 @@
 
 """Define the Cylc task queue management API."""
 
-from typing import List, Set, Dict, Counter, Any
-from collections import deque
+from typing import List, Dict, Counter, Any
 from abc import ABCMeta, abstractmethod
 
 from cylc.flow.task_proxy import TaskProxy
