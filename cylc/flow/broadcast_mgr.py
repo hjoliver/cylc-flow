@@ -59,12 +59,21 @@ class BroadcastMgr:
         self.ext_triggers = {}  # Can use collections.Counter in future
         self.lock = RLock()
 
-    def add_ext_triggers(self, ext_trigger_queue):
-        """Add external triggers from queue."""
+    def process_ext_triggers(self, itasks, ext_trigger_queue):
+        """Add external triggers from queue.
+
+        Call with tasks that have unsatisified ext triggers.
+        Return list of tasks that are ready to run.
+        """
         while not ext_trigger_queue.empty():
             ext_trigger = ext_trigger_queue.get_nowait()
             self.ext_triggers.setdefault(ext_trigger, 0)
             self.ext_triggers[ext_trigger] += 1
+        ready_to_run = []
+        for itask in itasks:
+            if self.match_ext_trigger(itask):
+                ready_to_run.append(itask)
+        return ready_to_run
 
     def clear_broadcast(
             self, point_strings=None, namespaces=None, cancel_settings=None):
@@ -192,8 +201,7 @@ class BroadcastMgr:
     def match_ext_trigger(self, itask):
         """Match external triggers for a waiting task proxy."""
         if not self.ext_triggers or not itask.state.external_triggers:
-            return
-        has_changed = False
+            return False
         for trig, satisfied in list(itask.state.external_triggers.items()):
             if satisfied:
                 continue
@@ -216,9 +224,8 @@ class BroadcastMgr:
                     self.ext_triggers[(qmsg, qid)] -= 1
                     if not self.ext_triggers[(qmsg, qid)]:
                         del self.ext_triggers[(qmsg, qid)]
-                    has_changed = True
-                    break
-        return has_changed
+                    return True
+        return False
 
     def put_broadcast(
             self, point_strings=None, namespaces=None, settings=None):

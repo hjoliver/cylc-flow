@@ -116,12 +116,8 @@ class XtriggerManager:
         self.sat_xtrig: dict = {}
         # Signatures of active functions (waiting on callback).
         self.active: list = []
-        # All trigger and clock signatures in the current task pool.
-        self.all_xtrig: list = []
 
         self.suite_run_dir = suite_run_dir
-
-        self.pflag = False
 
         # For function arg templating.
         if not user:
@@ -205,12 +201,6 @@ class XtriggerManager:
         sig, results = row
         self.sat_xtrig[sig] = json.loads(results)
 
-    def housekeep(self):
-        """Delete satisfied xtriggers no longer needed."""
-        for sig in list(self.sat_xtrig):
-            if sig not in self.all_xtrig:
-                del self.sat_xtrig[sig]
-
     def _get_xtrigs(self, itask: TaskProxy, unsat_only: bool = False,
                     sigs_only: bool = False):
         """(Internal helper method.)
@@ -274,8 +264,10 @@ class XtriggerManager:
         ctx.update_command(self.suite_run_dir)
         return ctx
 
-    def satisfy_xtriggers(self, itask: TaskProxy):
+    def _call_xtriggers_async(self, itask: TaskProxy):
         """Attempt to satisfy itask's xtriggers.
+
+        Call xtrigger funcs if their time is up and not already in in-call.
 
         Args:
             itask (TaskProxy): TaskProxy
@@ -324,15 +316,18 @@ class XtriggerManager:
             self.active.append(sig)
             self.proc_pool.put_command(ctx, self.callback)
 
-    def collate(self, itasks: List[TaskProxy]):
-        """Get list of all current xtrigger signatures.
+    def housekeep(self, itasks: List[TaskProxy]):
+        """Delete satisfied xtriggers no longer needed.
 
         Args:
             itasks (List[TaskProxy]): list of TaskProxy's
         """
-        self.all_xtrig = []
+        all_xtrig = []
         for itask in itasks:
-            self.all_xtrig += self._get_xtrigs(itask, sigs_only=True)
+            all_xtrig += self._get_xtrigs(itask, sigs_only=True)
+        for sig in list(self.sat_xtrig):
+            if sig not in all_xtrig:
+                del self.sat_xtrig[sig]
 
     def callback(self, ctx: SubFuncContext):
         """Callback for asynchronous xtrigger functions.
@@ -355,16 +350,29 @@ class XtriggerManager:
         if satisfied:
             self.data_store_mgr.delta_task_xtrigger(sig, True)
             LOG.info('xtrigger satisfied: %s = %s', ctx.label, sig)
-            self.pflag = True
             self.sat_xtrig[sig] = results
 
-    def check_xtriggers(self, itasks: List[TaskProxy]):
-        """See if any xtriggers are satisfied.
+    def process_xtriggers(
+            self, itasks: List[TaskProxy], db_update_func):
+        """
+        Call xtriggers asynchronously if needed.
+
+        Then check if any have become satisfied since last check.
+        (This must be called periodically).
+
+        Call only for tasks that have unsatisfied xtriggers.
+        Return list of tasks that are now ready to run.
 
         Args:
-            itasks (List[TaskProxy]): list of TaskProxy's
+            itasks ...
+            db_update_func ...
         """
-        self.collate(itasks)
+        ready_to_run = []
         for itask in itasks:
-            if itask.state.xtriggers:
-                self.satisfy_xtriggers(itask)
+            self._call_xtriggers_async(itask)
+            if all(itask.is_ready()):
+                ready_to_run.append(itask)
+        if ready_to_run:
+            self.housekeep(itasks)
+            db_update_func(self.sat_xtrig)
+        return ready_to_run

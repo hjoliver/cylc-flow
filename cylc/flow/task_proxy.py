@@ -57,9 +57,6 @@ class TaskProxy:
         .late_time (float):
             Time in seconds since epoch, beyond which the task is considered
             late if it is never active.
-        .manual_trigger (boolean):
-            Has this task received a manual trigger command? This flag is reset
-            on trigger.
         .non_unique_events (collections.Counter):
             Count non-unique events (e.g. critical, warning, custom).
         .point (cylc.flow.cycling.PointBase):
@@ -161,7 +158,6 @@ class TaskProxy:
         'jobs',
         'late_time',
         'local_job_file_path',
-        'manual_trigger',
         'non_unique_events',
         'point',
         'point_as_seconds',
@@ -197,7 +193,6 @@ class TaskProxy:
         self.reload_successor = None
         self.point_as_seconds = None
 
-        self.manual_trigger = False
         self.is_manual_submit = False
         self.summary = {
             'latest_message': '',
@@ -251,7 +246,6 @@ class TaskProxy:
         """Copy attributes to successor on reload of this task proxy."""
         self.reload_successor = reload_successor
         reload_successor.submit_num = self.submit_num
-        reload_successor.manual_trigger = self.manual_trigger
         reload_successor.is_manual_submit = self.is_manual_submit
         reload_successor.summary = self.summary
         reload_successor.local_job_file_path = self.local_job_file_path
@@ -322,10 +316,11 @@ class TaskProxy:
     def is_ready(self):
         """Am I in a pre-run state but ready to run?
 
-        Queued tasks are not counted as they've already been deemed ready.
+        (Apart from ext- and x-triggers)
+        Queued tasks not counted as they've already been deemed ready.
 
         """
-        if self.manual_trigger:
+        if self.is_manual_submit:
             return (True,)
         if self.state.is_held:
             return (False,)
@@ -336,15 +331,6 @@ class TaskProxy:
             self.is_waiting_clock_done(),
             self.is_waiting_prereqs_done()
         )
-
-    def reset_manual_trigger(self):
-        """This is called immediately after manual trigger flag used."""
-        if self.manual_trigger:
-            self.manual_trigger = False
-            self.is_manual_submit = True
-            # unset any retry delay timers
-            for timer in self.try_timers.values():
-                timer.timeout = None
 
     def set_summary_message(self, message):
         """Set `.summary['latest_message']` if necessary.
@@ -392,3 +378,14 @@ class TaskProxy:
             and all(tri for tri in self.state.external_triggers.values())
             and self.state.xtriggers_all_satisfied()
         )
+
+    def is_waiting_task_prereqs_done(self):
+        """Is this task waiting for its TASK prerequisites?"""
+        return (
+            all(pre.is_satisfied() for pre in self.state.prerequisites)
+        )
+
+    def reset_try_timers(self):
+        # unset any retry delay timers
+        for timer in self.try_timers.values():
+            timer.timeout = None

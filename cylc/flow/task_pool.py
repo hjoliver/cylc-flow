@@ -349,11 +349,10 @@ class TaskPool:
         for point, itask_id_map in self.runahead_pool.copy().items():
             if point <= latest_allowed_point:
                 for itask in itask_id_map.copy().values():
-                    if itask.is_task_prereqs_not_done():
-                        # Only release if all prerequisites are satisfied.
-                        continue
-                    self.release_runahead_task(itask)
-                    released = True
+                    if (itask.is_waiting_task_prereqs_done()
+                            or itask.is_manual_submit):
+                        self.release_runahead_task(itask)
+                        released = True
         return released
 
     def load_abs_outputs_for_restart(self, row_idx, row):
@@ -466,14 +465,20 @@ class TaskPool:
             return
         LOG.info("+ %s.%s %s" % (name, cycle, ctx_key))
         if ctx_key == "poll_timer":
-            itask = self.get_task_by_id(id_)
+            itask = (
+                self._get_rh_task_by_id(id_)
+                or self._get_rh_task_by_id(id_)
+            )
             if itask is None:
                 LOG.warning("%(id)s: task not found, skip" % {"id": id_})
                 return
             itask.poll_timer = TaskActionTimer(
                 ctx, delays, num, delay, timeout)
         elif ctx_key[0] == "try_timers":
-            itask = self.get_task_by_id(id_)
+            itask = (
+                self._get_rh_task_by_id(id_) or
+                self._get_task_by_id(id_)
+            )
             if itask is None:
                 LOG.warning("%(id)s: task not found, skip" % {"id": id_})
                 return
@@ -525,6 +530,10 @@ class TaskPool:
         self.pool[itask.point][itask.identity] = itask
         self.pool_changed = True
         LOG.debug("[%s] -released to the task pool", itask)
+        if all(itask.is_ready()):
+            # (tasks are only released if all task-prereqs are satisfied)
+            # (still need to check xtriggers etc. though)
+            self.queue_task(itask)
 
         # The following two could be called in separate places,
         # so haven't merged/removed-one.
@@ -638,49 +647,52 @@ class TaskPool:
             point_itasks[point].extend(list(itask_id_map.values()))
         return point_itasks
 
-    def get_task_by_id(self, id_):
-        """Return task with ID id_ if it exists, or None."""
-        for itask_ids in (
-                list(self.pool.values())
-                + list(self.runahead_pool.values())):
+    def _get_rh_task_by_id(self, id_):
+        """Return runahead pool task by ID if it exists, or None."""
+        for itask_ids in list(self.runahead_pool.values()):
             try:
                 return itask_ids[id_]
             except KeyError:
                 pass
 
-    def queue_and_release(self):
-        self._queue_tasks()
-        return self._release_tasks()
+    def _get_task_by_id(self, id_):
+        """Return main pool task by ID if it exists, or None."""
+        for itask_ids in list(self.pool.values()):
+            try:
+                return itask_ids[id_]
+            except KeyError:
+                pass
 
-    def _queue_tasks(self):
+    def queue_task(self, itask):
+        """Queue a task that is ready to run."""
+        itask.state.reset(is_queued=True)
+        # Reset manual trigger flag. One manual trigger queues and
+        # unqueued task, another one triggers a queued task.
+        self.data_store_mgr.delta_task_state(itask)  # TODO needed?
+        self.data_store_mgr.delta_task_queued(itask)
+        # TODO no need for list arg here?:
+        self.task_queue_mgr.push_tasks([itask])
+        LOG.info(f"Queue pushed: {itask.identity}")
+
+    def queue_tasks(self):
         """Queue tasks that are ready to run."""
-        queue_me = []
         for itask in self.get_tasks():
             if itask.state.is_queued:
+                # Already queued
                 continue
             ready_check_items = itask.is_ready()
+
+            # TODO: PUT THIS SOMEWHERE ELSE:
             # Use this periodic checking point for data-store delta
             # creation, some items aren't event driven (i.e. clock).
             if itask.tdef.clocktrigger_offset is not None:
                 self.data_store_mgr.delta_task_clock_trigger(
                     itask, ready_check_items)
+
             if all(ready_check_items):
-                queue_me.append(itask)
-                itask.state.reset(is_queued=True)
-                # Reset manual trigger flag. One manual trigger queues and
-                # unqueued task, another one triggers a queued task.
-                itask.reset_manual_trigger()
-                self.data_store_mgr.delta_task_state(itask)
-                self.data_store_mgr.delta_task_queued(itask)
+                self.queue_task(itask)
 
-        self.task_queue_mgr.push_tasks(queue_me)
-        if queue_me:
-            LOG.debug(
-                "Queue pushed:\n"
-                + '\n'.join(f"* {t.identity}" for t in queue_me)
-            )
-
-    def _release_tasks(self):
+    def release_queued_tasks(self):
         """Return list of queue-released tasks for job prep."""
         released = self.task_queue_mgr.release_tasks(
             Counter(
@@ -698,11 +710,7 @@ class TaskPool:
             itask.waiting_on_job_prep = True
             self.data_store_mgr.delta_task_state(itask)
             self.data_store_mgr.delta_task_queued(itask)
-        if released:
-            LOG.debug(
-                "Queue released:\n"
-                + '\n'.join(f"* {r.identity}" for r in released)
-            )
+            LOG.info(f"Queue released: {itask.identity}")
         return released
 
     def get_min_point(self):
@@ -826,7 +834,7 @@ class TaskPool:
             self.config.runtime['descendants']
         )
         self.task_queue_mgr.adopt_tasks(self.orphans)
-        self._queue_tasks()
+        self.queue_tasks()
 
         LOG.info("Reload completed.")
         self.do_reload = False
@@ -1000,6 +1008,9 @@ class TaskPool:
         for itask in itasks:
             if itask.state.reset(is_held=False):
                 self.data_store_mgr.delta_task_held(itask)
+                if all(itask.is_ready()):
+                    self.queue_task(itask)
+
         return len(bad_items)
 
     def hold_all_tasks(self):
@@ -1023,7 +1034,7 @@ class TaskPool:
         return self.abort_task_failed
 
     def spawn_on_output(self, itask, output):
-        """Spawn and update children, remove finished tasks.
+        """Spawn and update children, remove parent if finished.
 
         Also set a the abort-on-task-failed flag if necessary.
         If not itask.reflow update existing children but don't spawn them.
@@ -1076,8 +1087,6 @@ class TaskPool:
                         c_task.state.suicide_prerequisites_all_satisfied()):
                     suicide.append(c_task)
 
-                # TODO event-driven submit: check if prereqs are satisfied now.
-
         for c_task in suicide:
             if c_task.state(
                     TASK_STATUS_PREPARING,
@@ -1100,7 +1109,7 @@ class TaskPool:
         return (self.get_task(name, point, flow_label)
                 or self.spawn_task(name, point, flow_label, reflow, parent_id))
 
-    def merge_flow_labels(self, itask, flab2):
+    def _merge_flow_labels(self, itask, flab2):
         """Merge flab2 into itask's flow label and update DB."""
 
         # TODO can we do a more minimal (flow-label only) update of the
@@ -1117,13 +1126,30 @@ class TaskPool:
         self.suite_db_mgr.process_queued_ops()  # TODO is this needed here?
         LOG.info('%s merged flow(%s)', itask.identity, itask.flow_label)
 
+    def get_task_main(self, name, point, flow_label=None):
+        """Return task proxy from main pool and merge flow label if found."""
+        itask = self._get_task_by_id(TaskID.get(name, point))
+        if itask is not None:
+            self._merge_flow_labels(itask, flow_label)
+        return itask
+
+    def get_task_rh(self, name, point, flow_label=None):
+        """Return task proxy from rh pool and merge flow label if found."""
+        itask = self._get_rh_task_by_id(TaskID.get(name, point))
+        if itask is not None:
+            self._merge_flow_labels(itask, flow_label)
+        return itask
+
     def get_task(self, name, point, flow_label=None):
         """Return existing task proxy and merge flow label if found."""
-        itask = self.get_task_by_id(TaskID.get(name, point))
+        itask = (
+            self._get_rh_task_by_id(TaskID.get(name, point))
+            or self._get_task_by_id(TaskID.get(name, point))
+        )
         if itask is None:
             LOG.debug('Task %s.%s not found in task pool.', name, point)
             return None
-        self.merge_flow_labels(itask, flow_label)
+        self._merge_flow_labels(itask, flow_label)
         return itask
 
     def can_spawn(self, name, point):
@@ -1276,24 +1302,48 @@ class TaskPool:
         n_warnings, task_items = self.match_taskdefs(items)
         flow_label = self.flow_label_mgr.get_new_label()
         for name, point in task_items.keys():
-            # Already in pool? Keep merge flow labels.
-            itask = self.get_task(name, point, flow_label)
-            if itask is None:
-                # Spawn with new flow label.
-                itask = self.spawn_task(name, point, flow_label, reflow=reflow)
+            # Already in pool? Keep it and merge flow labels.
+            itask = self.get_task_main(name, point, flow_label)
             if itask is not None:
+                # Trigger existing task proxy in main pool
+                itask.is_manual_submit = True
+                itask.reset_try_timers()
                 # (If None, spawner reports cycle bounds errors).
-                itask.manual_trigger = True
                 if itask.state.reset(TASK_STATUS_WAITING):
                     self.data_store_mgr.delta_task_state(itask)
                 LOG.critical('setting %s ready to run', itask)
-                itask.state.set_prerequisites_all_satisfied()
-                self.data_store_mgr.delta_task_prerequisite(itask)
-                self.data_store_mgr.delta_task_outputs(itask)
+                # itask.state.set_prerequisites_all_satisfied()
+                # self.data_store_mgr.delta_task_prerequisite(itask)
+                # self.data_store_mgr.delta_task_outputs(itask)
+                self.queue_task(itask)
+            else:
+                itask = self.get_task_rh(name, point, flow_label)
+                if itask is not None:
+                    # Trigger existing task in rh pool
+                    # Will be queued on rh pool release
+                    itask.is_manual_submit = True
+                    itask.reset_try_timers()
+                    # (If None, spawner reports cycle bounds errors).
+                    if itask.state.reset(TASK_STATUS_WAITING):
+                        self.data_store_mgr.delta_task_state(itask)
+                    LOG.critical('setting %s ready to run', itask)
+                    # itask.state.set_prerequisites_all_satisfied()
+                    # self.data_store_mgr.delta_task_prerequisite(itask)
+                    # self.data_store_mgr.delta_task_outputs(itask)
+                    # self.queue_task(itask)
+                else:
+                    # Spawn with new flow label.
+                    itask = self.spawn_task(
+                        name, point, flow_label, reflow=reflow)
+                    itask.is_manual_submit = True
+                    # (spawned to runahead pool; will be queued on release)
+
         return n_warnings
 
     def sim_time_check(self, message_queue):
         """Simulation mode: simulate task run times and set states."""
+        if not self.config.run_mode('simulation'):
+            return False
         sim_task_state_changed = False
         now = time()
         for itask in self.get_tasks():
@@ -1323,7 +1373,14 @@ class TaskPool:
                 sim_task_state_changed = True
         return sim_task_state_changed
 
-    def set_expired_task(self, itask, now):
+    def set_expired_tasks(self):
+        res = False
+        for itask in self.get_tasks():
+            if self._set_expired_task(itask):
+                res = True
+        return res
+
+    def _set_expired_task(self, itask):
         """Check if task has expired. Set state and event handler if so.
 
         Return True if task has expired.
@@ -1340,7 +1397,7 @@ class TaskPool:
             itask.expire_time = (
                 itask.get_point_as_seconds() +
                 itask.get_offset_as_seconds(itask.tdef.expiration_offset))
-        if now > itask.expire_time:
+        if time() > itask.expire_time:
             msg = 'Task expired (skipping job).'
             LOG.warning('[%s] -%s', itask, msg)
             self.task_events_mgr.setup_event_handlers(itask, "expired", msg)
@@ -1455,3 +1512,19 @@ class TaskPool:
         else:
             name_str, point_str = (head, None)
         return (point_str, name_str, state_str)
+
+    def dump(self):
+        print("\nTASK POOL:")
+        self.dump_pool("RUNAHEAD", self.get_rh_tasks())
+        self.dump_pool("MAINPOOL", self.get_tasks())
+
+    def dump_pool(self, name, pool):
+        print(f"  {name}:")
+        for itask in pool:
+            held = queued = ""
+            if itask.state.is_held:
+                held = "(held)"
+            if itask.state.is_queued:
+                queued = "(queued)"
+            print(f"  *{itask.identity}: {itask.state.status}"
+                  f" {held}{queued}")
