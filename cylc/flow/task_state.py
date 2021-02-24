@@ -309,6 +309,10 @@ class TaskState:
         """Return True if all xtriggers are satisfied."""
         return all(self.xtriggers.values())
 
+    def external_triggers_all_satisfied(self):
+        """Return True if all external triggers are satisfied."""
+        return all(self.external_triggers.values())
+
     def prerequisites_all_satisfied(self):
         """Return True if (non-suicide) prerequisites are fully satisfied."""
         if self._is_satisfied is None:
