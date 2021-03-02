@@ -69,11 +69,11 @@ class BroadcastMgr:
             ext_trigger = ext_trigger_queue.get_nowait()
             self.ext_triggers.setdefault(ext_trigger, 0)
             self.ext_triggers[ext_trigger] += 1
-        ready_to_run = []
+        satisfied = []
         for itask in itasks:
             if self.match_ext_trigger(itask):
-                ready_to_run.append(itask)
-        return ready_to_run
+                satisfied.append(itask)
+        return satisfied
 
     def clear_broadcast(
             self, point_strings=None, namespaces=None, cancel_settings=None):

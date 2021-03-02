@@ -530,7 +530,7 @@ class TaskPool:
         self.pool[itask.point][itask.identity] = itask
         self.pool_changed = True
         LOG.debug("[%s] -released to the task pool", itask)
-        if all(itask.is_ready()):
+        if all(itask.is_ready_to_run()):
             # (tasks are only released if all task-prereqs are satisfied)
             # (still need to check xtriggers etc. though)
             self.queue_task(itask)
@@ -680,7 +680,7 @@ class TaskPool:
             if itask.state.is_queued:
                 # Already queued
                 continue
-            ready_check_items = itask.is_ready()
+            ready_check_items = itask.is_ready_to_run()
 
             # TODO: PUT THIS SOMEWHERE ELSE:
             # Use this periodic checking point for data-store delta
@@ -1008,7 +1008,7 @@ class TaskPool:
         for itask in itasks:
             if itask.state.reset(is_held=False):
                 self.data_store_mgr.delta_task_held(itask)
-                if all(itask.is_ready()):
+                if all(itask.is_ready_to_run()):
                     self.queue_task(itask)
 
         return len(bad_items)
