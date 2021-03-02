@@ -1371,7 +1371,48 @@ class Scheduler:
         self.count += 1
 
     async def main_loop(self):
-        """The scheduler main loop."""
+        """The scheduler main loop.
+
+        TODO: the following docs should be relocated!
+
+        IDEALLY:
+
+        The n=0 "active" task pool should contain:
+        - active tasks: preparing, submitted, running
+        - active xtrigger, queue, and runahead limiter objects
+        - (tasks waiting on old-style built-in ext- and clock-triggers?)
+        The n=1 datastore should contain tasks waiting on the above 
+
+        CURRENTLY:
+
+        The runahead pool holds task proxies:
+        - with tasks prereqs satisfied, but held back by runahead limiting
+        - (embody partially satisfied task prerequisites - because
+          spawn-on-demand is implemented as spawn-on-ouputs)
+
+        The main pool holds tasks that are:
+        - "active": preparing, submitted, or running
+        - task prereqs satisfied, but waiting on:
+          - queues
+          - xtriggers
+          - old-style built-in ext- and clock-triggers
+
+        Spawn-on-demand is currently based only on task dependence, not on
+        xtriggers (and definitely not old-style clock and ext triggers, which
+        are task proxy attributes). Tasks proxies are spawned into the runahead
+        pool once their task prerequisites are satisfied (or auto-spawned if
+        they have no task parents). (Actually they are spawned on individual
+        upstream outputs, but those with partially satisfied task prerequisites
+        are not released to the main pool even if below the runahead limit -
+        they should be considered as "partially satisfied prerequisites", not
+        as task proxies).
+
+        They are released from runahead to the main pool if:
+        - they are below the runahead limit
+        and
+        - their dependence on other tasks is satisfied
+        Non-task prerequisites are
+        """
         while True:  # MAIN LOOP
             tinit = time()
 
@@ -1391,6 +1432,8 @@ class Scheduler:
 
             self.proc_pool.process()
 
+            # Check xtrigger and ext-trigger satisfaction, and queue updated
+            # tasks if they are ready to run.
             for itask in set.union(
                     self.xtrigger_mgr.check_xtriggers(
                         self.pool.get_tasks(),

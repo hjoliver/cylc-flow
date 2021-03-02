@@ -14,9 +14,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-"""Wrangle task proxies to manage the workflow.
-
-"""
+"""Wrangle task proxies to manage the workflow."""
 
 from fnmatch import fnmatchcase
 from string import ascii_letters
