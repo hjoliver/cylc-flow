@@ -31,7 +31,7 @@ from cylc.flow.data_store_mgr import DataStoreMgr
 from cylc.flow.subprocpool import SubProcPool
 from cylc.flow.task_proxy import TaskProxy
 from cylc.flow.subprocpool import get_func
-
+from cylc.flow.task_state import TASK_STATUS_WAITING
 
 # Templates for string replacement in function arg values.
 TMPL_USER_NAME = 'user_name'
@@ -84,8 +84,7 @@ class XtriggerManager:
     Clock triggers are treated separately and called synchronously in the main
     process, because they are guaranteed to be quick (but they are still
     managed uniquely - i.e. many tasks depending on the same clock trigger
-    (with same offset from cycle point) will be satisfied by the same function
-    call.
+    (with same offset from cycle point) get satisfied by the same call.
 
     Args:
         suite (str): suite name
@@ -264,18 +263,19 @@ class XtriggerManager:
         ctx.update_command(self.suite_run_dir)
         return ctx
 
-    def call_xtriggers_async(self, itask: TaskProxy):
-        """Call this task's xtrigger functions, using the process pool.
+    def _call_funcs(self, itask: TaskProxy):
+        """Call itask's xtrigger functions via the process pool.
 
-        Only call if the last call is not still in-process, and if the
-        xtrigger's repeat interval is up.
+        Skip if previous call still in-process or delay interval not up yet.
+        Check the wall_clock xtrigger immediately. Others are wrapped to a
+        minimal program and called asynchronously via the process pool.
 
         Args:
             itask (TaskProxy): TaskProxy with xtriggers to check.
         """
         for label, sig, ctx, _ in self._get_xtrigs(itask, unsat_only=True):
             if sig.startswith("wall_clock"):
-                # Special case: synchronous clock check.
+                # Special case: quick synchronous clock check.
                 if 'absolute_as_seconds' not in ctx.func_kwargs:
                     ctx.func_kwargs.update(
                         {
@@ -288,9 +288,8 @@ class XtriggerManager:
                     self.data_store_mgr.delta_task_xtrigger(sig, True)
                     LOG.info('xtrigger satisfied: %s = %s', label, sig)
                 continue
-            # General case: asynchronous xtrigger function call.
+            # General case: potentially slow asynchronous function call.
             if sig in self.sat_xtrig:
-
                 if not itask.state.xtriggers[label]:
                     itask.state.xtriggers[label] = True
                     res = {}
@@ -317,8 +316,8 @@ class XtriggerManager:
             self.active.append(sig)
             self.proc_pool.put_command(ctx, self.callback)
 
-    def housekeep(self, itasks: List[TaskProxy]):
-        """Delete satisfied xtriggers that are no longer needed.
+    def _housekeep(self, itasks: List[TaskProxy]):
+        """Delete satisfied xtriggers no longer needed by any task.
 
         Args:
             itasks (List[TaskProxy]): list of task proxies.
@@ -353,27 +352,29 @@ class XtriggerManager:
             LOG.info('xtrigger satisfied: %s = %s', ctx.label, sig)
             self.sat_xtrig[sig] = results
 
-    def check_xtriggers(
-            self, itasks: List[TaskProxy], db_update_func):
+    def check_xtriggers(self, itasks, db_update_func):
         """
-        Call xtriggers asynchronously.
-
-        Then check if any have become satisfied since last check.
-        (This must be called periodically).
-
-        Call only for tasks that have unsatisfied xtriggers.
-        Return list of tasks that are now ready to run.
+        Call xtrigger funcs, and check if any have become satisfied.
 
         Args:
-            itasks ...
+            itask ...
             db_update_func ...
+
         """
-        satisfied = []
+        changed = False
+        satisfied = set()
         for itask in itasks:
-            self.call_xtriggers_async(itask)
+            # Ignore tasks that are already queued or not waiting.
+            if (itask.state.is_queued or
+                    not itask.state(TASK_STATUS_WAITING)):
+                continue
+            # Call xtrigger funcs if necessary (via async calls).
+            self._call_funcs(itask)
+            # Check if my xtriggers have been satisfied (via async calls).
             if itask.state.xtriggers_all_satisfied():
-                satisfied.append(itask)
-        if satisfied:
-            self.housekeep(itasks)
+                satisfied.add(itask)
+                changed = True
+        if changed:
+            self._housekeep(itasks)
             db_update_func(self.sat_xtrig)
         return satisfied

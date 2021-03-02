@@ -96,7 +96,6 @@ from cylc.flow.task_remote_mgr import (
 from cylc.flow.task_state import (
     TASK_STATUSES_ACTIVE,
     TASK_STATUSES_NEVER_ACTIVE,
-    TASK_STATUS_WAITING,
     TASK_STATUS_FAILED)
 from cylc.flow.templatevars import load_template_vars
 from cylc.flow.wallclock import (
@@ -1392,47 +1391,15 @@ class Scheduler:
 
             self.proc_pool.process()
 
-            # Call xtrigger functions, for tasks with unsatisfied xtriggers.
-            for itask in self.pool.get_tasks():
-                if (
-                    itask.state(TASK_STATUS_WAITING) and
-                    not itask.state.is_queued and
-                    itask.state.xtriggers and
-                    not itask.state.xtriggers_all_satisfied()
-                ):
-                    self.xtrigger_mgr.call_xtriggers_async(itask)
-
-            # Check external triggers, for tasks with unsatisfied ext triggers.
-            self.broadcast_mgr.process_ext_triggers(
-                    [x for x in self.pool.get_tasks()
-                        if x.state(TASK_STATUS_WAITING)
-                        and not x.state.is_queued
-                        and x.state.external_triggers
-                        and not x.state.external_triggers_all_satisfied()],
-                    self.ext_trigger_queue):
-                check_ready.add(itask)
-
-
-            check_ready = set()
-            for itask in self.xtrigger_mgr.process_xtriggers(
-                    [x for x in self.pool.get_tasks()
-                        if x.state(TASK_STATUS_WAITING)
-                        and not x.state.is_queued
-                        and x.state.xtriggers
-                        and not x.state.xtriggers_all_satisfied()],
-                    self.suite_db_mgr.put_xtriggers):
-                check_ready.add(itask)
-
-            for itask in self.broadcast_mgr.process_ext_triggers(
-                    [x for x in self.pool.get_tasks()
-                        if x.state(TASK_STATUS_WAITING)
-                        and not x.state.is_queued
-                        and x.state.external_triggers
-                        and not x.state.external_triggers_all_satisfied()],
-                    self.ext_trigger_queue):
-                check_ready.add(itask)
-
-            for itask in check_ready:
+            for itask in set.union(
+                    self.xtrigger_mgr.check_xtriggers(
+                        self.pool.get_tasks(),
+                        self.suite_db_mgr.put_xtriggers
+                    ),
+                    self.broadcast_mgr.check_ext_triggers(
+                        self.pool.get_tasks(),
+                        self.ext_trigger_queue
+                    )):
                 if all(itask.is_ready_to_run()):
                     self.pool.queue_task(itask)
 

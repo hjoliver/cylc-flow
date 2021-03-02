@@ -26,6 +26,8 @@ from cylc.flow.broadcast_report import (
 from cylc.flow.cycling.loader import get_point, standardise_point_string
 from cylc.flow.exceptions import PointParsingError
 from cylc.flow.task_id import TaskID
+from cylc.flow.task_state import TASK_STATUS_WAITING
+
 
 ALL_CYCLE_POINTS_STRS = ["*", "all-cycle-points", "all-cycles"]
 
@@ -59,20 +61,24 @@ class BroadcastMgr:
         self.ext_triggers = {}  # Can use collections.Counter in future
         self.lock = RLock()
 
-    def process_ext_triggers(self, itasks, ext_trigger_queue):
-        """Add external triggers from queue.
+    def check_ext_triggers(self, itasks, ext_trigger_queue):
+        """Process external trigger events from queue.
 
-        Call with tasks that have unsatisified ext triggers.
-        Return list of tasks that are ready to run.
+        Return a list of tasks satisfied by them.
+
         """
         while not ext_trigger_queue.empty():
             ext_trigger = ext_trigger_queue.get_nowait()
             self.ext_triggers.setdefault(ext_trigger, 0)
             self.ext_triggers[ext_trigger] += 1
-        satisfied = []
+        satisfied = set()
         for itask in itasks:
-            if self.match_ext_trigger(itask):
-                satisfied.append(itask)
+            # Ignore tasks that are already queued or not waiting.
+            if (itask.state.is_queued or
+                    not itask.state(TASK_STATUS_WAITING)):
+                continue
+            if self._match_ext_trigger(itask):
+                satisfied.add(itask)
         return satisfied
 
     def clear_broadcast(
@@ -198,7 +204,7 @@ class BroadcastMgr:
             "key": key,
             "value": value})
 
-    def match_ext_trigger(self, itask):
+    def _match_ext_trigger(self, itask):
         """Match external triggers for a waiting task proxy."""
         if not self.ext_triggers or not itask.state.external_triggers:
             return False
@@ -206,25 +212,26 @@ class BroadcastMgr:
             if satisfied:
                 continue
             for qmsg, qid in self.ext_triggers.copy():
-                if trig == qmsg:
-                    # Matched.
-                    point_string = TaskID.split(itask.identity)[1]
-                    # Set trigger satisfied.
-                    itask.state.external_triggers[trig] = True
-                    # Broadcast the event ID to the cycle point.
-                    if qid is not None:
-                        self.put_broadcast(
-                            [point_string],
-                            ['root'],
-                            [{'environment': {'CYLC_EXT_TRIGGER_ID': qid}}],
-                        )
-                    # Create data-store delta
-                    self.data_store_mgr.delta_task_ext_trigger(
-                        itask, qid, qmsg, True)
-                    self.ext_triggers[(qmsg, qid)] -= 1
-                    if not self.ext_triggers[(qmsg, qid)]:
-                        del self.ext_triggers[(qmsg, qid)]
-                    return True
+                if trig != qmsg:
+                    continue
+                # Matched.
+                point_string = TaskID.split(itask.identity)[1]
+                # Set trigger satisfied.
+                itask.state.external_triggers[trig] = True
+                # Broadcast the event ID to the cycle point.
+                if qid is not None:
+                    self.put_broadcast(
+                        [point_string],
+                        ['root'],
+                        [{'environment': {'CYLC_EXT_TRIGGER_ID': qid}}],
+                    )
+                # Create data-store delta
+                self.data_store_mgr.delta_task_ext_trigger(
+                    itask, qid, qmsg, True)
+                self.ext_triggers[(qmsg, qid)] -= 1
+                if not self.ext_triggers[(qmsg, qid)]:
+                    del self.ext_triggers[(qmsg, qid)]
+                return True
         return False
 
     def put_broadcast(
