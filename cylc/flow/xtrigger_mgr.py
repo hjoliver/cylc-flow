@@ -364,8 +364,9 @@ class XtriggerManager:
         changed = False
         satisfied = set()
         for itask in itasks:
-            # Ignore tasks that are already queued or not waiting.
+            # Ignore tasks that are queued, runahead, or not waiting.
             if (itask.state.is_queued or
+                    itask.state.is_runahead or
                     not itask.state(TASK_STATUS_WAITING)):
                 continue
             # Call xtrigger funcs if necessary (via async calls).
