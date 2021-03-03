@@ -608,6 +608,10 @@ class Scheduler:
         Lightweight wrapper for convenience.
 
         """
+    
+        #from cylc.flow.cylc_pudb import set_trace
+        #set_trace()
+
         try:
             await self.install()
             await self.initialise()
@@ -655,7 +659,7 @@ class Scheduler:
             parent_points = tdef.get_parent_points(point)
             if not parent_points or all(
                     x < self.config.start_point for x in parent_points):
-                self.pool.add_to_runahead_pool(
+                self.pool.add_to_pool(
                     TaskProxy(tdef, point, flow_label))
 
     def load_tasks_for_restart(self):
@@ -1198,7 +1202,6 @@ class Scheduler:
 
         if self.stop_mode is None and self.auto_restart_time is None:
             # Add newly released tasks to those still preparing.
-            # self.pool.queue_tasks()
             self.pre_submit_tasks += self.pool.release_queued_tasks()
             if self.pre_submit_tasks:
                 self.is_updated = True
@@ -1448,8 +1451,9 @@ class Scheduler:
 
             self.pool.set_expired_tasks()
 
-            # self.pool.dump()
             self.queue_pop()
+
+            self.pool.dump()
 
             if self.pool.sim_time_check(self.message_queue):
                 # A simulated task state change occurred.
@@ -1516,7 +1520,7 @@ class Scheduler:
     async def update_data_structure(self):
         """Update DB, UIS, Summary data elements"""
         updated_tasks = [
-            t for t in self.pool.get_all_tasks() if t.state.is_updated]
+            t for t in self.pool.get_tasks() if t.state.is_updated]
         has_updated = self.is_updated or updated_tasks
         # Add tasks that have moved moved from runahead to live pool.
         if has_updated or self.data_store_mgr.updates_pending:
@@ -1703,8 +1707,9 @@ class Scheduler:
         """Check if we should do an automatic shutdown: main pool empty."""
         self.pool.release_runahead_tasks()
         if self.pool.get_tasks():
+            # There are more tasks to run.
             return False
-        # can shut down
+        # Can shut down.
         if self.pool.stop_point:
             self.options.stopcp = None
             self.pool.stop_point = None

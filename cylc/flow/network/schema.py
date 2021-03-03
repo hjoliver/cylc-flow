@@ -256,6 +256,7 @@ PROXY_ARGS = {
     'exstates': List(String, default_value=[]),
     'is_held': Boolean(),
     'is_queued': Boolean(),
+    'is_runahead': Boolean(),
     'mindepth': Int(default_value=-1),
     'maxdepth': Int(default_value=-1),
     'sort': SortArgs(default_value=None),
@@ -270,6 +271,7 @@ ALL_PROXY_ARGS = {
     'exstates': List(String, default_value=[]),
     'is_held': Boolean(),
     'is_queued': Boolean(),
+    'is_runahead': Boolean(),
     'mindepth': Int(default_value=-1),
     'maxdepth': Int(default_value=-1),
     'sort': SortArgs(default_value=None),
@@ -298,6 +300,7 @@ NODES_EDGES_ARGS = {
     'exstates': List(String, default_value=[]),
     'is_held': Boolean(),
     'is_queued': Boolean(),
+    'is_runahead': Boolean(),
     'distance': Int(default_value=1),
     'mindepth': Int(default_value=-1),
     'maxdepth': Int(default_value=-1),
@@ -313,6 +316,7 @@ NODES_EDGES_ARGS_ALL = {
     'exstates': List(String, default_value=[]),
     'is_held': Boolean(),
     'is_queued': Boolean(),
+    'is_runahead': Boolean(),
     'distance': Int(default_value=1),
     'mindepth': Int(default_value=-1),
     'maxdepth': Int(default_value=-1),
@@ -708,6 +712,7 @@ class Workflow(ObjectType):
     run_mode = String()
     is_held_total = Int()
     is_queued_total = Int()
+    is_runahead_total = Int()
     state_totals = GenericScalar(resolver=resolve_state_totals)
     workflow_log_dir = String()
     time_zone_info = Field(TimeZone)
@@ -883,6 +888,7 @@ class TaskProxy(ObjectType):
     cycle_point = String()
     is_held = Boolean()
     is_queued = Boolean()
+    is_runahead = Boolean()
     flow_label = String()
     depth = Int()
     job_submits = Int()
@@ -1027,6 +1033,8 @@ class FamilyProxy(ObjectType):
     is_held_total = Int()
     is_queued = Boolean()
     is_queued_total = Int()
+    is_runahead = Boolean()
+    is_runahead_total = Int()
     depth = Int()
     child_tasks = List(
         TaskProxy,
@@ -1368,6 +1376,10 @@ class TaskState(InputObjectType):
     is_queued = Boolean(description=sstrip('''
         Task is queued for job submission
     '''))
+    is_runahead = Boolean(description=sstrip('''
+        Task is runahead limited
+    '''))
+
 
 
 class TaskName(String):
