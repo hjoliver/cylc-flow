@@ -264,13 +264,18 @@ class XtriggerManager:
         ctx.update_command(self.suite_run_dir)
         return ctx
 
-    def _call_xtriggers_async(self, itask: TaskProxy):
-        """Attempt to satisfy itask's xtriggers.
+    def call_xtriggers(self, itasks: List[TaskProxy]):
+        """Call all xtrigger functions depended on by itasks."""
+        for itask in itasks:
+            self._call_xtriggers_async(itask)
 
-        Call xtrigger funcs if their time is up and not already in in-call.
+    def _call_xtriggers_async(self, itask: TaskProxy):
+        """Call itask's xtrigger functions via the process pool...
+
+        ...if previous call not still in-process, and retry period is up.
 
         Args:
-            itask (TaskProxy): TaskProxy
+            itask (TaskProxy): TaskProxy with xtriggers to check.
         """
         for label, sig, ctx, _ in self._get_xtrigs(itask, unsat_only=True):
             if sig.startswith("wall_clock"):
@@ -317,10 +322,10 @@ class XtriggerManager:
             self.proc_pool.put_command(ctx, self.callback)
 
     def housekeep(self, itasks: List[TaskProxy]):
-        """Delete satisfied xtriggers no longer needed.
+        """Delete satisfied xtriggers that are no longer needed.
 
         Args:
-            itasks (List[TaskProxy]): list of TaskProxy's
+            itasks (List[TaskProxy]): list of task proxies.
         """
         all_xtrig = []
         for itask in itasks:
@@ -352,27 +357,24 @@ class XtriggerManager:
             LOG.info('xtrigger satisfied: %s = %s', ctx.label, sig)
             self.sat_xtrig[sig] = results
 
-    def process_xtriggers(
+    def check_xtriggers(
             self, itasks: List[TaskProxy], db_update_func):
         """
-        Call xtriggers asynchronously if needed.
+        Check if any of itasks' xtriggers have become satisfied.
 
-        Then check if any have become satisfied since last check.
-        (This must be called periodically).
-
-        Call only for tasks that have unsatisfied xtriggers.
-        Return list of tasks that are now ready to run.
+        Return set of newly satisfied tasks.
 
         Args:
             itasks ...
             db_update_func ...
         """
-        ready_to_run = []
-        for itask in itasks:
-            self._call_xtriggers_async(itask)
-            if all(itask.is_ready()):
-                ready_to_run.append(itask)
-        if ready_to_run:
+        satisfied = set(
+            [
+                itask for itask in itasks
+                if itask.state.xtriggers_all_satisfied()
+            ]
+        )
+        if satisfied:
             self.housekeep(itasks)
             db_update_func(self.sat_xtrig)
-        return ready_to_run
+        return satisfied

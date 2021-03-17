@@ -1392,23 +1392,44 @@ class Scheduler:
 
             self.proc_pool.process()
 
-            for itask in self.xtrigger_mgr.process_xtriggers(
-                    [x for x in self.pool.get_tasks()
-                        if x.state(TASK_STATUS_WAITING)
-                        and not x.state.is_queued
-                        and x.state.xtriggers
-                        and not x.state.xtriggers_all_satisfied()],
-                    self.suite_db_mgr.put_xtriggers):
-                self.pool.queue_task(itask)
+            # Get tasks with newly satisfied external triggers.
+            check_if_ready = self.broadcast_mgr.check_ext_triggers(
+                [x for x in self.pool.get_tasks()
+                    if x.state(TASK_STATUS_WAITING)
+                    and not x.state.is_queued
+                    and x.state.external_triggers
+                    and not x.state.external_triggers_all_satisfied()],
+                self.ext_trigger_queue
+            )
 
-            for itask in self.broadcast_mgr.process_ext_triggers(
+            # Call unsatisfied xtrigger functions if needed.
+            self.xtrigger_mgr.call_xtriggers(
+                [
+                    itask for itask in self.pool.get_tasks()
+                    if (
+                        itask.state(TASK_STATUS_WAITING) and
+                        not itask.state.is_queued and
+                        itask.state.xtriggers and
+                        not itask.state.xtriggers_all_satisfied()
+                    )
+                ]
+            )
+
+            # Get tasks with satisfied xtriggers.
+            check_if_ready.update(
+                self.xtrigger_mgr.check_xtriggers(
                     [x for x in self.pool.get_tasks()
                         if x.state(TASK_STATUS_WAITING)
                         and not x.state.is_queued
-                        and x.state.external_triggers
-                        and not x.state.external_triggers_all_satisfied()],
-                    self.ext_trigger_queue):
-                self.pool.queue_task(itask)
+                        and x.state.xtriggers],
+                    self.suite_db_mgr.put_xtriggers
+                )
+            )
+
+            # Queue if these tasks are ready to run.
+            for itask in check_if_ready:
+                if all(itask.is_ready_to_run()):
+                    self.pool.queue_task(itask)
 
             self.pool.set_expired_tasks()
 

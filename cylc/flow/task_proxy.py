@@ -313,18 +313,21 @@ class TaskProxy:
             p_next = min(adjusted)
         return p_next
 
-    def is_ready(self):
-        """Am I in a pre-run state but ready to run?
+    def is_ready_to_run(self) -> bool:
+        """Is this task ready to run?
 
-        (Apart from ext- and x-triggers)
-        Queued tasks not counted as they've already been deemed ready.
+        Takes account of all dependence: on other tasks, xtriggers, and
+        old-style ext- and clock-triggers. Or, manual triggering.
 
         """
         if self.is_manual_submit:
+            # Manually triggered, ignore unsatisified prerequisites.
             return (True,)
         if self.state.is_held:
+            # A held task is not ready to run.
             return (False,)
         if self.state.status in self.try_timers:
+            # A try timer is still active.
             return (self.try_timers[self.state.status].is_delay_done(),)
         return (
             self.state(TASK_STATUS_WAITING),
