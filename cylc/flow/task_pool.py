@@ -381,7 +381,7 @@ class TaskPool:
         self.abs_outputs_done.add((name, cycle, output))
 
     def load_db_task_pool_for_restart(self, row_idx, row):
-        """Load tasks from DB task pool/states/jobs tables, to runahead pool.
+        """Load tasks from DB task pool/states/jobs tables.
 
         Output completion status is loaded from the DB, and tasks recorded
         as submitted or running are polled to confirm their true status.
@@ -454,7 +454,8 @@ class TaskPool:
                     itask_prereq.satisfied[key] = sat[key]
 
             itask.state.reset(status)
-            self.add_to_runahead_pool(itask, is_new=False)
+            itask.state.reset(is_runahead=True)
+            self.add_to_pool(itask, is_new=False)
 
     def load_db_task_action_timers(self, row_idx, row):
         """Load a task action timer, e.g. event handlers, retry states."""
@@ -486,20 +487,14 @@ class TaskPool:
             return
         LOG.info("+ %s.%s %s" % (name, cycle, ctx_key))
         if ctx_key == "poll_timer":
-            itask = (
-                self._get_rh_task_by_id(id_)
-                or self._get_rh_task_by_id(id_)
-            )
+            itask = self._get_task_by_id(id_)
             if itask is None:
                 LOG.warning("%(id)s: task not found, skip" % {"id": id_})
                 return
             itask.poll_timer = TaskActionTimer(
                 ctx, delays, num, delay, timeout)
         elif ctx_key[0] == "try_timers":
-            itask = (
-                self._get_rh_task_by_id(id_) or
-                self._get_task_by_id(id_)
-            )
+            itask = self._get_task_by_id(id_)
             if itask is None:
                 LOG.warning("%(id)s: task not found, skip" % {"id": id_})
                 return
@@ -1125,14 +1120,6 @@ class TaskPool:
             self._merge_flow_labels(itask, flow_label)
         return itask
 
-    def get_task_rh(self, name, point, flow_label=None):
-        """Return task proxy from rh pool and merge flow label if found."""
-        # TODO ONLY USED IN FORCE TRIGGER
-        itask = self._get_rh_task_by_id(TaskID.get(name, point))
-        if itask is not None:
-            self._merge_flow_labels(itask, flow_label)
-        return itask
-
     def get_task(self, name, point, flow_label=None):
         """Return existing task proxy and merge flow label if found."""
         itask = (
@@ -1296,7 +1283,7 @@ class TaskPool:
             # Already in pool? Keep it and merge flow labels.
             itask = self.get_task_main(name, point, flow_label)
             if itask is not None:
-                # Trigger existing task proxy in main pool
+                # Trigger existing task proxy
                 itask.is_manual_submit = True
                 itask.reset_try_timers()
                 # (If None, spawner reports cycle bounds errors).
@@ -1308,26 +1295,11 @@ class TaskPool:
                 # self.data_store_mgr.delta_task_outputs(itask)
                 self.queue_task(itask)
             else:
-                itask = self.get_task_rh(name, point, flow_label)
-                if itask is not None:
-                    # Trigger existing task in rh pool
-                    # Will be queued on rh pool release
-                    itask.is_manual_submit = True
-                    itask.reset_try_timers()
-                    # (If None, spawner reports cycle bounds errors).
-                    if itask.state.reset(TASK_STATUS_WAITING):
-                        self.data_store_mgr.delta_task_state(itask)
-                    LOG.critical('setting %s ready to run', itask)
-                    # itask.state.set_prerequisites_all_satisfied()
-                    # self.data_store_mgr.delta_task_prerequisite(itask)
-                    # self.data_store_mgr.delta_task_outputs(itask)
-                    # self.queue_task(itask)
-                else:
-                    # Spawn with new flow label.
-                    itask = self.spawn_task(
-                        name, point, flow_label, reflow=reflow)
-                    itask.is_manual_submit = True
-                    # (spawned to runahead pool; will be queued on release)
+                # Spawn with new flow label.
+                itask = self.spawn_task(
+                    name, point, flow_label, reflow=reflow)
+                itask.is_manual_submit = True
+                self.add_to_pool(itask)
 
         return n_warnings
 
