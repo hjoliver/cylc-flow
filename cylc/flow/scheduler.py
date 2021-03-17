@@ -96,7 +96,6 @@ from cylc.flow.task_remote_mgr import (
 from cylc.flow.task_state import (
     TASK_STATUSES_ACTIVE,
     TASK_STATUSES_NEVER_ACTIVE,
-    TASK_STATUS_WAITING,
     TASK_STATUS_FAILED)
 from cylc.flow.templatevars import load_template_vars
 from cylc.flow.wallclock import (
@@ -609,6 +608,10 @@ class Scheduler:
         Lightweight wrapper for convenience.
 
         """
+    
+        #from cylc.flow.cylc_pudb import set_trace
+        #set_trace()
+
         try:
             await self.install()
             await self.initialise()
@@ -656,7 +659,7 @@ class Scheduler:
             parent_points = tdef.get_parent_points(point)
             if not parent_points or all(
                     x < self.config.start_point for x in parent_points):
-                self.pool.add_to_runahead_pool(
+                self.pool.add_to_pool(
                     TaskProxy(tdef, point, flow_label))
 
     def load_tasks_for_restart(self):
@@ -1199,7 +1202,6 @@ class Scheduler:
 
         if self.stop_mode is None and self.auto_restart_time is None:
             # Add newly released tasks to those still preparing.
-            # self.pool.queue_tasks()
             self.pre_submit_tasks += self.pool.release_queued_tasks()
             if self.pre_submit_tasks:
                 self.is_updated = True
@@ -1372,7 +1374,48 @@ class Scheduler:
         self.count += 1
 
     async def main_loop(self):
-        """The scheduler main loop."""
+        """The scheduler main loop.
+
+        TODO: the following docs should be relocated!
+
+        IDEALLY:
+
+        The n=0 "active" task pool should contain:
+        - active tasks: preparing, submitted, running
+        - active xtrigger, queue, and runahead limiter objects
+        - (tasks waiting on old-style built-in ext- and clock-triggers?)
+        The n=1 datastore should contain tasks waiting on the above 
+
+        CURRENTLY:
+
+        The runahead pool holds task proxies:
+        - with tasks prereqs satisfied, but held back by runahead limiting
+        - (embody partially satisfied task prerequisites - because
+          spawn-on-demand is implemented as spawn-on-ouputs)
+
+        The main pool holds tasks that are:
+        - "active": preparing, submitted, or running
+        - task prereqs satisfied, but waiting on:
+          - queues
+          - xtriggers
+          - old-style built-in ext- and clock-triggers
+
+        Spawn-on-demand is currently based only on task dependence, not on
+        xtriggers (and definitely not old-style clock and ext triggers, which
+        are task proxy attributes). Tasks proxies are spawned into the runahead
+        pool once their task prerequisites are satisfied (or auto-spawned if
+        they have no task parents). (Actually they are spawned on individual
+        upstream outputs, but those with partially satisfied task prerequisites
+        are not released to the main pool even if below the runahead limit -
+        they should be considered as "partially satisfied prerequisites", not
+        as task proxies).
+
+        They are released from runahead to the main pool if:
+        - they are below the runahead limit
+        and
+        - their dependence on other tasks is satisfied
+        Non-task prerequisites are
+        """
         while True:  # MAIN LOOP
             tinit = time()
 
@@ -1433,8 +1476,9 @@ class Scheduler:
 
             self.pool.set_expired_tasks()
 
-            # self.pool.dump()
             self.queue_pop()
+
+            self.pool.dump()
 
             if self.pool.sim_time_check(self.message_queue):
                 # A simulated task state change occurred.
@@ -1501,7 +1545,7 @@ class Scheduler:
     async def update_data_structure(self):
         """Update DB, UIS, Summary data elements"""
         updated_tasks = [
-            t for t in self.pool.get_all_tasks() if t.state.is_updated]
+            t for t in self.pool.get_tasks() if t.state.is_updated]
         has_updated = self.is_updated or updated_tasks
         # Add tasks that have moved moved from runahead to live pool.
         if has_updated or self.data_store_mgr.updates_pending:
@@ -1688,8 +1732,9 @@ class Scheduler:
         """Check if we should do an automatic shutdown: main pool empty."""
         self.pool.release_runahead_tasks()
         if self.pool.get_tasks():
+            # There are more tasks to run.
             return False
-        # can shut down
+        # Can shut down.
         if self.pool.stop_point:
             self.options.stopcp = None
             self.pool.stop_point = None

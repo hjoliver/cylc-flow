@@ -14,9 +14,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-"""Wrangle task proxies to manage the workflow.
-
-"""
+"""Wrangle task proxies to manage the workflow."""
 
 from fnmatch import fnmatchcase
 from string import ascii_letters
@@ -163,13 +161,12 @@ class TaskPool:
             self.config.get_max_num_active_cycle_points())
         self._prev_runahead_sequence_points = None
 
-        self.pool = {}
-        self.runahead_pool = {}
-
-        self.pool_list = []
-        self.rhpool_list = []
-        self.pool_changed = False
-        self.rhpool_changed = False
+        self.main_pool = {}
+        self.hidden_pool = {}
+        self.main_pool_list = []
+        self.hidden_pool_list = []
+        self.main_pool_changed = False
+        self.hidden_pool_changed = False
 
         self.is_held = False
         self.hold_point = None
@@ -187,7 +184,6 @@ class TaskPool:
             self.config.get_task_name_list(),
             self.config.runtime['descendants']
         )
-        self.ready_tasks = []
 
     def set_stop_task(self, task_id):
         """Set stop after a task."""
@@ -212,19 +208,34 @@ class TaskPool:
         else:
             return False
 
-    def add_to_runahead_pool(self, itask, is_new=True):
-        """Add a new task to the runahead pool if possible.
+    def add_to_pool(self, itask, is_new=True):
+        """Add a new task to pool if possible.
 
         Tasks whose recurrences allow them to spawn beyond the suite
         stop point are added to the pool in the held state, ready to be
         released if the suite stop point is changed.
 
         """
-        # add to the runahead pool
-        self.runahead_pool.setdefault(itask.point, OrderedDict())
-        self.runahead_pool[itask.point][itask.identity] = itask
-        self.rhpool_changed = True
+        if itask.is_waiting_task_prereqs_done():
+            print("ADD to MAIN", itask.identity, itask.state.is_runahead)
+            self.main_pool.setdefault(itask.point, dict())
+            self.main_pool[itask.point][itask.identity] = itask
+            self.main_pool_changed = True
 
+            # Register pool node reference data-store with ID_DELIM format
+            self.data_store_mgr.add_pool_node(itask.tdef.name, itask.point)
+            # Create new data-store n-distance graph window about this task
+            self.data_store_mgr.increment_graph_window(itask)
+            self.data_store_mgr.delta_task_state(itask)
+            self.data_store_mgr.delta_task_held(itask)
+            self.data_store_mgr.delta_task_queued(itask)
+            self.data_store_mgr.delta_task_runahead(itask)
+        else:
+            print("ADD to HIDDEN", itask.identity, itask.state.is_runahead)
+            self.hidden_pool.setdefault(itask.point, dict())
+            self.hidden_pool[itask.point][itask.identity] = itask
+            self.hidden_pool_changed = True
+ 
         # add row to "task_states" table
         if is_new:
             # add row to "task_states" table:
@@ -236,14 +247,13 @@ class TaskPool:
             # add row to "task_outputs" table:
             if itask.state.outputs.has_custom_triggers():
                 self.suite_db_mgr.put_insert_task_outputs(itask)
+
         return itask
 
     def release_runahead_tasks(self):
-        """Release tasks from the runahead pool to the main pool.
+        """Release runahead tasks.
 
-        This serves to:
-        - restrict the number of active cycle points
-        - keep partially-satisfied waiting tasks out of the n=0 active pool
+        This serves to restrict the number of active cycle points.
 
         Compute runahead limit, and release tasks to the main pool if they are
         below that point (and <= the stop point, if there is a stop point).
@@ -251,24 +261,29 @@ class TaskPool:
 
         """
         released = False
-        if not self.runahead_pool:
+        if not self.main_pool:
+            # TODO: needed?
             return released
 
         # Any finished tasks can be released immediately (this can happen at
         # restart when all tasks are initially loaded into the runahead pool).
-        for itask_id_maps in self.runahead_pool.copy().values():
-            for itask in itask_id_maps.copy().values():
+
+        release = []
+        for itask_id_maps in self.main_pool.values():
+            for itask in itask_id_maps.values():
                 if itask.state(
                     TASK_STATUS_FAILED,
                     TASK_STATUS_SUCCEEDED,
-                    TASK_STATUS_EXPIRED
-                ):
-                    self.release_runahead_task(itask)
-                    released = True
+                    TASK_STATUS_EXPIRED,
+                ) and itask.state.is_runahead:
+                    release.append(itask)
+        for itask in release:
+            print("RELEASING", itask.identity, itask.state.is_runahead)
+            self.release_runahead_task(itask)
+            released = True
 
         points = []
-        for point, itasks in sorted(
-                self.get_tasks_by_point(incl_runahead=True).items()):
+        for point, itasks in sorted(self.get_tasks_by_point().items()):
             has_unfinished_itasks = False
             for itask in itasks:
                 if not itask.state(
@@ -346,13 +361,19 @@ class TaskPool:
         if self.stop_point and latest_allowed_point > self.stop_point:
             latest_allowed_point = self.stop_point
 
-        for point, itask_id_map in self.runahead_pool.copy().items():
+        release = []
+        for point, itask_id_map in self.main_pool.items():
             if point <= latest_allowed_point:
-                for itask in itask_id_map.copy().values():
-                    if (itask.is_waiting_task_prereqs_done()
-                            or itask.is_manual_submit):
-                        self.release_runahead_task(itask)
-                        released = True
+                for itask in itask_id_map.values():
+                    if not itask.state.is_runahead:
+                        continue
+                    #if (itask.is_waiting_task_prereqs_done()
+                    #        or itask.is_manual_submit):
+                    release.append(itask)
+        for itask in release:
+            print("RELEASING", itask.identity, itask.state.is_runahead)
+            self.release_runahead_task(itask)
+            released = True
         return released
 
     def load_abs_outputs_for_restart(self, row_idx, row):
@@ -520,35 +541,23 @@ class TaskPool:
             return
 
     def release_runahead_task(self, itask):
-        """Release itask to the active pool.
+        """Release itask from runahead limiting.
 
         Also auto-spawn next instance if:
         - no parents to do it
         - has absolute triggers (these are satisfied already by definition)
         """
-        self.pool.setdefault(itask.point, {})
-        self.pool[itask.point][itask.identity] = itask
-        self.pool_changed = True
-        LOG.debug("[%s] -released to the task pool", itask)
+        if itask.state.reset(is_runahead=False):
+            print(itask.identity, itask.state.is_runahead, '<<<<<<<<<<')
+            self.data_store_mgr.delta_task_runahead(itask)
+
+        LOG.info("[%s] -released to the task pool", itask)  # TODO change msg
+
+        # Queue if ready to run
         if all(itask.is_ready_to_run()):
-            # (tasks are only released if all task-prereqs are satisfied)
-            # (still need to check xtriggers etc. though)
+            # (otherwise waiting on xtriggers etc.)
             self.queue_task(itask)
 
-        # The following two could be called in separate places,
-        # so haven't merged/removed-one.
-        # Register pool node reference data-store with ID_DELIM format
-        self.data_store_mgr.add_pool_node(itask.tdef.name, itask.point)
-        # Create new data-store n-distance graph window about this task
-        self.data_store_mgr.increment_graph_window(itask)
-        self.data_store_mgr.delta_task_state(itask)
-        self.data_store_mgr.delta_task_held(itask)
-        self.data_store_mgr.delta_task_queued(itask)
-
-        del self.runahead_pool[itask.point][itask.identity]
-        if not self.runahead_pool[itask.point]:
-            del self.runahead_pool[itask.point]
-        self.rhpool_changed = True
         if itask.tdef.max_future_prereq_offset is not None:
             self.set_max_future_offset()
         if itask.tdef.sequential:
@@ -559,19 +568,22 @@ class TaskPool:
         next_point = itask.next_point()
         if next_point is not None:
             parent_points = itask.tdef.get_parent_points(next_point)
+            n_task = None
             if (not parent_points or
                     all(x < self.config.start_point for x in parent_points)):
                 # Auto-spawn next instance of tasks with no parents at the next
                 # point (or with all parents before the suite start point).
-                self.get_or_spawn_task(
+                n_task = self.get_or_spawn_task(
                     itask.tdef.name, next_point, flow_label=itask.flow_label,
                     parent_id=itask.identity)
             elif itask.tdef.get_abs_triggers(next_point):
                 # Auto-spawn (if needed) next absolute-triggered instances.
-                self.get_or_spawn_task(
+                n_task = self.get_or_spawn_task(
                     itask.tdef.name, next_point,
                     flow_label=itask.flow_label,
                     parent_id=itask.identity)
+            if n_task:
+                self.add_to_pool(n_task)
 
     def remove(self, itask, reason=""):
         """Remove a task from the pool (e.g. after a reload)."""
@@ -579,27 +591,13 @@ class TaskPool:
         if reason:
             msg += " (%s)" % reason
 
-        try:
-            del self.runahead_pool[itask.point][itask.identity]
-        except KeyError:
-            # Not in runahead pool.
-            try:
-                del self.pool[itask.point][itask.identity]
-            except KeyError:
-                return
-            else:
-                # Remove from main pool and queues.
-                if not self.pool[itask.point]:
-                    del self.pool[itask.point]
-                self.pool_changed = True
-                self.task_queue_mgr.remove_task(itask)
-                if itask.tdef.max_future_prereq_offset is not None:
-                    self.set_max_future_offset()
-        else:
-            # In runahead pool.
-            if not self.runahead_pool[itask.point]:
-                del self.runahead_pool[itask.point]
-            self.rhpool_changed = True
+        del self.main_pool[itask.point][itask.identity]
+        if not self.main_pool[itask.point]:
+            del self.main_pool[itask.point]
+            self.main_pool_changed = True
+            self.task_queue_mgr.remove_task(itask)
+            if itask.tdef.max_future_prereq_offset is not None:
+                self.set_max_future_offset()
 
         # Notify the data-store manager of their removal
         # (the manager uses window boundary tracking for pruning).
@@ -612,44 +610,37 @@ class TaskPool:
 
     def get_all_tasks(self):
         """Return a list of all task proxies."""
-        return self.get_rh_tasks() + self.get_tasks()
+        return self.get_hidden_tasks() + self.get_tasks()
 
     def get_tasks(self):
-        """Return a list of task proxies in the main task pool."""
-        if self.pool_changed:
-            self.pool_changed = False
-            self.pool_list = []
-            for _, itask_id_map in self.pool.items():
+        """Return a list of task proxies in the main pool."""
+        if self.main_pool_changed:
+            self.main_pool_changed = False
+            self.main_pool_list = []
+            for _, itask_id_map in self.main_pool.items():
                 for __, itask in itask_id_map.items():
-                    self.pool_list.append(itask)
-        return self.pool_list
+                    self.main_pool_list.append(itask)
+        return self.main_pool_list
 
-    def get_rh_tasks(self):
-        """Return a list of task proxies in the runahead pool."""
-        if self.rhpool_changed:
-            self.rhpool_changed = False
-            self.rhpool_list = []
-            for itask_id_maps in self.runahead_pool.values():
-                self.rhpool_list.extend(list(itask_id_maps.values()))
-        return self.rhpool_list
+    def get_hidden_tasks(self):
+        """Return a list of task proxies in the hidden pool."""
+        if self.hidden_pool_changed:
+            self.hidden_pool_changed = False
+            self.hidden_pool_list = []
+            for itask_id_maps in self.hidden_pool.values():
+                self.hidden_pool_list.extend(list(itask_id_maps.values()))
+        return self.hidden_pool_list
 
-    def get_tasks_by_point(self, incl_runahead):
+    def get_tasks_by_point(self):
         """Return a map of task proxies by cycle point."""
         point_itasks = {}
-        for point, itask_id_map in self.pool.items():
+        for point, itask_id_map in self.main_pool.items():
             point_itasks[point] = list(itask_id_map.values())
-
-        if not incl_runahead:
-            return point_itasks
-
-        for point, itask_id_map in self.runahead_pool.items():
-            point_itasks.setdefault(point, [])
-            point_itasks[point].extend(list(itask_id_map.values()))
         return point_itasks
 
-    def _get_rh_task_by_id(self, id_):
+    def _get_hidden_task_by_id(self, id_):
         """Return runahead pool task by ID if it exists, or None."""
-        for itask_ids in list(self.runahead_pool.values()):
+        for itask_ids in list(self.hidden_pool.values()):
             try:
                 return itask_ids[id_]
             except KeyError:
@@ -657,7 +648,7 @@ class TaskPool:
 
     def _get_task_by_id(self, id_):
         """Return main pool task by ID if it exists, or None."""
-        for itask_ids in list(self.pool.values()):
+        for itask_ids in list(self.main_pool.values()):
             try:
                 return itask_ids[id_]
             except KeyError:
@@ -674,8 +665,8 @@ class TaskPool:
         self.task_queue_mgr.push_tasks([itask])
         LOG.info(f"Queue pushed: {itask.identity}")
 
-    def queue_tasks(self):
-        """Queue tasks that are ready to run."""
+    def _queue_tasks(self):
+        """Queue tasks that are ready to run. (After reload?)"""
         for itask in self.get_tasks():
             if itask.state.is_queued:
                 # Already queued
@@ -715,7 +706,7 @@ class TaskPool:
 
     def get_min_point(self):
         """Return the minimum cycle point currently in the pool."""
-        cycles = list(self.pool)
+        cycles = list(self.main_pool)
         minc = None
         if cycles:
             minc = min(cycles)
@@ -723,7 +714,7 @@ class TaskPool:
 
     def get_max_point(self):
         """Return the maximum cycle point currently in the pool."""
-        cycles = list(self.pool)
+        cycles = list(self.main_pool)
         maxc = None
         if cycles:
             maxc = max(cycles)
@@ -834,7 +825,7 @@ class TaskPool:
             self.config.runtime['descendants']
         )
         self.task_queue_mgr.adopt_tasks(self.orphans)
-        self.queue_tasks()
+        self._queue_tasks()
 
         LOG.info("Reload completed.")
         self.do_reload = False
@@ -948,8 +939,7 @@ class TaskPool:
     def report_unmet_deps(self):
         """Log unmet dependencies on stall or shutdown."""
         prereqs_map = {}
-        # Partially satisfied tasks are hidden in the runahead pool.
-        for itask in self.get_rh_tasks():
+        for itask in self.get_hidden_tasks():
             prereqs_map[itask.identity] = []
             for prereq_str, is_met in itask.state.prerequisites_dump():
                 if not is_met:
@@ -1086,6 +1076,8 @@ class TaskPool:
                 if (c_task.state.suicide_prerequisites and
                         c_task.state.suicide_prerequisites_all_satisfied()):
                     suicide.append(c_task)
+                # Add child to the task pool. TODO if not already there.
+                self.add_to_pool(c_task)
 
         for c_task in suicide:
             if c_task.state(
@@ -1135,6 +1127,7 @@ class TaskPool:
 
     def get_task_rh(self, name, point, flow_label=None):
         """Return task proxy from rh pool and merge flow label if found."""
+        # TODO ONLY USED IN FORCE TRIGGER
         itask = self._get_rh_task_by_id(TaskID.get(name, point))
         if itask is not None:
             self._merge_flow_labels(itask, flow_label)
@@ -1143,7 +1136,7 @@ class TaskPool:
     def get_task(self, name, point, flow_label=None):
         """Return existing task proxy and merge flow label if found."""
         itask = (
-            self._get_rh_task_by_id(TaskID.get(name, point))
+            self._get_hidden_task_by_id(TaskID.get(name, point))
             or self._get_task_by_id(TaskID.get(name, point))
         )
         if itask is None:
@@ -1223,9 +1216,8 @@ class TaskPool:
             if future_trigger_overrun:
                 LOG.warning("[%s] -won't run: depends on a "
                             "task beyond the stop point", itask)
-        if (self.is_held
-                and itask.state(TASK_STATUS_WAITING, is_held=False)):
-            # Hold newly-spawned tasks in a held suite (e.g. due to manual
+        if self.is_held:
+            # Hold spawned tasks in a held suite (e.g. after manual
             # triggering of a held task).
             if itask.state.reset(is_held=True):
                 self.data_store_mgr.delta_task_held(itask)
@@ -1243,7 +1235,6 @@ class TaskPool:
             # Manual trigger: new flow
             msg += " (new flow)"
 
-        self.add_to_runahead_pool(itask)
         LOG.info(msg, name, point, flow_label)
         return itask
 
@@ -1515,16 +1506,18 @@ class TaskPool:
 
     def dump(self):
         print("\nTASK POOL:")
-        self.dump_pool("RUNAHEAD", self.get_rh_tasks())
-        self.dump_pool("MAINPOOL", self.get_tasks())
+        self.dump_pool("HIDDEN", self.get_hidden_tasks())
+        self.dump_pool("MAIN  ", self.get_tasks())
 
     def dump_pool(self, name, pool):
         print(f"  {name}:")
         for itask in pool:
-            held = queued = ""
+            held = queued = runahead = ""
+            if itask.state.is_runahead:
+                runahead = "(runahead)"
             if itask.state.is_held:
                 held = "(held)"
             if itask.state.is_queued:
                 queued = "(queued)"
             print(f"  *{itask.identity}: {itask.state.status}"
-                  f" {held}{queued}")
+                  f" {held}{queued}{runahead}")

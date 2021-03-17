@@ -31,7 +31,7 @@ from cylc.flow.data_store_mgr import DataStoreMgr
 from cylc.flow.subprocpool import SubProcPool
 from cylc.flow.task_proxy import TaskProxy
 from cylc.flow.subprocpool import get_func
-
+from cylc.flow.task_state import TASK_STATUS_WAITING
 
 # Templates for string replacement in function arg values.
 TMPL_USER_NAME = 'user_name'
@@ -84,8 +84,7 @@ class XtriggerManager:
     Clock triggers are treated separately and called synchronously in the main
     process, because they are guaranteed to be quick (but they are still
     managed uniquely - i.e. many tasks depending on the same clock trigger
-    (with same offset from cycle point) will be satisfied by the same function
-    call.
+    (with same offset from cycle point) get satisfied by the same call.
 
     Args:
         suite (str): suite name
@@ -274,12 +273,13 @@ class XtriggerManager:
 
         ...if previous call not still in-process, and retry period is up.
 
+
         Args:
             itask (TaskProxy): TaskProxy with xtriggers to check.
         """
         for label, sig, ctx, _ in self._get_xtrigs(itask, unsat_only=True):
             if sig.startswith("wall_clock"):
-                # Special case: synchronous clock check.
+                # Special case: quick synchronous clock check.
                 if 'absolute_as_seconds' not in ctx.func_kwargs:
                     ctx.func_kwargs.update(
                         {
@@ -292,9 +292,8 @@ class XtriggerManager:
                     self.data_store_mgr.delta_task_xtrigger(sig, True)
                     LOG.info('xtrigger satisfied: %s = %s', label, sig)
                 continue
-            # General case: asynchronous xtrigger function call.
+            # General case: potentially slow asynchronous function call.
             if sig in self.sat_xtrig:
-
                 if not itask.state.xtriggers[label]:
                     itask.state.xtriggers[label] = True
                     res = {}
@@ -321,8 +320,8 @@ class XtriggerManager:
             self.active.append(sig)
             self.proc_pool.put_command(ctx, self.callback)
 
-    def housekeep(self, itasks: List[TaskProxy]):
-        """Delete satisfied xtriggers that are no longer needed.
+    def _housekeep(self, itasks: List[TaskProxy]):
+        """Delete satisfied xtriggers no longer needed by any task.
 
         Args:
             itasks (List[TaskProxy]): list of task proxies.
@@ -367,6 +366,7 @@ class XtriggerManager:
         Args:
             itasks ...
             db_update_func ...
+
         """
         satisfied = set(
             [

@@ -26,6 +26,8 @@ from cylc.flow.broadcast_report import (
 from cylc.flow.cycling.loader import get_point, standardise_point_string
 from cylc.flow.exceptions import PointParsingError
 from cylc.flow.task_id import TaskID
+from cylc.flow.task_state import TASK_STATUS_WAITING
+
 
 ALL_CYCLE_POINTS_STRS = ["*", "all-cycle-points", "all-cycles"]
 
@@ -198,7 +200,7 @@ class BroadcastMgr:
             "key": key,
             "value": value})
 
-    def match_ext_trigger(self, itask):
+    def _match_ext_trigger(self, itask):
         """Match external triggers for a waiting task proxy."""
         if not self.ext_triggers or not itask.state.external_triggers:
             return False
@@ -206,25 +208,26 @@ class BroadcastMgr:
             if satisfied:
                 continue
             for qmsg, qid in self.ext_triggers.copy():
-                if trig == qmsg:
-                    # Matched.
-                    point_string = TaskID.split(itask.identity)[1]
-                    # Set trigger satisfied.
-                    itask.state.external_triggers[trig] = True
-                    # Broadcast the event ID to the cycle point.
-                    if qid is not None:
-                        self.put_broadcast(
-                            [point_string],
-                            ['root'],
-                            [{'environment': {'CYLC_EXT_TRIGGER_ID': qid}}],
-                        )
-                    # Create data-store delta
-                    self.data_store_mgr.delta_task_ext_trigger(
-                        itask, qid, qmsg, True)
-                    self.ext_triggers[(qmsg, qid)] -= 1
-                    if not self.ext_triggers[(qmsg, qid)]:
-                        del self.ext_triggers[(qmsg, qid)]
-                    return True
+                if trig != qmsg:
+                    continue
+                # Matched.
+                point_string = TaskID.split(itask.identity)[1]
+                # Set trigger satisfied.
+                itask.state.external_triggers[trig] = True
+                # Broadcast the event ID to the cycle point.
+                if qid is not None:
+                    self.put_broadcast(
+                        [point_string],
+                        ['root'],
+                        [{'environment': {'CYLC_EXT_TRIGGER_ID': qid}}],
+                    )
+                # Create data-store delta
+                self.data_store_mgr.delta_task_ext_trigger(
+                    itask, qid, qmsg, True)
+                self.ext_triggers[(qmsg, qid)] -= 1
+                if not self.ext_triggers[(qmsg, qid)]:
+                    del self.ext_triggers[(qmsg, qid)]
+                return True
         return False
 
     def put_broadcast(
