@@ -551,7 +551,7 @@ class TaskPool:
         # Queue if ready to run
         if all(itask.is_ready_to_run()):
             # (otherwise waiting on xtriggers etc.)
-            self.queue_task(itask)
+            self.queue_tasks([itask])
 
         if itask.tdef.max_future_prereq_offset is not None:
             self.set_max_future_offset()
@@ -649,19 +649,18 @@ class TaskPool:
             except KeyError:
                 pass
 
-    def queue_task(self, itask):
-        """Queue a task that is ready to run."""
+    def queue_tasks(self, itasks):
+        """Queue tasks that are ready to run."""
         itask.state.reset(is_queued=True)
-        # Reset manual trigger flag. One manual trigger queues and
+        # TODO Reset manual trigger flag. One manual trigger queues and
         # unqueued task, another one triggers a queued task.
         self.data_store_mgr.delta_task_state(itask)  # TODO needed?
         self.data_store_mgr.delta_task_queued(itask)
-        # TODO no need for list arg here?:
-        self.task_queue_mgr.push_tasks([itask])
-        LOG.info(f"Queue pushed: {itask.identity}")
+        self.task_queue_mgr.push_tasks(itasks)
 
     def _queue_tasks(self):
         """Queue tasks that are ready to run. (After reload?)"""
+        to_queue = []
         for itask in self.get_tasks():
             if itask.state.is_queued:
                 # Already queued
@@ -676,7 +675,9 @@ class TaskPool:
                     itask, ready_check_items)
 
             if all(ready_check_items):
-                self.queue_task(itask)
+                to_queue.append(itask)
+
+        self.queue_tasks(to_queue)
 
     def release_queued_tasks(self):
         """Return list of queue-released tasks for job prep."""
@@ -990,12 +991,13 @@ class TaskPool:
     def release_tasks(self, items):
         """Release held tasks with IDs matching any item in "ids"."""
         itasks, bad_items = self.filter_task_proxies(items)
+        to_queue = []
         for itask in itasks:
             if itask.state.reset(is_held=False):
                 self.data_store_mgr.delta_task_held(itask)
                 if all(itask.is_ready_to_run()):
-                    self.queue_task(itask)
-
+                    to_queue.append(itask)
+        self.queue_tasks(to_queue)
         return len(bad_items)
 
     def hold_all_tasks(self):
@@ -1293,7 +1295,7 @@ class TaskPool:
                 # itask.state.set_prerequisites_all_satisfied()
                 # self.data_store_mgr.delta_task_prerequisite(itask)
                 # self.data_store_mgr.delta_task_outputs(itask)
-                self.queue_task(itask)
+                self.queue_tasks([itask])
             else:
                 # Spawn with new flow label.
                 itask = self.spawn_task(

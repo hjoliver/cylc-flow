@@ -1181,7 +1181,7 @@ class Scheduler:
             event, str(reason), self.suite, self.uuid_str, self.owner,
             self.host, self.server.port))
 
-    def queue_pop(self):
+    def release_queued_tasks(self):
         """Release queued tasks, and submit task jobs.
 
         The task queue manages references to task proxies in the task pool.
@@ -1391,7 +1391,7 @@ class Scheduler:
 
             self.proc_pool.process()
 
-            # Get tasks with newly satisfied external triggers.
+            # Get tasks with newly-satisfied external triggers.
             check_if_ready = self.broadcast_mgr.check_ext_triggers(
                 [x for x in self.pool.get_tasks()
                     if x.state(TASK_STATUS_WAITING)
@@ -1428,13 +1428,16 @@ class Scheduler:
             )
 
             # Queue if these tasks are ready to run.
-            for itask in check_if_ready:
-                if all(itask.is_ready_to_run()):
-                    self.pool.queue_task(itask)
+            self.pool.queue_tasks(
+                [
+                    itask for itask in check_if_ready
+                    if all(itask.is_ready_to_run())
+                ]
+            )
 
             self.pool.set_expired_tasks()
 
-            self.queue_pop()
+            self.release_queued_tasks()
 
             self.pool.dump()
 
