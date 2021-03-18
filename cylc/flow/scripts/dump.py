@@ -257,9 +257,9 @@ def main(_, options, suite):
                                 item['state']]
                         values.append('held' if item['isHeld'] else 'unheld')
                         values.append('queued' if item['isQueued']
-                                      else 'unqueued')
+                                      else 'not-queued')
                         values.append('runahead' if item['isRunahead']
-                                      else 'runahead')
+                                      else 'not-runahead')
                         if options.flow:
                             values.append(item['flowLabel'])
                         print(', '.join(values))

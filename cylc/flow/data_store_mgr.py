@@ -1466,6 +1466,7 @@ class DataStoreMgr:
         if not tproxy:
             return
         if itask.state.is_queued is not tproxy.is_queued:
+        #if True:
             tp_delta = self.updated[TASK_PROXIES].setdefault(
                 tp_id, PbTaskProxy(id=tp_id))
             tp_delta.stamp = f'{tp_id}@{time()}'
@@ -1482,11 +1483,14 @@ class DataStoreMgr:
                 objects from the workflow task pool.
 
         """
+        print(f"DELTA RUNAHEAD {itask.identity} {itask.state.is_runahead}")
         tp_id, tproxy = self.store_node_fetcher(itask.tdef.name, itask.point)
         if not tproxy:
+            print("  (NOT FOUND)")
             return
-        print(itask.state.is_runahead, tproxy.is_runahead, 'XXXXXXXXXXX')
         if itask.state.is_runahead is not tproxy.is_runahead:
+        #if True:
+            print("  CHANGED")
             tp_delta = self.updated[TASK_PROXIES].setdefault(
                 tp_id, PbTaskProxy(id=tp_id))
             tp_delta.stamp = f'{tp_id}@{time()}'
@@ -1732,8 +1736,10 @@ class DataStoreMgr:
             )
             node_type = JOBS
         if node_id in self.data[self.workflow_id][node_type]:
+            print(f"NODE {node_id} in DATA")
             return (node_id, self.data[self.workflow_id][node_type][node_id])
         elif node_id in self.added[node_type]:
+            print(f"NODE {node_id} in ADDED")
             return (node_id, self.added[node_type][node_id])
         return (node_id, False)
 
