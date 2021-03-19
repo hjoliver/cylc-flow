@@ -73,7 +73,7 @@ class BroadcastMgr:
         return set(
             [
                 itask for itask in itasks
-                if self.match_ext_trigger(itask)
+                if self._match_ext_trigger(itask)
             ]
         )
 

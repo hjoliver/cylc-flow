@@ -375,6 +375,6 @@ class XtriggerManager:
             ]
         )
         if satisfied:
-            self.housekeep(itasks)
+            self._housekeep(itasks)
             db_update_func(self.sat_xtrig)
         return satisfied
