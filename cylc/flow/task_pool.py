@@ -244,7 +244,7 @@ class TaskPool:
             self.data_store_mgr.delta_task_held(itask)
             self.data_store_mgr.delta_task_queued(itask)
             self.data_store_mgr.delta_task_runahead(itask)
- 
+
         # add row to "task_states" table
         if is_new:
             # add row to "task_states" table:
@@ -366,6 +366,7 @@ class TaskPool:
                         'is less than future triggering offset '
                         f'"{self.max_future_offset}"; suite may stall.')
             self._prev_runahead_base_point = runahead_base_point
+
         if self.stop_point and latest_allowed_point > self.stop_point:
             latest_allowed_point = self.stop_point
 
@@ -375,7 +376,7 @@ class TaskPool:
                 for itask in itask_id_map.values():
                     if not itask.state.is_runahead:
                         continue
-                    #if (itask.is_waiting_task_prereqs_done()
+                    # if (itask.is_waiting_task_prereqs_done()
                     #        or itask.is_manual_submit):
                     release.append(itask)
         for itask in release:
@@ -551,7 +552,6 @@ class TaskPool:
         - has absolute triggers (these are satisfied already by definition)
         """
         if itask.state.reset(is_runahead=False):
-            print(itask.identity, itask.state.is_runahead, '<<<<<<<<<<')
             self.data_store_mgr.delta_task_runahead(itask)
 
         LOG.info("[%s] -released to the task pool", itask)  # TODO change msg
@@ -595,9 +595,9 @@ class TaskPool:
             msg += " (%s)" % reason
 
         del self.main_pool[itask.point][itask.identity]
+        self.main_pool_changed = True
         if not self.main_pool[itask.point]:
             del self.main_pool[itask.point]
-            self.main_pool_changed = True
             self.task_queue_mgr.remove_task(itask)
             if itask.tdef.max_future_prereq_offset is not None:
                 self.set_max_future_offset()
@@ -608,7 +608,7 @@ class TaskPool:
         # Event-driven final update of task_states table.
         # TODO: same for datastore (still updated by scheduler loop)
         self.suite_db_mgr.put_update_task_state(itask)
-        #self.suite_db_mgr.process_queued_ops()
+        # self.suite_db_mgr.process_queued_ops()
         LOG.debug("[%s] -%s", itask, msg)
         del itask
 
@@ -721,14 +721,6 @@ class TaskPool:
     def get_max_point(self):
         """Return the maximum cycle point currently in the pool."""
         cycles = list(self.main_pool)
-        maxc = None
-        if cycles:
-            maxc = max(cycles)
-        return maxc
-
-    def get_max_point_runahead(self):
-        """Return the maximum cycle point currently in the runahead pool."""
-        cycles = list(self.runahead_pool)
         maxc = None
         if cycles:
             maxc = max(cycles)
@@ -920,7 +912,8 @@ class TaskPool:
         """Return True if the suite is stalled.
 
         A suite is stalled if it is not held and the active pool contains only
-        unhandled failed tasks.
+        unhandled failed tasks and runahead tasks (which if not being released
+        must be beyond the stop point).
         """
         if self.is_held:
             return False
@@ -928,6 +921,8 @@ class TaskPool:
         for itask in self.get_tasks():
             if itask.state(*TASK_STATUSES_FAILURE):
                 unhandled_failed.append(itask)
+            elif itask.state.is_runahead:
+                continue
             else:
                 return False
         if unhandled_failed:
@@ -1503,5 +1498,6 @@ class TaskPool:
                 held = "(held)"
             if itask.state.is_queued:
                 queued = "(queued)"
+            prereqs = itask.is_waiting_task_prereqs_done()
             print(f"  *{itask.identity}: {itask.state.status}"
-                  f" {held}{queued}{runahead}")
+                  f" {held}{queued}{runahead} {prereqs}")

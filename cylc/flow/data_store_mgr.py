@@ -1470,7 +1470,6 @@ class DataStoreMgr:
             tp_delta = self.updated[TASK_PROXIES].setdefault(
                 tp_id, PbTaskProxy(id=tp_id))
             tp_delta.stamp = f'{tp_id}@{time()}'
-            print('DELTA IS QUEUED:', itask.identity, itask.state.is_queued)
             tp_delta.is_queued = itask.state.is_queued
             self.state_update_families.add(tproxy.first_parent)
             self.updates_pending = True
@@ -1484,19 +1483,14 @@ class DataStoreMgr:
                 objects from the workflow task pool.
 
         """
-        print(f"DELTA RUNAHEAD {itask.identity} {itask.state.is_runahead}")
         tp_id, tproxy = self.store_node_fetcher(itask.tdef.name, itask.point)
         if not tproxy:
-            print("  (NOT FOUND)")
             return
         if itask.state.is_runahead is not tproxy.is_runahead:
-        #if True:
-            print("  CHANGED")
             tp_delta = self.updated[TASK_PROXIES].setdefault(
                 tp_id, PbTaskProxy(id=tp_id))
             tp_delta.stamp = f'{tp_id}@{time()}'
             tp_delta.is_runahead = itask.state.is_runahead
-            print("DELTA R", tp_delta.is_runahead)
             self.state_update_families.add(tproxy.first_parent)
             self.updates_pending = True
 
@@ -1737,10 +1731,8 @@ class DataStoreMgr:
             )
             node_type = JOBS
         if node_id in self.data[self.workflow_id][node_type]:
-            print(f"NODE {node_id} in DATA")
             return (node_id, self.data[self.workflow_id][node_type][node_id])
         elif node_id in self.added[node_type]:
-            print(f"NODE {node_id} in ADDED")
             return (node_id, self.added[node_type][node_id])
         return (node_id, False)
 
