@@ -209,14 +209,28 @@ class TaskPool:
             return False
 
     def add_to_pool(self, itask, is_new=True):
-        """Add a new task to pool if possible.
+        """Add a new task to the hidden or main pool.
 
         Tasks whose recurrences allow them to spawn beyond the suite
         stop point are added to the pool in the held state, ready to be
         released if the suite stop point is changed.
 
         """
-        if itask.is_waiting_task_prereqs_done():
+        if itask.is_task_prereqs_not_done():
+            print("ADD to HIDDEN", itask.identity, itask.state.is_runahead)
+            self.hidden_pool.setdefault(itask.point, dict())
+            self.hidden_pool[itask.point][itask.identity] = itask
+            self.hidden_pool_changed = True
+        else:
+            # REMOVE from HIDDEN
+            try:
+                del self.hidden_pool[itask.point][itask.identity]
+            except KeyError:
+                pass
+            else:
+                self.hidden_pool_changed = True
+                if not self.hidden_pool[itask.point]:
+                    del self.hidden_pool[itask.point]
             print("ADD to MAIN", itask.identity, itask.state.is_runahead)
             self.main_pool.setdefault(itask.point, dict())
             self.main_pool[itask.point][itask.identity] = itask
@@ -230,11 +244,6 @@ class TaskPool:
             self.data_store_mgr.delta_task_held(itask)
             self.data_store_mgr.delta_task_queued(itask)
             self.data_store_mgr.delta_task_runahead(itask)
-        else:
-            print("ADD to HIDDEN", itask.identity, itask.state.is_runahead)
-            self.hidden_pool.setdefault(itask.point, dict())
-            self.hidden_pool[itask.point][itask.identity] = itask
-            self.hidden_pool_changed = True
  
         # add row to "task_states" table
         if is_new:
@@ -337,7 +346,6 @@ class TaskPool:
             self._prev_runahead_base_point = runahead_base_point
 
         points = set(points).union(sequence_points)
-
         if number_limit is not None:
             # Calculate which tasks to release based on a maximum number of
             # active cycle points (active meaning non-finished tasks).
@@ -600,6 +608,7 @@ class TaskPool:
         # Event-driven final update of task_states table.
         # TODO: same for datastore (still updated by scheduler loop)
         self.suite_db_mgr.put_update_task_state(itask)
+        #self.suite_db_mgr.process_queued_ops()
         LOG.debug("[%s] -%s", itask, msg)
         del itask
 
@@ -800,13 +809,13 @@ class TaskPool:
                                 " (task definition removed)", itask)
             else:
                 self.remove(itask, 'suite definition reload')
-                new_task = self.add_to_runahead_pool(
-                    TaskProxy(
-                        self.config.get_taskdef(itask.tdef.name),
-                        itask.point,
-                        itask.flow_label, itask.state.status,
-                        submit_num=itask.submit_num))
+                new_task = TaskProxy(
+                    self.config.get_taskdef(itask.tdef.name),
+                    itask.point,
+                    itask.flow_label, itask.state.status,
+                    submit_num=itask.submit_num)
                 itask.copy_to_reload_successor(new_task)
+                self.add_to_pool(new_task)
                 new_tasks.append(new_task)
                 LOG.info('[%s] -reloaded task definition', itask)
                 if itask.state(*TASK_STATUSES_ACTIVE):
@@ -1074,7 +1083,7 @@ class TaskPool:
                 if (c_task.state.suicide_prerequisites and
                         c_task.state.suicide_prerequisites_all_satisfied()):
                     suicide.append(c_task)
-                # Add child to the task pool. TODO if not already there.
+                # Add child to the task pool, if not already there.
                 self.add_to_pool(c_task)
 
         for c_task in suicide:

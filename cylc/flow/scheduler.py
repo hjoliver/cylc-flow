@@ -1419,10 +1419,10 @@ class Scheduler:
             # Get tasks with satisfied xtriggers.
             check_if_ready.update(
                 self.xtrigger_mgr.check_xtriggers(
-                    [x for x in self.pool.get_tasks()
-                        if x.state(TASK_STATUS_WAITING)
-                        and not x.state.is_queued
-                        and x.state.xtriggers],
+                    [itask for itask in self.pool.get_tasks()
+                        if itask.state(TASK_STATUS_WAITING)
+                        and not itask.state.is_queued
+                        and itask.state.xtriggers],
                     self.suite_db_mgr.put_xtriggers
                 )
             )

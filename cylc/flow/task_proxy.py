@@ -369,13 +369,12 @@ class TaskProxy:
         return time() >= self.clock_trigger_time
 
     def is_task_prereqs_not_done(self):
-        """Is this task waiting on other-task prerequisites?"""
-        return (len(self.state.prerequisites) > 0 and
-                not all(pre.is_satisfied()
+        """Are some task prerequisites not satisfied?"""
+        return (not all(pre.is_satisfied()
                 for pre in self.state.prerequisites))
 
     def is_waiting_prereqs_done(self):
-        """Is this task waiting for its prerequisites?"""
+        """Are ALL prerequisites satisfied?"""
         return (
             all(pre.is_satisfied() for pre in self.state.prerequisites)
             and all(tri for tri in self.state.external_triggers.values())
@@ -383,7 +382,7 @@ class TaskProxy:
         )
 
     def is_waiting_task_prereqs_done(self):
-        """Is this task waiting for its TASK prerequisites?"""
+        """Are all task prerequisites satisfied?"""
         return (
             all(pre.is_satisfied() for pre in self.state.prerequisites)
         )
