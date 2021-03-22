@@ -1703,10 +1703,11 @@ class Scheduler:
                 TASK_STATUS_PREPARING,
                 TASK_STATUS_SUBMITTED,
                 TASK_STATUS_RUNNING)
-            or itask.state.is_queued
-            or itask.state.is_held  # MORE?
+            or (itask.state(TASK_STATUS_WAITING)
+                and not itask.state.is_runahead)
         ]:
             # There are more tasks to run.
+            # If waiting and not runahead: held, queued, or xtriggered)
             return False
         # Abort if stalled?
         self.check_suite_stalled()

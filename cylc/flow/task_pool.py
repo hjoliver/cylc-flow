@@ -208,6 +208,15 @@ class TaskPool:
         else:
             return False
 
+    def swap_out(self, itask):
+        """FOR RELOAD"""
+        if itask.point in self.hidden_pool:
+            if itask.identity in self.hidden_pool[itask.point]:
+                self.hidden_pool[itask.point][itask.identity] = itask
+        elif itask.point in self.main_pool:
+            if itask.identity in self.main_pool[itask.point]:
+                self.main_pool[itask.point][itask.identity] = itask
+
     def add_to_pool(self, itask, is_new=True):
         """Add a new task to the hidden or main pool.
 
@@ -216,7 +225,7 @@ class TaskPool:
         released if the suite stop point is changed.
 
         """
-        if itask.is_task_prereqs_not_done():
+        if itask.is_task_prereqs_not_done() and not itask.is_manual_submit:
             print("ADD to HIDDEN", itask.identity, itask.state.is_runahead)
             self.hidden_pool.setdefault(itask.point, dict())
             self.hidden_pool[itask.point][itask.identity] = itask
@@ -276,15 +285,21 @@ class TaskPool:
 
         # Any finished tasks can be released immediately (this can happen at
         # restart when all tasks are initially loaded into the runahead pool).
+        # And any manually-triggered task.
 
         release = []
-        for itask_id_maps in self.main_pool.values():
+        for itask_id_maps in list(self.main_pool.values()) + list(self.hidden_pool.values()):
             for itask in itask_id_maps.values():
-                if itask.state(
-                    TASK_STATUS_FAILED,
-                    TASK_STATUS_SUCCEEDED,
-                    TASK_STATUS_EXPIRED,
-                ) and itask.state.is_runahead:
+                if not itask.state.is_runahead:
+                    continue
+                if (
+                        itask.state(
+                            TASK_STATUS_FAILED,
+                            TASK_STATUS_SUCCEEDED,
+                            TASK_STATUS_EXPIRED
+                        )
+                    or itask.is_manual_submit
+                ):
                     release.append(itask)
         for itask in release:
             print("RELEASING", itask.identity, itask.state.is_runahead)
@@ -376,8 +391,6 @@ class TaskPool:
                 for itask in itask_id_map.values():
                     if not itask.state.is_runahead:
                         continue
-                    # if (itask.is_waiting_task_prereqs_done()
-                    #        or itask.is_manual_submit):
                     release.append(itask)
         for itask in release:
             print("RELEASING", itask.identity, itask.state.is_runahead)
@@ -594,23 +607,38 @@ class TaskPool:
         if reason:
             msg += " (%s)" % reason
 
-        del self.main_pool[itask.point][itask.identity]
-        self.main_pool_changed = True
-        if not self.main_pool[itask.point]:
-            del self.main_pool[itask.point]
-            self.task_queue_mgr.remove_task(itask)
-            if itask.tdef.max_future_prereq_offset is not None:
-                self.set_max_future_offset()
+        try:
+            del self.hidden_pool[itask.point][itask.identity]
+        except:
+            pass
+        else:
+            # e.g. for suicide?
+            self.hidden_pool_changed = True
+            if not self.hidden_pool[itask.point]:
+                del self.hidden_pool[itask.point]
+            return
+ 
+        try:
+            del self.main_pool[itask.point][itask.identity]
+        except:
+            pass
+        else:
+            self.main_pool_changed = True
+            if not self.main_pool[itask.point]:
+                del self.main_pool[itask.point]
+                self.task_queue_mgr.remove_task(itask)
+                if itask.tdef.max_future_prereq_offset is not None:
+                    self.set_max_future_offset()
 
-        # Notify the data-store manager of their removal
-        # (the manager uses window boundary tracking for pruning).
-        self.data_store_mgr.remove_pool_node(itask.tdef.name, itask.point)
-        # Event-driven final update of task_states table.
-        # TODO: same for datastore (still updated by scheduler loop)
-        self.suite_db_mgr.put_update_task_state(itask)
-        # self.suite_db_mgr.process_queued_ops()
-        LOG.debug("[%s] -%s", itask, msg)
-        del itask
+            # Notify the data-store manager of their removal
+            # (the manager uses window boundary tracking for pruning).
+            self.data_store_mgr.remove_pool_node(itask.tdef.name, itask.point)
+            # Event-driven final update of task_states table.
+            # TODO: same for datastore (still updated by scheduler loop)
+            self.suite_db_mgr.put_update_task_state(itask)
+            # self.suite_db_mgr.process_queued_ops()
+            LOG.debug("[%s] -%s", itask, msg)
+            del itask
 
     def get_all_tasks(self):
         """Return a list of all task proxies."""
@@ -641,7 +669,11 @@ class TaskPool:
         for point, itask_id_map in self.main_pool.items():
             point_itasks[point] = list(itask_id_map.values())
         for point, itask_id_map in self.hidden_pool.items():
-            point_itasks[point] += list(itask_id_map.values())
+            if point not in point_itasks:
+                point_itasks[point] = list(itask_id_map.values())
+            else:
+                point_itasks[point] += list(itask_id_map.values())
+
         return point_itasks
 
     def _get_hidden_task_by_id(self, id_):
@@ -669,6 +701,7 @@ class TaskPool:
             self.data_store_mgr.delta_task_state(itask)  # TODO needed?
             self.data_store_mgr.delta_task_queued(itask)
         self.task_queue_mgr.push_tasks(itasks)
+        self.task_queue_mgr.dump()
 
     def _queue_tasks(self):
         """Queue tasks that are ready to run. (After reload?)"""
@@ -786,7 +819,6 @@ class TaskPool:
         for name in self.orphans:
             if name not in (itask.tdef.name for itask in tasks):
                 LOG.warning("Removed task: '%s'", name)
-        new_tasks = []
         for itask in tasks:
             if itask.tdef.name in self.orphans:
                 if (
@@ -802,15 +834,13 @@ class TaskPool:
                     LOG.warning("[%s] -will not spawn children"
                                 " (task definition removed)", itask)
             else:
-                self.remove(itask, 'suite definition reload')
                 new_task = TaskProxy(
                     self.config.get_taskdef(itask.tdef.name),
                     itask.point,
                     itask.flow_label, itask.state.status,
                     submit_num=itask.submit_num)
                 itask.copy_to_reload_successor(new_task)
-                self.add_to_pool(new_task)
-                new_tasks.append(new_task)
+                self.swap_out(new_task)
                 LOG.info('[%s] -reloaded task definition', itask)
                 if itask.state(*TASK_STATUSES_ACTIVE):
                     LOG.warning(
@@ -818,13 +848,18 @@ class TaskPool:
                         itask,
                         itask.submit_num)
 
+        # TODO CONSIDER QUEUE OF TASK-ID TO AVOID REFS TO PRE-RELOAD PROXIES
+        # (OR REQUEUE NEW PROXIES WILL BREAK ORDERING?)
+
         # Reassign live tasks to the internal queue
+        del self.task_queue_mgr
         self.task_queue_mgr = IndepQueueManager(
             self.config.cfg['scheduling']['queues'],
             self.config.get_task_name_list(),
             self.config.runtime['descendants']
         )
-        self.task_queue_mgr.adopt_tasks(self.orphans)
+        # NOT NEEDED?
+        #self.task_queue_mgr.adopt_tasks(self.orphans)
         self._queue_tasks()
 
         LOG.info("Reload completed.")
@@ -1308,7 +1343,7 @@ class TaskPool:
                 itask = self.spawn_task(
                     name, point, flow_label, reflow=reflow)
                 itask.is_manual_submit = True
-                self.add_to_pool(itask)
+                self.add_to_pool(itask, is_new=True)
 
         return n_warnings
 
