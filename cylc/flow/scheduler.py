@@ -612,10 +612,6 @@ class Scheduler:
         Lightweight wrapper for convenience.
 
         """
-    
-        #from cylc.flow.cylc_pudb import set_trace
-        #set_trace()
-
         try:
             await self.install()
             await self.initialise()
@@ -1704,13 +1700,15 @@ class Scheduler:
             return False
 
         self.pool.release_runahead_tasks()
-        if [itask for itask in self.pool.get_tasks()
-            if itask.state(
-                TASK_STATUS_PREPARING,
-                TASK_STATUS_SUBMITTED,
-                TASK_STATUS_RUNNING)
-            or (itask.state(TASK_STATUS_WAITING)
-                and not itask.state.is_runahead)
+        if [
+                itask for itask in self.pool.get_tasks()
+                if itask.state(
+                    TASK_STATUS_PREPARING,
+                    TASK_STATUS_SUBMITTED,
+                    TASK_STATUS_RUNNING
+                )
+                or (itask.state(TASK_STATUS_WAITING)
+                    and not itask.state.is_runahead)
         ]:
             # There are more tasks to run.
             # If waiting and not runahead: held, queued, or xtriggered)

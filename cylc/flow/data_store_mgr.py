@@ -1460,8 +1460,7 @@ class DataStoreMgr:
         tp_id, tproxy = self.store_node_fetcher(itask.tdef.name, itask.point)
         if not tproxy:
             return
-        #if itask.state.is_queued is not tproxy.is_queued:
-        if True:
+        if itask.state.is_queued is not tproxy.is_queued:
             tp_delta = self.updated[TASK_PROXIES].setdefault(
                 tp_id, PbTaskProxy(id=tp_id))
             tp_delta.stamp = f'{tp_id}@{time()}'

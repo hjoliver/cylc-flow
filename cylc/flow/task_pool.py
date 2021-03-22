@@ -290,16 +290,16 @@ class TaskPool:
         # And any manually-triggered task.
 
         release = []
-        for itask_id_maps in list(self.main_pool.values()) + list(self.hidden_pool.values()):
+        for itask_id_maps in (
+                list(self.main_pool.values())
+                + list(self.hidden_pool.values())):
             for itask in itask_id_maps.values():
                 if not itask.state.is_runahead:
                     continue
                 if (
-                        itask.state(
-                            TASK_STATUS_FAILED,
-                            TASK_STATUS_SUCCEEDED,
-                            TASK_STATUS_EXPIRED
-                        )
+                    itask.state(TASK_STATUS_FAILED,
+                                TASK_STATUS_SUCCEEDED,
+                                TASK_STATUS_EXPIRED)
                     or itask.is_manual_submit
                 ):
                     release.append(itask)
@@ -611,7 +611,7 @@ class TaskPool:
 
         try:
             del self.hidden_pool[itask.point][itask.identity]
-        except:
+        except KeyError:
             pass
         else:
             # e.g. for suicide?
@@ -619,10 +619,10 @@ class TaskPool:
             if not self.hidden_pool[itask.point]:
                 del self.hidden_pool[itask.point]
             return
- 
+
         try:
             del self.main_pool[itask.point][itask.identity]
-        except:
+        except KeyError:
             pass
         else:
             self.main_pool_changed = True
@@ -860,7 +860,7 @@ class TaskPool:
             self.config.runtime['descendants']
         )
         # NOT NEEDED?
-        #self.task_queue_mgr.adopt_tasks(self.orphans)
+        # self.task_queue_mgr.adopt_tasks(self.orphans)
         self._queue_tasks()
 
         LOG.info("Reload completed.")

@@ -1381,7 +1381,6 @@ class TaskState(InputObjectType):
     '''))
 
 
-
 class TaskName(String):
     """The name a task.
 
