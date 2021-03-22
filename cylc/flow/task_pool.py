@@ -213,9 +213,11 @@ class TaskPool:
         if itask.point in self.hidden_pool:
             if itask.identity in self.hidden_pool[itask.point]:
                 self.hidden_pool[itask.point][itask.identity] = itask
+                self.hidden_pool_changed = True
         elif itask.point in self.main_pool:
             if itask.identity in self.main_pool[itask.point]:
                 self.main_pool[itask.point][itask.identity] = itask
+                self.main_pool_changed = True
 
     def add_to_pool(self, itask, is_new=True):
         """Add a new task to the hidden or main pool.
@@ -837,8 +839,7 @@ class TaskPool:
                 new_task = TaskProxy(
                     self.config.get_taskdef(itask.tdef.name),
                     itask.point,
-                    itask.flow_label, itask.state.status,
-                    submit_num=itask.submit_num)
+                    itask.flow_label, itask.state.status)
                 itask.copy_to_reload_successor(new_task)
                 self.swap_out(new_task)
                 LOG.info('[%s] -reloaded task definition', itask)

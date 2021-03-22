@@ -256,6 +256,7 @@ class TaskProxy:
         reload_successor.timeout = self.timeout
         reload_successor.state.outputs = self.state.outputs
         reload_successor.state.is_held = self.state.is_held
+        reload_successor.state.is_runahead = self.state.is_runahead
         reload_successor.state.is_updated = self.state.is_updated
         reload_successor.state.prerequisites = self.state.prerequisites
         reload_successor.graph_children = self.graph_children
