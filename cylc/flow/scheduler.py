@@ -1568,7 +1568,7 @@ class Scheduler:
     def check_suite_stalled(self):
         """Check if suite is stalled or not."""
         if self.is_stalled:  # already reported
-            return
+            return True
         self.is_stalled = self.pool.is_stalled()
         if self.is_stalled:
             self.run_event_handlers(self.EVENT_STALLED, 'suite stalled')
@@ -1578,6 +1578,7 @@ class Scheduler:
             # Start suite timeout timer
             if self._get_events_conf(self.EVENT_TIMEOUT):
                 self.set_suite_timer()
+        return self.is_stalled
 
     async def shutdown(self, reason):
         """Shutdown the suite.
@@ -1697,6 +1698,11 @@ class Scheduler:
 
         CRITERIA:
         """
+        if self.check_suite_stalled():
+            # Stay up if stalled (unless "abort on stalled" is set)
+            # (implies unhandled failed tasks)
+            return False
+
         self.pool.release_runahead_tasks()
         if [itask for itask in self.pool.get_tasks()
             if itask.state(
@@ -1709,8 +1715,6 @@ class Scheduler:
             # There are more tasks to run.
             # If waiting and not runahead: held, queued, or xtriggered)
             return False
-        # Abort if stalled?
-        self.check_suite_stalled()
         # Can shut down.
         if self.pool.stop_point:
             self.options.stopcp = None

@@ -1266,7 +1266,8 @@ class DataStoreMgr:
                     is_queued_total += 1
 
                 tp_runahead = tp_delta
-                if tp_runahead is None or not tp_runahead.HasField('is_runahead'):
+                if (tp_runahead is None
+                        or not tp_runahead.HasField('is_runahead')):
                     tp_runahead = tp_node
                 if tp_runahead.is_runahead:
                     is_runahead_total += 1
@@ -1363,12 +1364,6 @@ class DataStoreMgr:
             if w_data.newest_active_cycle_point != newest_point:
                 w_delta.newest_active_cycle_point = newest_point
                 delta_set = True
-        # TODO
-        #if self.schd.pool.runahead_pool:
-        #    newest_runahead_point = str(max(set(self.schd.pool.runahead_pool)))
-        #    if w_data.newest_runahead_cycle_point != newest_runahead_point:
-        #        w_delta.newest_runahead_cycle_point = newest_runahead_point
-        #        delta_set = True
 
         if delta_set:
             w_delta.id = self.workflow_id

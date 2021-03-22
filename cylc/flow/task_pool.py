@@ -721,7 +721,7 @@ class TaskPool:
                 self.data_store_mgr.delta_task_clock_trigger(
                     itask, ready_check_items)
 
-            if all(ready_check_items):
+            if all(ready_check_items) and not itask.state.is_runahead:
                 to_queue.append(itask)
 
         self.queue_tasks(to_queue)
