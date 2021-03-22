@@ -640,6 +640,8 @@ class TaskPool:
         point_itasks = {}
         for point, itask_id_map in self.main_pool.items():
             point_itasks[point] = list(itask_id_map.values())
+        for point, itask_id_map in self.hidden_pool.items():
+            point_itasks[point] += list(itask_id_map.values())
         return point_itasks
 
     def _get_hidden_task_by_id(self, id_):
