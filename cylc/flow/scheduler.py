@@ -980,7 +980,6 @@ class Scheduler:
 
     def reset_inactivity_timer(self):
         """Reset suite's inactivity timer."""
-
         timeout = self._get_events_conf(self.EVENT_INACTIVITY_TIMEOUT)
         if timeout is None:
             return
@@ -1454,10 +1453,7 @@ class Scheduler:
             )
 
             self.pool.set_expired_tasks()
-
             self.release_queued_tasks()
-
-            self.pool.dump()
 
             if self.pool.sim_time_check(self.message_queue):
                 # A simulated task state change occurred.
@@ -1743,7 +1739,6 @@ class Scheduler:
             self.options.stopcp = None
             self.pool.stop_point = None
             self.suite_db_mgr.delete_suite_stop_cycle_point()
-        self.pool.dump()
         return True
 
     def pause_workflow(self) -> None:
