@@ -1229,7 +1229,7 @@ class Scheduler:
         # Forget tasks that are no longer preparing for job submission.
         self.pre_submit_tasks = [
             itask for itask in self.pre_submit_tasks if
-            itask.waiting_on_joB_prep
+            itask.waiting_on_job_prep
         ]
 
         if (not self.is_paused and
