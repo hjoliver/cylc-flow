@@ -88,7 +88,8 @@ TASK_ICONS = {
 # unicode modifiers for special task states
 TASK_MODIFIERS = {
     'held': '\u030E',
-    'queued': '\u033F'
+    'queued': '\u033F',
+    'xtriggered': '\u02DF'
 }
 
 # unicode job icon

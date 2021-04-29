@@ -539,6 +539,10 @@ class TaskPool:
         self.data_store_mgr.delta_task_held(itask)
         self.data_store_mgr.delta_task_queued(itask)
 
+        itask.state.xtriggers_all_satisfied()
+        self.data_store_mgr.delta_task_xtriggered(itask)
+        print('RELEASE', itask.state.is_xtriggered)
+
         del self.runahead_pool[itask.point][itask.identity]
         if not self.runahead_pool[itask.point]:
             del self.runahead_pool[itask.point]
@@ -797,6 +801,7 @@ class TaskPool:
                         itask.state(TASK_STATUS_WAITING)
                         or itask.state.is_held
                         or itask.state.is_queued
+                        or itask.state.is_xtriggered
                 ):
                     # Remove orphaned task if it hasn't started running yet.
                     self.remove(itask, 'task definition removed')

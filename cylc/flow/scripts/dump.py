@@ -52,6 +52,7 @@ fragment tProxy on TaskProxy {
   state
   isHeld
   isQueued
+  isXtriggered
   flowLabel
   firstParent {
     id
@@ -257,6 +258,8 @@ def main(_, options, workflow):
                         values.append('held' if item['isHeld'] else 'unheld')
                         values.append('queued' if item['isQueued']
                                       else 'unqueued')
+                        values.append('xtriggered' if item['isXtriggered']
+                                      else 'unxtriggered')
                         if options.flow:
                             values.append(item['flowLabel'])
                         print(', '.join(values))

@@ -156,6 +156,8 @@ def node_filter(node, node_type, args):
          or (node.is_held == args['is_held'])) and
         (args.get('is_queued') is None
          or (node.is_queued == args['is_queued'])) and
+        (args.get('is_xtriggered') is None
+         or (node.is_xtriggered == args['is_xtriggered'])) and
         (args.get('mindepth', -1) < 0 or node.depth >= args['mindepth']) and
         (args.get('maxdepth', -1) < 0 or node.depth <= args['maxdepth']) and
         # Now filter node against id arg lists

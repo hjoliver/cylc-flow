@@ -38,6 +38,7 @@ def get_task_icon(
         *,
         is_held=False,
         is_queued=False,
+        is_xtriggered=False,
         start_time=None,
         mean_time=None):
     """Return a Unicode string to represent a task.
@@ -49,6 +50,8 @@ def get_task_icon(
             True if the task is held.
         is_queued (bool):
             True if the task is queued.
+        is_xtriggered (bool):
+            True if the task is xtriggered.
         start_time (str):
             Start date time string.
         mean_time (int):
@@ -64,6 +67,8 @@ def get_task_icon(
         ret.append(TASK_MODIFIERS['held'])
     elif is_queued:
         ret.append(TASK_MODIFIERS['queued'])
+    elif is_xtriggered:
+        ret.append(TASK_MODIFIERS['xtriggered'])
     if (
             status == TASK_STATUS_RUNNING
             and start_time
@@ -403,6 +408,7 @@ def render_node(node, data, type_):
             data['state'],
             is_held=data['isHeld'],
             is_queued=data['isQueued'],
+            is_xtriggered=data['isXtriggered'],
             start_time=start_time,
             mean_time=mean_time
         )
@@ -422,7 +428,8 @@ def render_node(node, data, type_):
             get_task_icon(
                 data['state'],
                 is_held=data['isHeld'],
-                is_queued=data['isQueued']
+                is_queued=data['isQueued'],
+                is_xtriggered=data['isXtriggered']
             ),
             ' ',
             data['id'].rsplit(ID_DELIM, 1)[-1]

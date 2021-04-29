@@ -177,6 +177,8 @@ class TaskState:
             True if the task is held else False.
         .is_queued (bool):
             True if the task is queued else False.
+        .is_xtriggered (bool):
+            True if the task is waiting on xtriggers else False.
         .identity (str):
             The task ID as `TASK.CYCLE` associated with this object.
         .is_updated (boolean):
@@ -206,6 +208,7 @@ class TaskState:
         "external_triggers",
         "is_held",
         "is_queued",
+        "is_xtriggered",
         "identity",
         "is_updated",
         "kill_failed",
@@ -224,6 +227,7 @@ class TaskState:
         self.status = status
         self.is_held = is_held
         self.is_queued = False
+        self.is_xtriggered = False
         self.is_updated = False
         self.time_updated = None
 
@@ -253,15 +257,18 @@ class TaskState:
         self.kill_failed = False
 
     def __str__(self):
-        """Print status (is_held) (is_queued)."""
+        """Print status (is_held) (is_queued) (is_xtriggered)."""
         ret = self.status
         if self.is_held:
             ret += ' (held)'
         if self.is_queued:
             ret += ' (queued)'
+        if self.is_xtriggered:
+            ret += ' (xtriggered)'
         return ret
 
-    def __call__(self, *status, is_held=None, is_queued=None):
+    def __call__(self,
+                 *status, is_held=None, is_queued=None, is_xtriggered=None):
         """Compare task state attributes.
 
         Args:
@@ -282,6 +289,11 @@ class TaskState:
                     Check the task is_queued attribute is the same as provided
                 ``None``
                     Do not check the is_queued attribute
+            is_xtriggered (bool):
+                ``bool``
+                    Check the task is_xtriggered attribute is as provided
+                ``None``
+                    Do not check the is_xtriggered attribute
         """
         return (
             (
@@ -293,8 +305,10 @@ class TaskState:
             ) and (
                 is_queued is None
                 or self.is_queued == is_queued
+            ) and (
+                is_xtriggered is None
+                or self.is_xtriggered == is_xtriggered
             )
-
         )
 
     def satisfy_me(self, all_task_outputs):
@@ -307,7 +321,11 @@ class TaskState:
 
     def xtriggers_all_satisfied(self):
         """Return True if all xtriggers are satisfied."""
-        return all(self.xtriggers.values())
+        #if not self.is_xtriggered:
+        #    return False
+        self.is_xtriggered = not all(self.xtriggers.values())
+        print('STATE:', self.is_xtriggered)
+        return not self.is_xtriggered
 
     def prerequisites_all_satisfied(self):
         """Return True if (non-suicide) prerequisites are fully satisfied."""
@@ -372,7 +390,8 @@ class TaskState:
         return list(sorted(dep for prereq in self.prerequisites for dep in
                            prereq.get_resolved_dependencies()))
 
-    def reset(self, status=None, is_held=None, is_queued=None):
+    def reset(self,
+              status=None, is_held=None, is_queued=None, is_xtriggered=None):
         """Change status, and manipulate outputs and prerequisites accordingly.
 
         Outputs are manipulated on manual state reset to reflect the new task
@@ -393,12 +412,14 @@ class TaskState:
         current_status = (
             self.status,
             self.is_held,
-            self.is_queued
+            self.is_queued,
+            self.is_xtriggered
         )
         requested_status = (
             status if status is not None else self.status,
             is_held if is_held is not None else self.is_held,
-            is_queued if is_queued is not None else self.is_queued
+            is_queued if is_queued is not None else self.is_queued,
+            is_xtriggered if is_xtriggered is not None else self.is_xtriggered
         )
         if current_status == requested_status:
             # no change - do nothing
@@ -407,7 +428,9 @@ class TaskState:
         prev_message = str(self)
 
         # perform the actual state change
-        self.status, self.is_held, self.is_queued = requested_status
+        self.status, self.is_held, self.is_queued, self.is_xtriggered = (
+            requested_status
+        )
 
         self.time_updated = get_current_time_string()
         self.is_updated = True
