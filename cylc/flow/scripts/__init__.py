@@ -27,27 +27,54 @@ _copyright_year = 2021  # This is set by GH Actions update_copyright workflow
 # fmt: off
 LOGO_LETTERS = (
     (
-        "oooo",
-        "oo  ",
-        "oooo",
+        "ooooo",
+        "oo   ",
+        "ooooo",
+        "ooooo",
     ),
     (
-        "oo oo",
+        "o  oo",
         "ooooo",
         "   oo",
+        "ooooo",
     ),
     (
-        "oo",
-        "oo",
-        "oo",
+        "o    ",
+        "o    ",
+        "ooooo",
+        "ooooo",
     ),
     (
-        "oooo",
-        "oo  ",
-        "oooo",
+        "ooooo",
+        "ooooo",
+        "oo   ",
+        "ooooo",
     )
 )
 # fmt: on
+
+CYLC = (
+    "<red>C</red>"
+    "<yellow>y</yellow>"
+    "<green>l</green>"
+    "<blue>c</blue>"
+    " "
+    "<red>W</red>"
+    "<yellow>o</yellow>"
+    "<green>r</green>"
+    "<blue>k</blue>"
+    "<red>f</red>"
+    "<yellow>l</yellow>"
+    "<green>o</green>"
+    "<blue>w</blue>"
+    " "
+    "<red>E</red>"
+    "<yellow>n</yellow>"
+    "<green>g</green>"
+    "<blue>i</blue>"
+    "<red>n</red>"
+    "<yellow>e</yellow>"
+)
 
 LOGO = [
     ''.join(
@@ -58,23 +85,16 @@ LOGO = [
         )
     )
     for ind in range(len(LOGO_LETTERS[0]))
-]
+] + [CYLC]
 
-CYLC = (
-    "<b>"
-    "<red>C</red>"
-    "<yellow>y</yellow>"
-    "<green>l</green>"
-    "<blue>c</blue>"
-    "</b>"
-)
-
-VERSION = f"<b><yellow>{__version__}</yellow></b>"
+VERSION = f"<blue>Version {__version__}</blue>"
 
 LICENSE = [
-    f"{CYLC} Workflow Engine {VERSION}",
     f"Copyright (C) 2008-{_copyright_year} NIWA",
-    "& British Crown (Met Office) & Contributors"
+    "& British Crown (Met Office)",
+    "& Contributors",
+    f"{VERSION}",
+    ""
 ]
 
 
