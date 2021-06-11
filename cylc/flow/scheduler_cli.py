@@ -17,6 +17,7 @@
 
 import asyncio
 from functools import lru_cache
+from contextlib import suppress
 import os
 import sys
 
@@ -254,12 +255,10 @@ def _open_logs(reg, no_detach):
 def _close_logs():
     """Close Cylc log handlers for a flow run."""
     for handler in LOG.handlers:
-        try:
-            handler.close()
-        except IOError:
+        with suppress(IOError):
             # suppress traceback which `logging` might try to write to the
             # log we are trying to close
-            pass
+            handler.close()
 
 
 def scheduler_cli(parser, options, reg):

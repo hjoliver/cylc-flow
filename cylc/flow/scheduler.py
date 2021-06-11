@@ -17,6 +17,7 @@
 
 import asyncio
 from collections import deque
+from contextlib import suppress
 from cylc.flow.parsec.exceptions import TemplateVarLanguageClash
 from dataclasses import dataclass
 import logging
@@ -122,15 +123,10 @@ class SchedulerError(CylcError):
     pass
 
 
+@dataclass
 class SchedulerUUID:
     """Scheduler identifier - which persists on restart."""
-    __slots__ = ('value')
-
-    def __init__(self):
-        self.value = str(uuid4())
-
-    def __str__(self):
-        return self.value
+    value: str(uuid4())
 
 
 @dataclass
@@ -695,14 +691,14 @@ class Scheduler:
         for itask in self.pool.get_tasks():
             itask.platform['install target'] = (
                 get_install_target_from_platform(itask.platform))
-            if itask.state(*TASK_STATUSES_ACTIVE):
-                if not (
-                    is_platform_with_target_in_list(
-                        itask.platform['install target'],
-                        distinct_install_target_platforms
-                    )
-                ):
-                    distinct_install_target_platforms.append(itask.platform)
+            if (
+                itask.state(*TASK_STATUSES_ACTIVE)
+                and not is_platform_with_target_in_list(
+                    itask.platform['install target'],
+                    distinct_install_target_platforms
+                )
+            ):
+                distinct_install_target_platforms.append(itask.platform)
 
         incomplete_init = False
         for platform in distinct_install_target_platforms:
@@ -1198,13 +1194,9 @@ class Scheduler:
         Run workflow events in simulation and dummy mode ONLY if enabled.
         """
         conf = self.config
-        try:
-            if (
-                conf.run_mode('simulation', 'dummy')
-            ):
+        with suppress(KeyError):
+            if conf.run_mode('simulation', 'dummy'):
                 return
-        except KeyError:
-            pass
         self.workflow_event_handler.handle(conf, WorkflowEventContext(
             event, str(reason), self.workflow, self.uuid_str, self.owner,
             self.host, self.server.port))
@@ -1414,10 +1406,12 @@ class Scheduler:
 
             self.process_command_queue()
 
-            if not self.is_paused:
-                if self.pool.release_runahead_tasks():
-                    self.is_updated = True
-                    self.reset_inactivity_timer()
+            if (
+                not self.is_paused
+                and self.pool.release_runahead_tasks()
+            ):
+                self.is_updated = True
+                self.reset_inactivity_timer()
 
             self.proc_pool.process()
 
@@ -1636,10 +1630,7 @@ class Scheduler:
                 self.resume_workflow(quiet=True)
         elif isinstance(reason, SchedulerError):
             LOG.error(f'Workflow shutting down - {reason}')
-        elif (
-            isinstance(reason, CylcError)
-            or isinstance(reason, TemplateVarLanguageClash)
-        ):
+        elif isinstance(reason, (CylcError, TemplateVarLanguageClash)):
             LOG.error(
                 "Workflow shutting down - "
                 f"{reason.__class__.__name__}: {reason}")
