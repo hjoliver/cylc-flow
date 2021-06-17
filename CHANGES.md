@@ -56,9 +56,12 @@ Third beta release of Cylc 8.
 
 ### Enhancements
 
+[#4259](https://github.com/cylc/cylc-flow/pull/4259)
+- Ignore pre-initial dependencies with `cylc play --start-task`
+
 [#4103](https://github.com/cylc/cylc-flow/pull/4103)
 - Expose runahead limiting to UIs; restore correct force-triggering of queued
-- tasks for Cylc 8.
+tasks for Cylc 8.
 
 [#4218](https://github.com/cylc/cylc-flow/pull/4218)
 - Start a new run from specified tasks.
