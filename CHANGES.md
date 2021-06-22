@@ -56,18 +56,18 @@ Third beta release of Cylc 8.
 
 ### Enhancements
 
-[#4259](https://github.com/cylc/cylc-flow/pull/4259)
-- Ignore pre-initial dependencies with `cylc play --start-task`
+[#4259](https://github.com/cylc/cylc-flow/pull/4259)-
+Ignore pre-initial dependencies with `cylc play --start-task`
 
-[#4103](https://github.com/cylc/cylc-flow/pull/4103)
-- Expose runahead limiting to UIs; restore correct force-triggering of queued
+[#4103](https://github.com/cylc/cylc-flow/pull/4103) -
+Expose runahead limiting to UIs; restore correct force-triggering of queued
 tasks for Cylc 8.
 
-[#4218](https://github.com/cylc/cylc-flow/pull/4218)
-- Start a new run from specified tasks.
+[#4218](https://github.com/cylc/cylc-flow/pull/4218) - Add ability to
+start a new run from specified tasks instead of a cycle point.
 
-[#4214](https://github.com/cylc/cylc-flow/pull/4214)
-- Unify `-v --verbose`, `-q --quiet` and `--debug` options.
+[#4214](https://github.com/cylc/cylc-flow/pull/4214) -
+Unify `-v --verbose`, `-q --quiet` and `--debug` options.
 
 [#4174](https://github.com/cylc/cylc-flow/pull/4174) - Terminology: replace
 "suite" with "workflow".
@@ -80,10 +80,14 @@ functionality is now provided by `[symlink dirs]`.
 [#4142](https://github.com/cylc/cylc-flow/pull/4142) - Record source directory
 version control information on installation of a workflow.
 
-[#4222](https://github.com/cylc/cylc-flow/pull/4222) - Fix bug where a
-workflow's public database file was not closed properly.
+[#4238](https://github.com/cylc/cylc-flow/pull/4238) - Future tasks can now
+be held in advance using `cylc hold` (previously it was only active tasks
+that could be held).
 
 ### Fixes
+
+[#4272](https://github.com/cylc/cylc-flow/pull/4272) - Workflow visualisation
+data (data-store) now constrained by final cycle point.
 
 [#4248](https://github.com/cylc/cylc-flow/pull/4248)
  - Fix parameter expansion in inherited task environments.
@@ -108,6 +112,9 @@ section for validity.
 a workflow that uses the deprecated `suite.rc` filename would symlink `flow.cylc`
 to the `suite.rc` in the source dir instead of the run dir. Also fixes a couple
 of other, small bugs.
+
+[#4222](https://github.com/cylc/cylc-flow/pull/4222) - Fix bug where a
+workflow's public database file was not closed properly.
 
 -------------------------------------------------------------------------------
 ## __cylc-8.0b1 (<span actions:bind='release-date'>Released 2021-04-21</span>)__
