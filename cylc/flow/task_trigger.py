@@ -183,7 +183,7 @@ class Dependency:
         self.task_triggers = tuple(task_triggers)  # More memory efficient.
         self.suicide = suicide
 
-    def get_prerequisite(self, point, tdef):
+    def get_prerequisite(self, point, tdef, startcp):
         """Generate a Prerequisite object from this dependency.
 
         Args:
@@ -197,7 +197,7 @@ class Dependency:
 
         """
         # Create Prerequisite.
-        cpre = Prerequisite(point, tdef.start_point)
+        cpre = Prerequisite(point, startcp)
 
         # Loop over TaskTrigger instances.
         for task_trigger in self.task_triggers:
@@ -221,10 +221,7 @@ class Dependency:
                     task_trigger.task_name,
                     task_trigger.get_point(point),
                     task_trigger.output,
-                    (
-                        (prereq_offset_point < tdef.start_point) &
-                        (point >= tdef.start_point)
-                    )
+                    prereq_offset_point
                 )
             else:
                 # Trigger is within the same cycle point.

@@ -86,6 +86,7 @@ class FlowLabelMgr:
         """Store available and used labels."""
         self.avail = set(ascii_letters)
         self.inuse = set()
+        self.startcp = {}  # startcp[label] = cycle-point
 
     def get_num_inuse(self):
         """Return the number of labels currently in use."""
@@ -97,15 +98,17 @@ class FlowLabelMgr:
         for label in labels:
             with suppress(KeyError):
                 self.inuse.remove(label)
+                del self.startcp[label]
             self.avail.add(label)
 
-    def get_new_label(self):
+    def get_new_label(self, startcp=None):
         """Return a new label, or None if we've run out."""
         try:
             label = self.avail.pop()
         except KeyError:
             return None
         self.inuse.add(label)
+        self.startcp[label] = startcp
         return label
 
     @staticmethod
@@ -120,6 +123,7 @@ class FlowLabelMgr:
 
         Note the incoming labels could already be merged.
         """
+        # TODO STARTCP FOR MERGED LABELS (earliest?)
         if lab1 == lab2:
             return lab1
         labs1 = set(lab1)
@@ -431,6 +435,7 @@ class TaskPool:
         """
         if row_idx == 0:
             LOG.info("LOADING task proxies")
+        # TODO FLOW START CP FROM DB
         # Create a task proxy corresponding to this DB entry.
         (cycle, name, flow_label, is_late, status, is_held, submit_num, _,
          platform_name, time_submit, time_run, timeout, outputs_str) = row
@@ -824,8 +829,9 @@ class TaskPool:
             else:
                 new_task = TaskProxy(
                     self.config.get_taskdef(itask.tdef.name),
-                    itask.point,
-                    itask.flow_label, itask.state.status)
+                    itask.point, itask.flow_label,
+                    itask.state.status
+                )
                 itask.copy_to_reload_successor(new_task)
                 self._swap_out(new_task)
                 LOG.info('[%s] -reloaded task definition', itask)
@@ -1415,7 +1421,11 @@ class TaskPool:
         """
         # TODO check reflow from existing tasks - unless unhandled fail?
         n_warnings, task_items = self.match_taskdefs(items)
-        flow_label = self.flow_label_mgr.get_new_label()
+        startcp = min(
+            get_point(point_str)
+            for _, point_str in task_items.keys()
+        )
+        flow_label = self.flow_label_mgr.get_new_label(startcp)
         for name, point in task_items.keys():
             itask = self.get_task_main(name, point, flow_label)
             if itask is not None:

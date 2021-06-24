@@ -76,7 +76,7 @@ class Prerequisite:
         # * `False` (prerequisite unsatisfied).
         self._all_satisfied = None
 
-    def add(self, name, point, output, pre_initial=False):
+    def add(self, name, point, output, offset_point=None):
         """Register an output with this prerequisite.
 
         Args:
@@ -84,13 +84,18 @@ class Prerequisite:
             point (str/cylc.flow.cycling.PointBase): The cycle point at which
                 this dependent output should appear.
             output (str): String representing the output e.g. "succeeded".
-            pre_initial (bool): this is a pre-initial dependency.
+            offset_point: TODO
 
         """
         message = (name, str(point), output)
 
         # Add a new prerequisite as satisfied if pre-initial, else unsatisfied.
-        if pre_initial:
+        if (
+            offset_point is not None and
+            (offset_point < self.start_point) and
+            (point >= self.start_point)
+        ):
+            # Assume pre-intial deps satisfied.
             self.satisfied[message] = self.DEP_STATE_SATISFIED
         else:
             self.satisfied[message] = self.DEP_STATE_UNSATISFIED

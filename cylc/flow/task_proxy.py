@@ -145,6 +145,7 @@ class TaskProxy:
         start_point: Start point to calculate the task's cycle point on
             start-up or the cycle point for subsequent tasks.
         flow_label: Which flow within the scheduler this task belongs to.
+        flow_startcp: start cycle point of flow
         status: Task state string.
         is_held: True if the task is held, else False.
         submit_num: Number of times the task has attempted job submission.
@@ -187,6 +188,7 @@ class TaskProxy:
         tdef: 'TaskDef',
         start_point: 'PointBase',
         flow_label: Optional[str],
+        flow_startcp: Optional['PointBase'],
         status: str = TASK_STATUS_WAITING,
         is_held: bool = False,
         submit_num: int = 0,
@@ -221,7 +223,7 @@ class TaskProxy:
             'execution_time_limit': None,
             'job_runner_name': None,
             'submit_method_id': None,
-            'flow_label': None
+            'flow_label': None,
         }
 
         self.local_job_file_path: Optional[str] = None
@@ -240,7 +242,7 @@ class TaskProxy:
         self.is_late = is_late
         self.waiting_on_job_prep = True
 
-        self.state = TaskState(tdef, self.point, status, is_held)
+        self.state = TaskState(tdef, self.point, status, is_held, flow_startcp)
 
         # Determine graph children of this task (for spawning).
         self.graph_children = generate_graph_children(tdef, self.point)

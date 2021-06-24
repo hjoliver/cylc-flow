@@ -222,7 +222,7 @@ class TaskState:
         "_suicide_is_satisfied",
     ]
 
-    def __init__(self, tdef, point, status, is_held):
+    def __init__(self, tdef, point, status, is_held, startcp):
         self.identity = TaskID.get(tdef.name, str(point))
         self.status = status
         self.is_held = is_held
@@ -237,7 +237,7 @@ class TaskState:
         # Prerequisites.
         self.prerequisites = []
         self.suicide_prerequisites = []
-        self._add_prerequisites(point, tdef)
+        self._add_prerequisites(point, tdef, startcp)
 
         # External Triggers.
         self.external_triggers = {}
@@ -476,7 +476,7 @@ class TaskState:
         return (TASK_STATUSES_ORDERED.index(self.status) >
                 TASK_STATUSES_ORDERED.index(status))
 
-    def _add_prerequisites(self, point, tdef):
+    def _add_prerequisites(self, point, tdef, startcp):
         """Add task prerequisites."""
         # Triggers for sequence_i only used if my cycle point is a
         # valid member of sequence_i's sequence of cycle points.
@@ -487,7 +487,8 @@ class TaskState:
             if not sequence.is_valid(point):
                 continue
             for dependency in dependencies:
-                cpre = dependency.get_prerequisite(point, tdef)
+                # TODO STARTCP FOR SEQUENTIAL, SEE BELOW
+                cpre = dependency.get_prerequisite(point, tdef, startcp)
                 if dependency.suicide:
                     self.suicide_prerequisites.append(cpre)
                 else:
