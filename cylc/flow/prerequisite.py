@@ -88,16 +88,12 @@ class Prerequisite:
 
         """
         message = (name, str(point), output)
-        print('>>>', message)
-        print(' ', offset_point, self.start_point, point)
-
         # Add a new prerequisite as satisfied if pre-initial, else unsatisfied.
         if (
             offset_point is not None and
             (offset_point < self.start_point) and
             (point >= self.start_point)
         ):
-            print('SATISFIED')
             # Assume pre-intial deps satisfied.
             self.satisfied[message] = self.DEP_STATE_SATISFIED
         else:

@@ -1478,8 +1478,7 @@ class TaskPool:
                     self.task_queue_mgr.force_release_task(itask)
             else:
                 # Spawn with new flow label.
-                itask = self.spawn_task(
-                    name, point, flow_label, startcp, reflow=reflow)
+                itask = self.spawn_task(name, point, flow_label, reflow=reflow)
                 itask.is_manual_submit = True
                 # This will queue the task.
                 self.add_to_pool(itask, is_new=True)
