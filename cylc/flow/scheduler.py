@@ -638,7 +638,7 @@ class Scheduler:
             start_type = "Warm" if self.options.startcp else "Cold"
             LOG.info(f"{start_type} start from {self.config.start_point}")
 
-        flow_label = self.pool.flow_label_mgr.get_new_label()
+        flow_label = self.pool.flow_label_mgr.get_new_label(self.config.start_point)
         for name in self.config.get_task_name_list():
             if self.config.start_point is None:
                 # No start cycle point at which to load cycling tasks.

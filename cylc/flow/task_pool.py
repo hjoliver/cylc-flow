@@ -69,6 +69,9 @@ class FlowLabelMgr:
     """
     Manage flow labels consisting of a string of one or more letters [a-zA-Z].
 
+    Also manage flow-specific properties so that task proxy instances don't
+    have to.
+
     Flow labels are task attributes representing the flow the task belongs to,
     passed down to spawned children. If a new flow is started, a new single
     character label is chosen randomly. This allows for 52 simultaneous flows
@@ -86,10 +89,11 @@ class FlowLabelMgr:
         """Store available and used labels."""
         self.chars_avail = set(ascii_letters)
         self.inuse = set()
-        self.startcp = {}  # startcp[label] = start point for the labelled flow
+        # flow properties:
+        self.startcp = {}  # startcp[label] = ...
 
-    def get_new_label(self, startcp=None):
-        """Return a new label, or None if we've run out."""
+    def get_new_label(self, startcp):
+        """Generate a new label and return it, or return None if run out."""
         try:
             label = self.chars_avail.pop()
         except KeyError:
@@ -98,13 +102,19 @@ class FlowLabelMgr:
         self.startcp[label] = startcp
         return label
 
+    def get_startcp(self, label):
+        startcp = None
+        with suppress(KeyError):
+            startcp = self.startcp[label]
+        return startcp
+
     @staticmethod
     def merge_labels(lab1, lab2):
         """Return a merged label representing flows lab1 and lab2.
 
         Note the incoming labels could already be merged.
         """
-        # TODO STARTCP FOR MERGED LABELS (earliest?)
+        # TODO STARTCP FOR MERGED LABELS
         if lab1 == lab2:
             return lab1
         return ''.join(
@@ -113,6 +123,7 @@ class FlowLabelMgr:
 
     def _unmerge_labels(prune, target):
         """Unmerge prune from target."""
+        # TODO STARTCP FOR MERGED LABELS
         for char in list(prune):
             target = target.replace(char, '')
         return target
@@ -152,11 +163,11 @@ class FlowLabelMgr:
         for itask in tasks:
             itask.flow_label = self._unmerge_labels(to_prune, itask.flow_label)
         # Return to_prune to the pool of available labels.
+        # TODO HANDLE STARTCP
         LOG.debug("Returning flow label(s) %s", labels)
         for label in to_prune:
             with suppress(KeyError):
                 self.inuse.remove(label)
-                del self.startcp[label]
             self.chars_avail.add(label)
 
 
@@ -446,7 +457,7 @@ class TaskPool:
         """
         if row_idx == 0:
             LOG.info("LOADING task proxies")
-        # TODO FLOW START CP FROM DB
+        # TODO FLOW STARTCP FROM DB
         # Create a task proxy corresponding to this DB entry.
         (cycle, name, flow_label, is_late, status, is_held, submit_num, _,
          platform_name, time_submit, time_run, timeout, outputs_str) = row
@@ -841,6 +852,7 @@ class TaskPool:
                 new_task = TaskProxy(
                     self.config.get_taskdef(itask.tdef.name),
                     itask.point, itask.flow_label,
+                    self.flow_label_mgr.get_startcp(itask.flow_label),
                     itask.state.status
                 )
                 itask.copy_to_reload_successor(new_task)
@@ -1284,6 +1296,7 @@ class TaskPool:
 
         return True
 
+    # TODO ARE FLOW_LABEL AND STARTCP OPTIONAL BELOW?
     def spawn_task(
         self,
         name: str,
@@ -1296,6 +1309,7 @@ class TaskPool:
         if not self.can_spawn(name, point):
             return None
 
+        startcp = self.flow_label_mgr.get_startcp(flow_label)
         # Get submit number by flow label {flow_label: submit_num, ...}
         snums = self.workflow_db_mgr.pri_dao.select_submit_nums(
             name, str(point)
@@ -1321,7 +1335,8 @@ class TaskPool:
             return None
 
         itask = TaskProxy(
-            taskdef, point, flow_label, submit_num=submit_num, reflow=reflow
+            taskdef, point, flow_label, startcp,
+            submit_num=submit_num, reflow=reflow
         )
         if (name, point) in self.tasks_to_hold:
             LOG.info(f"[{itask}] -holding (as requested earlier)")
@@ -1406,10 +1421,16 @@ class TaskPool:
     def force_spawn_children(self, items, outputs):
         """Spawn downstream children of given task outputs on user command."""
         n_warnings, task_items = self.match_taskdefs(items)
+        # TODO HANDLE FLOW LABEL AND STARTCP HERE?
         for (_, point), taskdef in sorted(task_items.items()):
+            # NOTE CHANGE: CONSIDERING THIS THE SAME FLOW
             # This the upstream target task:
-            itask = TaskProxy(taskdef, point,
-                              self.flow_label_mgr.get_new_label())
+            itask = TaskProxy(
+                taskdef,
+                point,
+                None,
+                None,
+            )
             # Spawn downstream on selected outputs.
             for trig, out, _ in itask.state.outputs.get_all():
                 if trig in outputs:
@@ -1432,6 +1453,7 @@ class TaskPool:
         """
         # TODO check reflow from existing tasks - unless unhandled fail?
         n_warnings, task_items = self.match_taskdefs(items)
+        # Manual triggering starts a new flow with a new startcp.
         startcp = min(
             get_point(point_str)
             for _, point_str in task_items.keys()
@@ -1441,6 +1463,8 @@ class TaskPool:
             itask = self.get_task_main(name, point, flow_label)
             if itask is not None:
                 # Already in pool: trigger and merge flow labels.
+                # Note no need to regenerate prereqs for new startcp for
+                # the manually triggered task itself.
                 itask.is_manual_submit = True
                 itask.reset_try_timers()
                 # (If None, spawner reports cycle bounds errors).
@@ -1455,7 +1479,7 @@ class TaskPool:
             else:
                 # Spawn with new flow label.
                 itask = self.spawn_task(
-                    name, point, flow_label, reflow=reflow)
+                    name, point, flow_label, startcp, reflow=reflow)
                 itask.is_manual_submit = True
                 # This will queue the task.
                 self.add_to_pool(itask, is_new=True)

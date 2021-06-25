@@ -487,7 +487,6 @@ class TaskState:
             if not sequence.is_valid(point):
                 continue
             for dependency in dependencies:
-                # TODO STARTCP FOR SEQUENTIAL, SEE BELOW
                 cpre = dependency.get_prerequisite(point, tdef, startcp)
                 if dependency.suicide:
                     self.suicide_prerequisites.append(cpre)
@@ -495,6 +494,7 @@ class TaskState:
                     self.prerequisites.append(cpre)
 
         if tdef.sequential:
+            # TODO STARTCP FOR SEQUENTIAL
             # Add a previous-instance succeeded prerequisite.
             adjusted = []
             for seq in tdef.sequences:

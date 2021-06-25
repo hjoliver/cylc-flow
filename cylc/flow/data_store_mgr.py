@@ -742,6 +742,7 @@ class DataStoreMgr:
                 TaskProxy(
                     self.schd.config.get_taskdef(t_name),
                     t_point, flow_label,
+                    self.schd.pool.flow_label_mgr.get_startcp(flow_label),
                     submit_num=0, reflow=reflow),
                 edge_distance, active_id, descendant, is_parent)
 

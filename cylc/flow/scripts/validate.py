@@ -129,10 +129,11 @@ def main(_, options, reg):
     # TODO - This is not exhaustive, it only uses the initial cycle point.
     if cylc.flow.flags.verbosity > 0:
         print('Instantiating tasks to check trigger expressions')
-    flow_label = FlowLabelMgr().get_new_label()
+    flow_label = FlowLabelMgr().get_new_label(cfg.start_point)
     for name, taskdef in cfg.taskdefs.items():
         try:
-            itask = TaskProxy(taskdef, cfg.start_point, flow_label)
+            itask = TaskProxy(
+                taskdef, cfg.start_point, flow_label, cfg.start_point)
         except TaskProxySequenceBoundsError:
             # Should already failed above
             mesg = 'Task out of bounds for %s: %s\n' % (cfg.start_point, name)
