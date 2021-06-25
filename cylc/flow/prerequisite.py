@@ -76,7 +76,7 @@ class Prerequisite:
         # * `False` (prerequisite unsatisfied).
         self._all_satisfied = None
 
-    def add(self, name, point, output, offset_point=None):
+    def add(self, name, point, output):
         """Register an output with this prerequisite.
 
         Args:
@@ -90,9 +90,9 @@ class Prerequisite:
         message = (name, str(point), output)
         # Add a new prerequisite as satisfied if pre-initial, else unsatisfied.
         if (
-            offset_point is not None and
-            (offset_point < self.start_point) and
-            (point >= self.start_point)
+            point is not self.point and
+            (point < self.start_point) and
+            (self.point >= self.start_point)
         ):
             # Assume pre-intial deps satisfied.
             self.satisfied[message] = self.DEP_STATE_SATISFIED

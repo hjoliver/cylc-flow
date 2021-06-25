@@ -213,9 +213,8 @@ class Dependency:
                     tdef.max_future_prereq_offset = prereq_offset
             cpre.add(
                 task_trigger.task_name,
-                point,
-                task_trigger.output,
-                prereq_offset_point
+                prereq_offset_point,
+                task_trigger.output
             )
         cpre.set_condition(self.get_expression(point))
         return cpre
