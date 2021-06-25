@@ -84,27 +84,14 @@ class FlowLabelMgr:
     """
     def __init__(self):
         """Store available and used labels."""
-        self.avail = set(ascii_letters)
+        self.chars_avail = set(ascii_letters)
         self.inuse = set()
-        self.startcp = {}  # startcp[label] = cycle-point
-
-    def get_num_inuse(self):
-        """Return the number of labels currently in use."""
-        return len(list(self.inuse))
-
-    def make_avail(self, labels):
-        """Return labels (set) to the pool of available labels."""
-        LOG.info("returning flow label(s) %s", labels)
-        for label in labels:
-            with suppress(KeyError):
-                self.inuse.remove(label)
-                del self.startcp[label]
-            self.avail.add(label)
+        self.startcp = {}  # startcp[label] = start point for the labelled flow
 
     def get_new_label(self, startcp=None):
         """Return a new label, or None if we've run out."""
         try:
-            label = self.avail.pop()
+            label = self.chars_avail.pop()
         except KeyError:
             return None
         self.inuse.add(label)
@@ -112,26 +99,19 @@ class FlowLabelMgr:
         return label
 
     @staticmethod
-    def get_common_labels(labels):
-        """Return list of common labels."""
-        set_labels = [set(lab) for lab in labels]
-        return set.intersection(*set_labels)
-
-    @staticmethod
     def merge_labels(lab1, lab2):
-        """Return the label representing both lab1 and lab2.
+        """Return a merged label representing flows lab1 and lab2.
 
         Note the incoming labels could already be merged.
         """
         # TODO STARTCP FOR MERGED LABELS (earliest?)
         if lab1 == lab2:
             return lab1
-        labs1 = set(lab1)
-        labs2 = set(lab2)
-        return ''.join(labs1.union(labs2))
+        return ''.join(
+            set(lab1).union(set(lab2))
+        )
 
-    @staticmethod
-    def unmerge_labels(prune, target):
+    def _unmerge_labels(prune, target):
         """Unmerge prune from target."""
         for char in list(prune):
             target = target.replace(char, '')
@@ -139,14 +119,45 @@ class FlowLabelMgr:
 
     @staticmethod
     def match_labels(lab1, lab2):
-        """Return True if lab1 and lab2 have any labels in common.
+        """Return True if lab1 and lab2 have characters in common.
 
-        If they do, the owner tasks can be considered part of the same flow.
+        If they do, the tasks can be considered part of the same flow.
         Note the incoming labels could already be merged.
         """
-        labs1 = set(lab1)
-        labs2 = set(lab2)
-        return bool(labs1.intersection(labs2))
+        return bool(
+            set(lab1).intersection(set(lab2))
+        )
+
+    def prune_labels(self, tasks):
+        """BLAH"""
+        if len(list(self.inuse)) == 1:
+            # Nothing to do.
+            return
+        # Gather all current labels.
+        labels = [itask.flow_label for itask in tasks]
+        if not labels:
+            return
+        # Find any labels common to all tasks.
+        set_labels = [set(lab) for lab in labels]
+        common = set.intersection(*set_labels)
+        # And prune them back to just one.
+        num = len(list(common))
+        if num <= 1:
+            return
+        LOG.debug('Pruning redundant flow labels: %s', common)
+        to_prune = []
+        while num > 1:
+            to_prune.append(common.pop())
+            num -= 1
+        for itask in tasks:
+            itask.flow_label = self._unmerge_labels(to_prune, itask.flow_label)
+        # Return to_prune to the pool of available labels.
+        LOG.debug("Returning flow label(s) %s", labels)
+        for label in to_prune:
+            with suppress(KeyError):
+                self.inuse.remove(label)
+                del self.startcp[label]
+            self.chars_avail.add(label)
 
 
 class TaskPool:
@@ -1579,28 +1590,7 @@ class TaskPool:
         infrequently and doesn't do anything if there is only one flow.
 
         """
-        if self.flow_label_mgr.get_num_inuse() == 1:
-            # Nothing to do.
-            return
-        # Gather all current labels.
-        labels = [itask.flow_label for itask in self.get_all_tasks()]
-        if not labels:
-            return
-        # Find any labels common to all tasks.
-        common = self.flow_label_mgr.get_common_labels(labels)
-        # And prune them back to just one.
-        num = len(list(common))
-        if num <= 1:
-            return
-        LOG.debug('Pruning redundant flow labels: %s', common)
-        to_prune = []
-        while num > 1:
-            to_prune.append(common.pop())
-            num -= 1
-        for itask in self.get_all_tasks():
-            itask.flow_label = self.flow_label_mgr.unmerge_labels(
-                to_prune, itask.flow_label)
-        self.flow_label_mgr.make_avail(to_prune)
+        self.flow_label_mgr.prune_labels(self.get_all_tasks())
 
     @staticmethod
     def _parse_task_item(

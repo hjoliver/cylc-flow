@@ -657,7 +657,8 @@ class Scheduler:
             if not parent_points or all(
                     x < self.config.start_point for x in parent_points):
                 self.pool.add_to_pool(
-                    TaskProxy(tdef, point, flow_label))
+                    TaskProxy(tdef, point, flow_label, self.config.start_point)
+                )
 
     def _load_pool_from_db(self):
         """Load task pool from DB, for a restart."""
