@@ -87,10 +87,6 @@ class FlowLabelMgr:
         self.avail = set(ascii_letters)
         self.inuse = set()
 
-    def get_num_inuse(self):
-        """Return the number of labels currently in use."""
-        return len(list(self.inuse))
-
     def make_avail(self, labels):
         """Return labels (set) to the pool of available labels."""
         LOG.info("returning flow label(s) %s", labels)
@@ -107,6 +103,31 @@ class FlowLabelMgr:
             return None
         self.inuse.add(label)
         return label
+
+    def prune_labels(self, tasks):
+        LOG.critical(f"LABELS1: {self.inuse}")
+        if len(list(self.inuse)) == 1:
+            # Nothing to do.
+            return
+        # Gather all current labels.
+        labels = [itask.flow_label for itask in tasks]
+        LOG.critical(f"LABELS2: {labels}")
+        if not labels:
+            return
+        # Find any labels common to all tasks.
+        common = self.get_common_labels(labels)
+        # And prune them back to just one.
+        num = len(list(common))
+        if num <= 1:
+            return
+        LOG.debug('Pruning redundant flow labels: %s', common)
+        to_prune = []
+        while num > 1:
+            to_prune.append(common.pop())
+            num -= 1
+        for itask in tasks:
+            itask.flow_label = self.unmerge_labels(to_prune, itask.flow_label)
+        self.make_avail(to_prune)
 
     @staticmethod
     def get_common_labels(labels):
@@ -1569,28 +1590,7 @@ class TaskPool:
         infrequently and doesn't do anything if there is only one flow.
 
         """
-        if self.flow_label_mgr.get_num_inuse() == 1:
-            # Nothing to do.
-            return
-        # Gather all current labels.
-        labels = [itask.flow_label for itask in self.get_all_tasks()]
-        if not labels:
-            return
-        # Find any labels common to all tasks.
-        common = self.flow_label_mgr.get_common_labels(labels)
-        # And prune them back to just one.
-        num = len(list(common))
-        if num <= 1:
-            return
-        LOG.debug('Pruning redundant flow labels: %s', common)
-        to_prune = []
-        while num > 1:
-            to_prune.append(common.pop())
-            num -= 1
-        for itask in self.get_all_tasks():
-            itask.flow_label = self.flow_label_mgr.unmerge_labels(
-                to_prune, itask.flow_label)
-        self.flow_label_mgr.make_avail(to_prune)
+        self.flow_label_mgr.prune_labels(self.get_all_tasks())
 
     @staticmethod
     def _parse_task_item(
