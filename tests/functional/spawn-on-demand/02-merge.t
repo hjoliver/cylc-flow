@@ -37,7 +37,7 @@ create_test_global_config "" "
 
 # reference test
 TEST_NAME="${TEST_NAME_BASE}"-run
-workflow_run_ok "${TEST_NAME}" cylc play --reference-test --no-detach "${WORKFLOW_NAME}"
+workflow_run_ok "${TEST_NAME}" cylc play --reference-test --debug --no-detach "${WORKFLOW_NAME}"
 
 # extract flow labels from job files
 # shellcheck disable=SC2046

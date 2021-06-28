@@ -20,6 +20,6 @@ fi
     [[bar]]
          script = """
 if (( CYLC_TASK_CYCLE_POINT == 3 )); then
-    cylc__job__poll_grep_workflow_log 'returning flow label(s)'
+    cylc__job__poll_grep_workflow_log 'Pruning redundant flow label chars'
 fi
          """

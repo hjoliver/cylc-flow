@@ -36,7 +36,7 @@ from cylc.flow.exceptions import (WorkflowConfigError,
                                   TaskProxySequenceBoundsError,
                                   TriggerExpressionError)
 from cylc.flow.task_proxy import TaskProxy
-from cylc.flow.task_pool import FlowLabelMgr
+from cylc.flow.flow_label_mgr import FlowLabelMgr
 from cylc.flow.loggingutil import CylcLogFormatter
 from cylc.flow.templatevars import load_template_vars
 from cylc.flow.option_parsers import (

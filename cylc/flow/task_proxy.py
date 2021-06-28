@@ -186,7 +186,7 @@ class TaskProxy:
         self,
         tdef: 'TaskDef',
         start_point: 'PointBase',
-        flow_label: Optional[str],
+        flow_label: str,
         status: str = TASK_STATUS_WAITING,
         is_held: bool = False,
         submit_num: int = 0,

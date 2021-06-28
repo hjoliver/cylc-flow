@@ -18,12 +18,12 @@
 
 from contextlib import suppress
 from collections import Counter
-from string import ascii_letters
 import json
 from time import time
 from typing import Dict, Iterable, List, Optional, Set, TYPE_CHECKING, Tuple
 
 from cylc.flow import LOG
+from cylc.flow.flow_label_mgr import FlowLabelMgr
 from cylc.flow.cycling.loader import get_point, standardise_point_string
 from cylc.flow.cycling.integer import IntegerInterval
 from cylc.flow.cycling.iso8601 import ISO8601Interval
@@ -63,107 +63,6 @@ if TYPE_CHECKING:
     from cylc.flow.workflow_db_mgr import WorkflowDatabaseManager
 
 Pool = Dict['PointBase', Dict[str, TaskProxy]]
-
-
-class FlowLabelMgr:
-    """
-    Manage flow labels consisting of a string of one or more letters [a-zA-Z].
-
-    Flow labels are task attributes representing the flow the task belongs to,
-    passed down to spawned children. If a new flow is started, a new single
-    character label is chosen randomly. This allows for 52 simultaneous flows
-    (which should be more than enough) with labels that are easy to work with.
-
-    Flows merge locally when a task can't be spawned because it already exists
-    in the pool with a different label. We merge the labels at such tasks so
-    that downstream events can be considered to belong to either of the
-    original flows. Merged labels are simple strings that contains the
-    component labels, e.g. if flow "a" merges with flow "b" the merged result
-    is "ab" (or "ba", it doesn't matter which).
-
-    """
-    def __init__(self):
-        """Store available and used labels."""
-        self.avail = set(ascii_letters)
-        self.inuse = set()
-
-    def make_avail(self, labels):
-        """Return labels (set) to the pool of available labels."""
-        LOG.info("returning flow label(s) %s", labels)
-        for label in labels:
-            with suppress(KeyError):
-                self.inuse.remove(label)
-            self.avail.add(label)
-
-    def get_new_label(self):
-        """Return a new label, or None if we've run out."""
-        try:
-            label = self.avail.pop()
-        except KeyError:
-            return None
-        self.inuse.add(label)
-        return label
-
-    def prune_labels(self, tasks):
-        LOG.critical(f"LABELS1: {self.inuse}")
-        if len(list(self.inuse)) == 1:
-            # Nothing to do.
-            return
-        # Gather all current labels.
-        labels = [itask.flow_label for itask in tasks]
-        LOG.critical(f"LABELS2: {labels}")
-        if not labels:
-            return
-        # Find any labels common to all tasks.
-        common = self.get_common_labels(labels)
-        # And prune them back to just one.
-        num = len(list(common))
-        if num <= 1:
-            return
-        LOG.debug('Pruning redundant flow labels: %s', common)
-        to_prune = []
-        while num > 1:
-            to_prune.append(common.pop())
-            num -= 1
-        for itask in tasks:
-            itask.flow_label = self.unmerge_labels(to_prune, itask.flow_label)
-        self.make_avail(to_prune)
-
-    @staticmethod
-    def get_common_labels(labels):
-        """Return list of common labels."""
-        set_labels = [set(lab) for lab in labels]
-        return set.intersection(*set_labels)
-
-    @staticmethod
-    def merge_labels(lab1, lab2):
-        """Return the label representing both lab1 and lab2.
-
-        Note the incoming labels could already be merged.
-        """
-        if lab1 == lab2:
-            return lab1
-        labs1 = set(lab1)
-        labs2 = set(lab2)
-        return ''.join(labs1.union(labs2))
-
-    @staticmethod
-    def unmerge_labels(prune, target):
-        """Unmerge prune from target."""
-        for char in list(prune):
-            target = target.replace(char, '')
-        return target
-
-    @staticmethod
-    def match_labels(lab1, lab2):
-        """Return True if lab1 and lab2 have any labels in common.
-
-        If they do, the owner tasks can be considered part of the same flow.
-        Note the incoming labels could already be merged.
-        """
-        labs1 = set(lab1)
-        labs2 = set(lab2)
-        return bool(labs1.intersection(labs2))
 
 
 class TaskPool:
@@ -1243,7 +1142,7 @@ class TaskPool:
             "status": itask.state.status,
             "flow_label": itask.flow_label})
         self.workflow_db_mgr.process_queued_ops()  # TODO is this needed here?
-        LOG.info('%s merged flow(%s)', itask.identity, itask.flow_label)
+        LOG.info(f"{itask.identity} merged flow({itask.flow_label})")
 
     def get_task_main(self, name, point, flow_label=None):
         """Return task proxy from main pool and merge flow label if found."""
@@ -1454,8 +1353,7 @@ class TaskPool:
                     self.task_queue_mgr.force_release_task(itask)
             else:
                 # Spawn with new flow label.
-                itask = self.spawn_task(
-                    name, point, flow_label, reflow=reflow)
+                itask = self.spawn_task(name, point, flow_label, reflow=reflow)
                 itask.is_manual_submit = True
                 # This will queue the task.
                 self.add_to_pool(itask, is_new=True)
