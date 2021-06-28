@@ -60,7 +60,6 @@ grep_ok "WARNING - Incomplete tasks:" \
 grep_ok "a.1 did not complete required outputs" \
     "${TEST_NAME_BASE}-run.stderr"
 grep_ok "b.1 did not complete required outputs" \
-    "${TEST_NAME_BASE}-run.stderr"
 
 purge
 exit

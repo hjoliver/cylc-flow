@@ -711,7 +711,7 @@ class Resolvers(BaseResolvers):
         else:
             return (False, 'Edge distance cannot be negative')
 
-    def force_spawn_children(self, tasks, outputs):
+    def force_spawn_children(self, tasks, outputs, flow_num):
         """Spawn children of given task outputs.
 
         Args:
@@ -728,8 +728,15 @@ class Resolvers(BaseResolvers):
 
         """
         self.schd.command_queue.put(
-            ("force_spawn_children", (tasks,),
-             {'outputs': outputs}))
+            (
+                "force_spawn_children",
+                (tasks,),
+                {
+                    "outputs": outputs,
+                    "flow_num": flow_num
+                }
+            )
+        )
         return (True, 'Command queued')
 
     def stop(
@@ -738,7 +745,7 @@ class Resolvers(BaseResolvers):
             cycle_point=None,
             clock_time=None,
             task=None,
-            flow_label=None
+            flow_num=None
     ):
         """Stop the workflow or specific flow from spawning any further.
 
@@ -747,7 +754,7 @@ class Resolvers(BaseResolvers):
             cycle_point (str): Cycle point after which to stop.
             clock_time (str): Wallclock time after which to stop.
             task (str): Stop after this task succeeds.
-            flow_label (str): The flow to sterilise.
+            flow_num (int): Stop this flow.
 
         Returns:
             tuple: (outcome, message)
@@ -766,19 +773,21 @@ class Resolvers(BaseResolvers):
                 'cycle_point': cycle_point,
                 'clock_time': clock_time,
                 'task': task,
-                'flow_label': flow_label,
+                'flow_num': flow_num,
             })
         ))
         return (True, 'Command queued')
 
-    def force_trigger_tasks(self, tasks, reflow=False):
+    def force_trigger_tasks(self, tasks, reflow, flow_descr):
         """Trigger submission of task jobs where possible.
 
         Args:
             tasks (list):
                 List of identifiers, see `task globs`_
-            reflow (bool, optional):
-                Start new flow(s) from triggered tasks.
+            reflow (bool):
+                Start new flow from triggered tasks.
+            flow_descr (str):
+                Description of new flow.
 
         Returns:
             tuple: (outcome, message)
@@ -790,6 +799,12 @@ class Resolvers(BaseResolvers):
 
         """
         self.schd.command_queue.put(
-            ("force_trigger_tasks", (tasks,),
-             {"reflow": reflow}))
+            (
+                "force_trigger_tasks", (tasks,),
+                {
+                    "reflow": reflow,
+                    "flow_descr": flow_descr
+                }
+            )
+        )
         return (True, 'Command queued')

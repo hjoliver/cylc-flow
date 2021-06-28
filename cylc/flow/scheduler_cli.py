@@ -89,7 +89,7 @@ happened to them while the workflow was down.
 """
 
 
-FLOW_NAME_ARG_DOC = ("REG", "Workflow name")
+WORKFLOW_NAME_ARG_DOC = ("REG", "Workflow name")
 
 RESUME_MUTATION = '''
 mutation (
@@ -112,7 +112,7 @@ def get_option_parser(add_std_opts=False):
         icp=True,
         jset=True,
         comms=True,
-        argdoc=[FLOW_NAME_ARG_DOC])
+        argdoc=[WORKFLOW_NAME_ARG_DOC])
 
     parser.add_option(
         "-n", "--no-detach", "--non-daemon",
