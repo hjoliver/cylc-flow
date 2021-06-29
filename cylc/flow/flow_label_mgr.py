@@ -14,90 +14,98 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-"""Logic for creation, matching, merging, and pruning of flow labels."""
+"""Logic for creation, matching, merging, and pruning of flow labels.
 
-import re
-from contextlib import suppress
+   To avoid "conditional reflow" flows must have labels that unique in the
+   lifetime of the workflow.
+"""
+
 from string import ascii_letters
-from typing import Set, List, TYPE_CHECKING
-
-from cylc.flow import LOG
-
-if TYPE_CHECKING:
-    from cylc.flow.task_proxy import TaskProxy
+from typing import Set
 
 
 class FlowLabelMgr:
-    """
-    If a new flow is triggered we label it with a single ASCII character.
+    """ASCII implementation: 52 unique flows, simple strings as merged labels.
 
-    One flow can catch up to another, one task at a time: if foo.10 of flow "z"
-    can't be spawned because foo.10 of flow "Q" already exists in the task pool
-    we re-label foo.10 with 'zQ'. Downstream events can then be considered to
-    belong to flows "z", "Q", or "zQ". If "zQ" eventually takes over the whole
-    graph we can return redundant characters for use in new flows again (e.g.
-    if the flow labels of every task in the pool includes the characters "z"
-    and "Q" we can remove "Q" from them all and return it for re-use.
+    Ongoing workflows with many reflows may need an unbounded model, possibly
+    at the cost of making merged labels more difficult to represent.
 
-    This implementation provides up to 52 simultaneous original flows (with
-    many merging too) with merged flow labels that are just simple strings
-    (so, easy to target on the command line, etc.)
+    A flow can be stopped, or peter out, or catch up to another flow one task
+    at a time: if foo.10 of flow "z" can't be spawned because foo.10 of flow
+    "Q" already exists in the task pool we re-label foo.10 "zQ". Downstream
+    tasks can then be considered to belong to flows "z", "Q", or "zQ".
 
-    This class does not actually keep track of labels, just the of elements
-    (characters) available to create them, and the logic to compare them, etc.
+    Merged flows taking over the whole graph manifest as characters common to
+    all flow labels in the task pool. These cannot be pruned to simplify merged
+    labels without risking conditional reflow (pruned characters could not be
+    recycled anyway: flow labels must be unique for the life of the workflow).
 
+    # Example:
+    upstream => bar
+    foo | bar => baz
+
+    - foo(z) ran and triggered baz(z), which finished.
+    - bar(z) long-running
+    - upstream(Q) triggered as reflow, catches up and merges to bar(zQ)
+    - pool is now just bar(zQ) running
+    - if we pruned 'z', the resulting bar(Q) would trigger baz(Q)
+      whereas bar(zQ) would not trigger baz(zQ) because baz(z) ran already.
+
+    This should not be a problem if the main use cases involve starting a new
+    flow and stopping the original (e.g. to replace Cylc 7 warm start) or
+    re-running sub-graphs that peter out or stop. Otherwise we could allow
+    users to order a "reset" of merged labels.
+
+    TODO: trigger a task without reflow any number of times (label None)
+    TODO: restart must load chars_avail!
+
+
+    foo(z) and baz(z) ran
+    pool: bar(zQ) is running
+    if we prune 'z', bar(Q) will trigger baz(Q)
+    where bar(zQ) would not trigger baz(zQ)
+
+    pool: qux(zQ), waz(Q)
     """
     def __init__(self) -> None:
-        """Store available and used label characters."""
+        """Initialize set of available flow label characters."""
         self.chars_avail: Set[str] = set(ascii_letters)
-        self.chars_in_use: Set[str] = set()
 
     def get_new_label(self) -> str:
-        """Return a new label, or None if we've run out.
-
-        Raises KeyError if the pool of labels is exhausted.
-        """
-        label = self.chars_avail.pop()
-        self.chars_in_use.add(label)
-        return label
-
-    def prune_labels(self, tasks: List["TaskProxy"]) -> None:
-        """Prune redundant characters and make them available for new flows."""
-        if len(list(self.chars_in_use)) == 1:
-            # Don't bother if there's only one flow.
-            return
-        redundant_chars = set.intersection(
-            *[
-                set(label) for label in [
-                    itask.flow_label for itask in tasks
-                ]
-            ]
-        )
-        with suppress(KeyError):
-            redundant_chars.pop()  # discard one
-        if not redundant_chars:
-            return
-
-        LOG.debug(f"Pruning redundant flow label chars: {redundant_chars}")
-        # Unmerge label.
-        REC = re.compile(f"[{redundant_chars}]")
-        for itask in tasks:
-            itask.flow_label = REC.sub('', itask.flow_label)
-
-        # Return labels (set) to the pool of available labels.
-        for label in redundant_chars:
-            with suppress(KeyError):
-                self.chars_in_use.remove(label)
-            self.chars_avail.add(label)
+        """Return a new label. Raises KeyError if the pool is exhausted."""
+        return self.chars_avail.pop()
 
     @staticmethod
     def merge_labels(label1: str, label2: str) -> str:
-        """Return merged label."""
+        """Return merged label. Note incoming labels may be merged too."""
         if label1 == label2:
             return label1
         return ''.join(set(label1).union(set(label2)))
 
     @staticmethod
     def match_labels(label1: str, label2: str) -> bool:
-        """Return True if two labels represent the same flow."""
+        """Return True if two labels belong to the same flow."""
         return bool(set(label1).intersection(set(label2)))
+
+    # Pruning of common label characters. See comment in class docstring.
+    # def prune_labels(self, tasks: List["TaskProxy"]) -> None:
+    #     """Prune characters common to all, to simplify merged labels.
+    #     This method can be called infrequently by main loop plugin.
+    #     """
+    #     unique_labels: Set[str] = {
+    #         itask.flow_label
+    #         for itask in tasks
+    #         # Ignore manual trigger without reflow
+    #         if itask.flow_label is not None
+    #     }
+    #     common_chars = set.intersection(
+    #         *[set(label) for label in unique_labels]
+    #     )
+    #     with suppress(KeyError):
+    #         common_chars.pop()  # keep one
+    #     if not common_chars:
+    #         return
+    #     LOG.critical(f"Pruning flow label characters {common_chars}")
+    #     REC = re.compile(f"[{''.join(common_chars)}]")
+    #     for itask in tasks:
+    #         itask.flow_label = REC.sub('', itask.flow_label)

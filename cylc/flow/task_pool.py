@@ -1213,6 +1213,7 @@ class TaskPool:
             # Flow labels of previous instances.  E.g. f_id "u".
             if self.flow_label_mgr.match_labels(flow_label, f_id):
                 # Already spawned in this flow. E.g. flow_label "uV".
+                # Avoid "conditional reflow" with (e.g.) "foo | bar => baz".
                 # TODO update existing DB row to avoid cond reflow from V too?
                 LOG.warning('Not spawning %s.%s (spawned in flow %s)',
                             name, point, f_id)
