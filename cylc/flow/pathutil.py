@@ -40,30 +40,30 @@ def expand_path(*args: Union[Path, str]) -> str:
 
 
 def get_remote_workflow_run_dir(
-    flow_name: Union[Path, str], *args: Union[Path, str]
+    workflow_name: Union[Path, str], *args: Union[Path, str]
 ) -> str:
     """Return remote workflow run directory, joining any extra args,
     NOT expanding vars or user."""
-    return os.path.join(_CYLC_RUN_DIR, flow_name, *args)
+    return os.path.join(_CYLC_RUN_DIR, workflow_name, *args)
 
 
 def get_remote_workflow_run_job_dir(
-    flow_name: Union[Path, str], *args: Union[Path, str]
+    workflow_name: Union[Path, str], *args: Union[Path, str]
 ) -> str:
     """Return remote workflow job log directory, joining any extra args,
     NOT expanding vars or user."""
-    return get_remote_workflow_run_dir(flow_name, 'log', 'job', *args)
+    return get_remote_workflow_run_dir(workflow_name, 'log', 'job', *args)
 
 
 def get_workflow_run_dir(
-    flow_name: Union[Path, str], *args: Union[Path, str]
+    workflow_name: Union[Path, str], *args: Union[Path, str]
 ) -> str:
     """Return local workflow run directory, joining any extra args, and
     expanding vars and user.
 
     Does not check that the directory exists.
     """
-    return expand_path(_CYLC_RUN_DIR, flow_name, *args)
+    return expand_path(_CYLC_RUN_DIR, workflow_name, *args)
 
 
 def get_workflow_run_job_dir(workflow, *args):
@@ -132,7 +132,7 @@ def make_localhost_symlinks(rund, named_sub_dir):
     """Creates symlinks for any configured symlink dirs from glbl_cfg.
     Args:
         rund: the entire run directory path
-        named_sub_dir: e.g flow_name/run1
+        named_sub_dir: e.g workflow_name/run1
 
     Returns:
          dict - A dictionary of Symlinks with sources as keys and
@@ -161,7 +161,7 @@ def make_localhost_symlinks(rund, named_sub_dir):
     return symlinks_created
 
 
-def get_dirs_to_symlink(install_target, flow_name):
+def get_dirs_to_symlink(install_target, workflow_name):
     """Returns dictionary of directories to symlink from glbcfg.
        Note the paths should remain unexpanded, to be expanded on the remote.
     """
@@ -172,12 +172,14 @@ def get_dirs_to_symlink(install_target, flow_name):
         return dirs_to_symlink
     base_dir = symlink_conf[install_target]['run']
     if base_dir is not None:
-        dirs_to_symlink['run'] = os.path.join(base_dir, 'cylc-run', flow_name)
+        dirs_to_symlink['run'] = os.path.join(
+            base_dir, 'cylc-run', workflow_name)
     for dir_ in ['log', 'share', 'share/cycle', 'work']:
         link = symlink_conf[install_target][dir_]
         if link is None or link == base_dir:
             continue
-        dirs_to_symlink[dir_] = os.path.join(link, 'cylc-run', flow_name, dir_)
+        dirs_to_symlink[dir_] = os.path.join(
+            link, 'cylc-run', workflow_name, dir_)
     return dirs_to_symlink
 
 

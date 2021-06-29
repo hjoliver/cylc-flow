@@ -147,7 +147,7 @@ def get_option_parser():
         "-t", "--tasks", help="Task states only.",
         action="store_const", const="tasks", dest="disp_form")
     parser.add_option(
-        "-f", "--flow", help="Print flow label with tasks.",
+        "-f", "--flow", help="Print flows with tasks.",
         action="store_true", default=False, dest="flow")
     parser.add_option(
         "-r", "--raw", "--raw-format",

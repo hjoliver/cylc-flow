@@ -738,7 +738,7 @@ class Resolvers(BaseResolvers):
             cycle_point=None,
             clock_time=None,
             task=None,
-            flow_label=None
+            flow=None
     ):
         """Stop the workflow or specific flow from spawning any further.
 
@@ -747,7 +747,7 @@ class Resolvers(BaseResolvers):
             cycle_point (str): Cycle point after which to stop.
             clock_time (str): Wallclock time after which to stop.
             task (str): Stop after this task succeeds.
-            flow_label (str): The flow to sterilise.
+            flow (str): Stop this flow.
 
         Returns:
             tuple: (outcome, message)
@@ -766,18 +766,18 @@ class Resolvers(BaseResolvers):
                 'cycle_point': cycle_point,
                 'clock_time': clock_time,
                 'task': task,
-                'flow_label': flow_label,
+                'flow': flow,
             })
         ))
         return (True, 'Command queued')
 
-    def force_trigger_tasks(self, tasks, flow_name=None):
+    def force_trigger_tasks(self, tasks, flow=None):
         """Trigger submission of task jobs where possible.
 
         Args:
             tasks (list):
                 List of identifiers, see `task globs`_
-            flow_name (string, optional):
+            flow (string, optional):
                 Start new flow from triggered tasks.
 
         Returns:
@@ -791,5 +791,5 @@ class Resolvers(BaseResolvers):
         """
         self.schd.command_queue.put(
             ("force_trigger_tasks", (tasks,),
-             {"flow_name": flow_name}))
+             {"flow": flow}))
         return (True, 'Command queued')

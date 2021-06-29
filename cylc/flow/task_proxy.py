@@ -133,8 +133,8 @@ class TaskProxy:
             graph children: {msg: [(name, point), ...]}
         .failure_handled:
             task failure is handled (by children)
-        .flow_labels:
-            flow labels
+        .flows:
+            flows
         .waiting_on_job_prep:
             task waiting on job prep
 
@@ -142,7 +142,7 @@ class TaskProxy:
         tdef: The definition object of this task.
         start_point: Start point to calculate the task's cycle point on
             start-up or the cycle point for subsequent tasks.
-        flow_labels: Which flow within the scheduler this task belongs to.
+        flows: Which flow within the scheduler this task belongs to.
         status: Task state string.
         is_held: True if the task is held, else False.
         submit_num: Number of times the task has attempted job submission.
@@ -174,7 +174,7 @@ class TaskProxy:
         'try_timers',
         'graph_children',
         'failure_handled',
-        'flow_labels',
+        'flows',
         'waiting_on_job_prep',
     ]
 
@@ -182,7 +182,7 @@ class TaskProxy:
         self,
         tdef: 'TaskDef',
         start_point: 'PointBase',
-        flow_labels: Optional[Set[str]] = None,
+        flows: Optional[Set[str]] = None,
         status: str = TASK_STATUS_WAITING,
         is_held: bool = False,
         submit_num: int = 0,
@@ -194,10 +194,10 @@ class TaskProxy:
             submit_num = 0
         self.submit_num = submit_num
         self.jobs: List[str] = []
-        if flow_labels is None:
-            self.flow_labels = set()
+        if flows is None:
+            self.flows = set()
         else:
-            self.flow_labels = flow_labels
+            self.flows = flows
         self.point = start_point
         self.identity: str = TaskID.get(self.tdef.name, self.point)
 
@@ -218,7 +218,7 @@ class TaskProxy:
             'execution_time_limit': None,
             'job_runner_name': None,
             'submit_method_id': None,
-            'flow_labels': set()
+            'flows': set()
         }
 
         self.local_job_file_path: Optional[str] = None
@@ -424,6 +424,6 @@ class TaskProxy:
             fnmatchcase(ns, name) for ns in self.tdef.namespace_hierarchy
         )
 
-    def merge_flow_labels(self, labels: Set) -> None:
-        """Merge another set of flow labels with mine."""
-        self.flow_labels.update(labels)
+    def merge_flows(self, labels: Set) -> None:
+        """Merge another set of flows with mine."""
+        self.flows.update(labels)

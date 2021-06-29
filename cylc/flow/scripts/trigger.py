@@ -61,10 +61,10 @@ def get_option_parser():
             ('[TASK_GLOB ...]', 'Task matching patterns')])
 
     parser.add_option(
-        "--flow",
-        metavar="FLOW-NAME",
-        help="Start a new flow from the triggered task.",
-        action="store", default=None, dest="flow_name")
+        "-f", "--flow",
+        metavar="FLOW",
+        help="Start a new flow named FLOW from the triggered task.",
+        action="store", default=None, dest="flow")
 
     return parser
 
@@ -80,7 +80,7 @@ def main(parser, options, workflow, *task_globs):
         'variables': {
             'wFlows': [workflow],
             'tasks': list(task_globs),
-            'flowName': options.flow_name,
+            'flow': options.flow,
         }
     }
 

@@ -909,7 +909,7 @@ class TaskProxy(ObjectType):
     is_held = Boolean()
     is_queued = Boolean()
     is_runahead = Boolean()
-    flow_label = String()
+    flows = String()
     depth = Int()
     job_submits = Int()
     latest_message = String()
@@ -1733,8 +1733,8 @@ class Stop(Mutation):
         task = TaskID(
             description='Stop after this task succeeds.'
         )
-        flow_label = String(
-            description='Label of flow to sterilise.'
+        flow = String(
+            description='Name of flow to stop.'
         )
 
     result = GenericScalar()
@@ -1874,7 +1874,7 @@ class Trigger(Mutation, TaskMutation):
         resolver = partial(mutator, command='force_trigger_tasks')
 
     class Arguments(TaskMutation.Arguments):
-        flow_name = String()
+        flow = String()
 
 
 def _mut_field(cls):

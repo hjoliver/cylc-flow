@@ -558,7 +558,7 @@ class TaskEventsManager():
             LOG.warning(
                 logfmt + r' != current job(%02d)',
                 itask, itask.state, self.FLAG_RECEIVED_IGNORED, message,
-                timestamp, submit_num, itask.flow_labels, itask.submit_num)
+                timestamp, submit_num, itask.flows, itask.submit_num)
             return False
 
         if (
@@ -585,11 +585,11 @@ class TaskEventsManager():
             LOG.warning(
                 logfmt,
                 itask, itask.state, self.FLAG_POLLED_IGNORED, message,
-                timestamp, submit_num, itask.flow_labels)
+                timestamp, submit_num, itask.flows)
             return False
         LOG.log(
             LOG_LEVELS.get(severity, INFO), logfmt, itask, itask.state, flag,
-            message, timestamp, submit_num, itask.flow_labels)
+            message, timestamp, submit_num, itask.flows)
         return True
 
     def setup_event_handlers(self, itask, event, message):

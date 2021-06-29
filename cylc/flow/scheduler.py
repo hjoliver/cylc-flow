@@ -818,10 +818,10 @@ class Scheduler:
             # NOTE clock_time YYYY/MM/DD-HH:mm back-compat removed
             clock_time=None,
             task=None,
-            flow_label=None
+            flow=None
     ):
-        if flow_label:
-            self.pool.stop_flow(flow_label)
+        if flow:
+            self.pool.stop_flow(flow)
             return
 
         if cycle_point:
@@ -1223,7 +1223,7 @@ class Scheduler:
                         self.curve_auth,
                         self.client_pub_key_dir,
                         self.config.run_mode('simulation')):
-                    # TODO log flow labels here (beware effect on ref tests)
+                    # TODO log flows here (beware effect on ref tests)
                     LOG.info('[%s] -triggered off %s',
                              itask, itask.state.get_resolved_dependencies())
 
@@ -1783,9 +1783,9 @@ class Scheduler:
         self.is_paused = False
         self.workflow_db_mgr.delete_workflow_paused()
 
-    def command_force_trigger_tasks(self, items, flow_name=None):
+    def command_force_trigger_tasks(self, items, flow=None):
         """Trigger tasks."""
-        return self.pool.force_trigger_tasks(items, flow_name)
+        return self.pool.force_trigger_tasks(items, flow)
 
     def command_force_spawn_children(self, items, outputs):
         """Force spawn task successors."""
