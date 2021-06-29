@@ -20,7 +20,7 @@ from collections import Counter
 from contextlib import suppress
 from fnmatch import fnmatchcase
 from time import time
-from typing import Any, Dict, List, Tuple, Optional, TYPE_CHECKING
+from typing import Any, Dict, List, Set, Tuple, Optional, TYPE_CHECKING
 
 from metomi.isodatetime.timezone import get_local_time_zone
 
@@ -133,10 +133,8 @@ class TaskProxy:
             graph children: {msg: [(name, point), ...]}
         .failure_handled:
             task failure is handled (by children)
-        .flow_label:
-            flow label
-        .reflow:
-            flow on from outputs
+        .flow_labels:
+            flow labels
         .waiting_on_job_prep:
             task waiting on job prep
 
@@ -144,12 +142,11 @@ class TaskProxy:
         tdef: The definition object of this task.
         start_point: Start point to calculate the task's cycle point on
             start-up or the cycle point for subsequent tasks.
-        flow_label: Which flow within the scheduler this task belongs to.
+        flow_labels: Which flow within the scheduler this task belongs to.
         status: Task state string.
         is_held: True if the task is held, else False.
         submit_num: Number of times the task has attempted job submission.
         is_late: Is the task late?
-        reflow: Flow on from outputs. TODO: better description for arg?
     """
 
     # Memory optimization - constrain possible attributes to this list.
@@ -177,8 +174,7 @@ class TaskProxy:
         'try_timers',
         'graph_children',
         'failure_handled',
-        'flow_label',
-        'reflow',
+        'flow_labels',
         'waiting_on_job_prep',
     ]
 
@@ -186,12 +182,11 @@ class TaskProxy:
         self,
         tdef: 'TaskDef',
         start_point: 'PointBase',
-        flow_label: str,
+        flow_labels: Optional[Set[str]] = None,
         status: str = TASK_STATUS_WAITING,
         is_held: bool = False,
         submit_num: int = 0,
         is_late: bool = False,
-        reflow: bool = True
     ) -> None:
 
         self.tdef = tdef
@@ -199,8 +194,10 @@ class TaskProxy:
             submit_num = 0
         self.submit_num = submit_num
         self.jobs: List[str] = []
-        self.flow_label = flow_label
-        self.reflow = reflow
+        if flow_labels is None:
+            self.flow_labels = set()
+        else:
+            self.flow_labels = flow_labels
         self.point = start_point
         self.identity: str = TaskID.get(self.tdef.name, self.point)
 
@@ -221,7 +218,7 @@ class TaskProxy:
             'execution_time_limit': None,
             'job_runner_name': None,
             'submit_method_id': None,
-            'flow_label': None
+            'flow_labels': set()
         }
 
         self.local_job_file_path: Optional[str] = None
@@ -426,3 +423,7 @@ class TaskProxy:
         return any(
             fnmatchcase(ns, name) for ns in self.tdef.namespace_hierarchy
         )
+
+    def merge_flow_labels(self, labels: Set) -> None:
+        """Merge another set of flow labels with mine."""
+        self.flow_labels.update(labels)

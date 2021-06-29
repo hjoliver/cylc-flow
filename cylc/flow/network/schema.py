@@ -1874,7 +1874,7 @@ class Trigger(Mutation, TaskMutation):
         resolver = partial(mutator, command='force_trigger_tasks')
 
     class Arguments(TaskMutation.Arguments):
-        reflow = Boolean()
+        flow_name = String()
 
 
 def _mut_field(cls):

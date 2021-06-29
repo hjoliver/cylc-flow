@@ -771,14 +771,14 @@ class Resolvers(BaseResolvers):
         ))
         return (True, 'Command queued')
 
-    def force_trigger_tasks(self, tasks, reflow=False):
+    def force_trigger_tasks(self, tasks, flow_name=None):
         """Trigger submission of task jobs where possible.
 
         Args:
             tasks (list):
                 List of identifiers, see `task globs`_
-            reflow (bool, optional):
-                Start new flow(s) from triggered tasks.
+            flow_name (string, optional):
+                Start new flow from triggered tasks.
 
         Returns:
             tuple: (outcome, message)
@@ -791,5 +791,5 @@ class Resolvers(BaseResolvers):
         """
         self.schd.command_queue.put(
             ("force_trigger_tasks", (tasks,),
-             {"reflow": reflow}))
+             {"flow_name": flow_name}))
         return (True, 'Command queued')

@@ -16,8 +16,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #-------------------------------------------------------------------------------
 
-# Check that reflows merge correctly if they catch up, AND that redundant flow
-# labels get merged.
+# Check that reflows merge correctly if they catch up.
 
 . "$(dirname "$0")/test_header"
 install_workflow "${TEST_NAME_BASE}"
@@ -27,13 +26,6 @@ set_test_number 6
 # validate
 TEST_NAME="${TEST_NAME_BASE}"-validate
 run_ok "${TEST_NAME}" cylc validate "${WORKFLOW_NAME}"
-
-# Set frequent pruning of merged flow labels.
-create_test_global_config "" "
-[scheduler]
-   [[main loop]]
-       [[[prune flow labels]]]
-            interval = PT10S"
 
 # reference test
 TEST_NAME="${TEST_NAME_BASE}"-run

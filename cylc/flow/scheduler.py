@@ -621,7 +621,7 @@ class Scheduler:
     def _load_pool_from_tasks(self):
         """Load task pool with specified tasks, for a new run."""
         LOG.info(f"Start task: {self.options.starttask}")
-        self.pool.force_trigger_tasks(self.options.starttask, True)
+        self.pool.force_trigger_tasks(self.options.starttask, "original")
 
     def _load_pool_from_point(self):
         """Load task pool for a cycle point, for a new run.
@@ -638,7 +638,6 @@ class Scheduler:
             start_type = "Warm" if self.options.startcp else "Cold"
             LOG.info(f"{start_type} start from {self.config.start_point}")
 
-        flow_label = self.pool.flow_label_mgr.get_new_label()
         for name in self.config.get_task_name_list():
             if self.config.start_point is None:
                 # No start cycle point at which to load cycling tasks.
@@ -656,8 +655,7 @@ class Scheduler:
             parent_points = tdef.get_parent_points(point)
             if not parent_points or all(
                     x < self.config.start_point for x in parent_points):
-                self.pool.add_to_pool(
-                    TaskProxy(tdef, point, flow_label))
+                self.pool.add_to_pool(TaskProxy(tdef, point, {"original"}))
 
     def _load_pool_from_db(self):
         """Load task pool from DB, for a restart."""
@@ -1785,9 +1783,9 @@ class Scheduler:
         self.is_paused = False
         self.workflow_db_mgr.delete_workflow_paused()
 
-    def command_force_trigger_tasks(self, items, reflow=False):
+    def command_force_trigger_tasks(self, items, flow_name=None):
         """Trigger tasks."""
-        return self.pool.force_trigger_tasks(items, reflow)
+        return self.pool.force_trigger_tasks(items, flow_name)
 
     def command_force_spawn_children(self, items, outputs):
         """Force spawn task successors."""
