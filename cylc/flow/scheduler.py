@@ -1793,7 +1793,6 @@ class Scheduler:
 
     def command_force_trigger_tasks(self, items, flow=None):
         """Trigger tasks."""
-        LOG.critical(f"FLOW {flow}")
         return self.pool.force_trigger_tasks(items, flow)
 
     def command_force_spawn_children(self, items, outputs):

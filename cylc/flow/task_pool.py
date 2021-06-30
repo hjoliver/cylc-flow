@@ -198,7 +198,7 @@ class TaskPool:
                     "time_created": get_current_time_string(),
                     "time_updated": get_current_time_string(),
                     "status": itask.state.status,
-                    "flows": json.dumps(list(itask.flows))
+                    "flows": json.dumps(sorted(itask.flows))
                 }
             )
             # Add row to "task_outputs" table:
@@ -517,14 +517,14 @@ class TaskPool:
                 # Auto-spawn next instance of tasks with no parents at the next
                 # point (or with all parents before the workflow start point).
                 n_task = self.get_or_spawn_task(
-                    itask.tdef.name, next_point, flows=itask.flows,
-                    parent_id=itask.identity)
+                    itask.tdef.name, next_point, flows=itask.flows
+                )
             elif itask.tdef.get_abs_triggers(next_point):
                 # Auto-spawn (if needed) next absolute-triggered instances.
                 # TODO combine with above
                 n_task = self.get_or_spawn_task(
-                    itask.tdef.name, next_point, flows=itask.flows,
-                    parent_id=itask.identity)
+                    itask.tdef.name, next_point, flows=itask.flows
+                )
             if n_task:
                 self.add_to_pool(n_task)
 
@@ -1095,10 +1095,14 @@ class TaskPool:
 
             c_task = self.get_task(c_name, c_point)
             if c_task is not None:
-                # child already spawned, update it.
+                # Child already spawned, update it.
                 c_task.merge_flows(itask.flows)
+                log_task(
+                    c_task,
+                    f"Merged flows {','.join(itask.flows)}"
+                )
             elif itask.flows:
-                # spawn child only flows exist (else not reflow)
+                # Spawn child only if flows is not empty.
                 c_task = self.spawn_task(
                     c_name, c_point, itask.flows,
                 )
@@ -1248,7 +1252,7 @@ class TaskPool:
         if itask.state.prerequisites_are_not_all_satisfied():
             itask.state.satisfy_me(self.abs_outputs_done)
 
-        log_task(itask, "spawned", LOG.debug)
+        log_task(itask, "spawned", LOG.info)
         return itask
 
     def match_taskdefs(
@@ -1297,8 +1301,8 @@ class TaskPool:
         n_warnings, task_items = self.match_taskdefs(items)
         for (_, point), taskdef in sorted(task_items.items()):
             # This the upstream target task:
-            # TODO CHECK flows EFFECT HERE.
-            itask = TaskProxy(taskdef, point, flows=None)
+            # TODO COMMAND MUST SPECIFY FLOW HERE
+            itask = TaskProxy(taskdef, point, flows={"TRIGGER"})
             # Spawn downstream on selected outputs.
             for trig, out, _ in itask.state.outputs.get_all():
                 if trig in outputs:
@@ -1357,6 +1361,10 @@ class TaskPool:
                     )
                     continue
                 itask.merge_flows(flows)
+                log_task(
+                    itask,
+                    f"Merged flows: {','.join(flows)}"
+                )
                 itask.is_manual_submit = True
                 itask.reset_try_timers()
                 # (If None, spawner reports cycle bounds errors).
@@ -1367,11 +1375,11 @@ class TaskPool:
                 if not itask.state.is_queued:
                     log_task(
                         itask,
-                        "Queueing now - trigger again to submit immediately."
+                        "Queueing. Trigger again to submit immediately."
                     )
                     self.queue_task(itask)
                 else:
-                    log_task(itask, "De-queueing now")
+                    log_task(itask, "De-queueing")
                     self.task_queue_mgr.force_release_task(itask)
         return n_warnings
 

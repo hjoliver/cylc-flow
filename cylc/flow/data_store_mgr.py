@@ -806,7 +806,7 @@ class DataStoreMgr:
             depth=task_def.depth,
             name=task_def.name,
             state=TASK_STATUS_WAITING,
-            flows=json.dumps(list(itask.flows))
+            flows=json.dumps(sorted(itask.flows))
         )
         if is_parent and tp_id not in self.n_window_nodes:
             # TODO: Load task info from DB, including itask prerequisites

@@ -424,7 +424,7 @@ class WorkflowDatabaseManager:
         where_args = {
             "cycle": str(itask.point),
             "name": itask.tdef.name,
-            "flows": json.dumps(list(itask.flows)),
+            "flows": json.dumps(sorted(itask.flows)),
             "submit_num": itask.submit_num,
         }
         self.db_updates_map.setdefault(self.TABLE_TASK_STATES, [])
@@ -456,7 +456,7 @@ class WorkflowDatabaseManager:
             self.db_inserts_map[self.TABLE_TASK_POOL].append({
                 "name": itask.tdef.name,
                 "cycle": str(itask.point),
-                "flows": json.dumps(list(itask.flows)),
+                "flows": json.dumps(sorted(itask.flows)),
                 "status": itask.state.status,
                 "is_held": itask.state.is_held
             })
@@ -500,7 +500,7 @@ class WorkflowDatabaseManager:
                 where_args = {
                     "cycle": str(itask.point),
                     "name": itask.tdef.name,
-                    "flows": json.dumps(list(itask.flows))
+                    "flows": json.dumps(sorted(itask.flows))
                 }
                 self.db_updates_map.setdefault(self.TABLE_TASK_STATES, [])
                 self.db_updates_map[self.TABLE_TASK_STATES].append(
@@ -590,7 +590,7 @@ class WorkflowDatabaseManager:
         if "submit_num" not in set_args:
             where_args["submit_num"] = itask.submit_num
         if "flows" not in set_args:
-            where_args["flows"] = json.dumps(list(itask.flows))
+            where_args["flows"] = json.dumps(sorted(itask.flows))
         self.db_updates_map.setdefault(table_name, [])
         self.db_updates_map[table_name].append((set_args, where_args))
 
