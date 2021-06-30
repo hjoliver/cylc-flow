@@ -251,14 +251,14 @@ class TaskState:
         self.kill_failed = False
 
     def __str__(self):
-        """Print status (is_held) (is_queued) (is_runahead)."""
+        """Print status(is_held)(is_queued)(is_runahead)."""
         ret = self.status
         if self.is_held:
-            ret += ' (held)'
+            ret += '(held)'
         if self.is_queued:
-            ret += ' (queued)'
+            ret += '(queued)'
         if self.is_runahead:
-            ret += ' (runahead)'
+            ret += '(runahead)'
         return ret
 
     def __call__(
@@ -407,9 +407,10 @@ class TaskState:
                 unchanged.
 
         Returns:
-            bool: True if state change, else False
+            returns: string summary of change, else empty string.
 
         """
+        summary = ""
         current_status = (
             self.status,
             self.is_held,
@@ -424,7 +425,27 @@ class TaskState:
         )
         if current_status == requested_status:
             # no change - do nothing
-            return False
+            return summary
+
+        changes = []
+        if status is not None and status != self.status:
+            changes.append(f"=> {status}")
+        if is_held is not None and is_held != self.is_held:
+            if is_held:
+                changes.append("=> held")
+            else:
+                changes.append("<= held")
+        if is_queued is not None and is_queued != self.is_queued:
+            if is_queued:
+                changes.append("=> queued")
+            else:
+                changes.append("<= queued")
+        if is_runahead is not None and is_runahead != self.is_runahead:
+            if is_runahead:
+                changes.append("=> runahead")
+            else:
+                changes.append("<= runahead")
+        summary = ",".join(changes)
 
         # perform the actual state change
         self.status, self.is_held, self.is_queued, self.is_runahead = (
@@ -437,7 +458,7 @@ class TaskState:
         if is_held:
             # only reset task outputs if not setting task to held
             # https://github.com/cylc/cylc-flow/pull/2116
-            return True
+            return summary
 
         self.kill_failed = False
 
@@ -460,7 +481,7 @@ class TaskState:
         self.outputs.set_completion(
             TASK_OUTPUT_FAILED, status == TASK_STATUS_FAILED)
 
-        return True
+        return summary
 
     def is_gt(self, status):
         """"Return True if self.status > status."""

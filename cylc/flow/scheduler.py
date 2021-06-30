@@ -38,7 +38,9 @@ from zmq.auth.thread import ThreadAuthenticator
 
 from metomi.isodatetime.parsers import TimePointParser
 
-from cylc.flow import LOG, main_loop, ID_DELIM, __version__ as CYLC_VERSION
+from cylc.flow import (
+    LOG, ORIGINAL_FLOW_NAME, main_loop, ID_DELIM, __version__ as CYLC_VERSION
+)
 from cylc.flow.broadcast_mgr import BroadcastMgr
 from cylc.flow.cfgspec.glbl_cfg import glbl_cfg
 from cylc.flow.config import WorkflowConfig
@@ -111,9 +113,6 @@ from cylc.flow.wallclock import (
     get_time_string_from_unix_time as time2str,
     get_utc_mode)
 from cylc.flow.xtrigger_mgr import XtriggerManager
-
-
-ORIGINAL_FLOW_NAME = "original"
 
 
 class SchedulerStop(CylcError):
@@ -893,7 +892,7 @@ class Scheduler:
         if self.config.run_mode('simulation'):
             for itask in itasks:
                 if itask.state(*TASK_STATUSES_ACTIVE):
-                    itask.state.reset(TASK_STATUS_FAILED)
+                    itask.state_reset(TASK_STATUS_FAILED)
                     self.data_store_mgr.delta_task_state(itask)
             return len(bad_items)
         self.task_job_mgr.kill_task_jobs(self.workflow, itasks)

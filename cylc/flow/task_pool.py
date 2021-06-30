@@ -416,8 +416,8 @@ class TaskPool:
                 for key, _ in itask_prereq.satisfied.items():
                     itask_prereq.satisfied[key] = sat[key]
 
-            itask.state.reset(status)
-            itask.state.reset(is_runahead=True)
+            itask.state_reset(status)
+            itask.state_reset(is_runahead=True)
             self.add_to_pool(itask, is_new=False)
 
     def load_db_task_action_timers(self, row_idx, row):
@@ -535,10 +535,8 @@ class TaskPool:
         - no parents to do it
         - has absolute triggers (these are satisfied already by definition)
         """
-        if itask.state.reset(is_runahead=False):
+        if itask.state_reset(is_runahead=False):
             self.data_store_mgr.delta_task_runahead(itask)
-
-        log_task(itask, "released from runahead")
 
         # Queue if ready to run
         if all(itask.is_ready_to_run()):
@@ -643,7 +641,7 @@ class TaskPool:
 
     def queue_task(self, itask: TaskProxy) -> None:
         """Queue a task that is ready to run."""
-        if itask.state.reset(is_queued=True):
+        if itask.state_reset(is_queued=True):
             self.data_store_mgr.delta_task_queued(itask)
             self.task_queue_mgr.push_task(itask)
 
@@ -660,12 +658,11 @@ class TaskPool:
             )
         )
         for itask in released:
-            itask.state.reset(is_queued=False)
-            itask.state.reset(TASK_STATUS_PREPARING)
+            itask.state_reset(is_queued=False)
+            itask.state_reset(TASK_STATUS_PREPARING)
             itask.waiting_on_job_prep = True
             self.data_store_mgr.delta_task_state(itask)
             self.data_store_mgr.delta_task_queued(itask)
-            log_task(itask, "Queue released")
         return released
 
     def get_min_point(self):
@@ -815,7 +812,7 @@ class TaskPool:
                     f"{self.stop_point}",
                     LOG.warning
                 )
-                if itask.state.reset(is_held=True):
+                if itask.state_reset(is_held=True):
                     self.data_store_mgr.delta_task_held(itask)
         return self.stop_point
 
@@ -943,13 +940,13 @@ class TaskPool:
             )
 
     def hold_active_task(self, itask: TaskProxy) -> None:
-        if itask.state.reset(is_held=True):
+        if itask.state_reset(is_held=True):
             self.data_store_mgr.delta_task_held(itask)
         self.tasks_to_hold.add((itask.tdef.name, itask.point))
         self.workflow_db_mgr.put_tasks_to_hold(self.tasks_to_hold)
 
     def release_held_active_task(self, itask: TaskProxy) -> None:
-        if itask.state.reset(is_held=False):
+        if itask.state_reset(is_held=False):
             self.data_store_mgr.delta_task_held(itask)
             if (not itask.state.is_runahead) and all(itask.is_ready_to_run()):
                 self.queue_task(itask)
@@ -1367,7 +1364,7 @@ class TaskPool:
                 itask.is_manual_submit = True
                 itask.reset_try_timers()
                 # (If None, spawner reports cycle bounds errors).
-                if itask.state.reset(TASK_STATUS_WAITING):
+                if itask.state_reset(TASK_STATUS_WAITING):
                     # (could also be unhandled failed)
                     self.data_store_mgr.delta_task_state(itask)
                 # (No need to set prerequisites satisfied here).
@@ -1445,7 +1442,7 @@ class TaskPool:
             self.task_events_mgr.setup_event_handlers(itask, "expired", msg)
             # TODO succeeded and expired states are useless due to immediate
             # removal under all circumstances (unhandled failed is still used).
-            if itask.state.reset(TASK_STATUS_EXPIRED, is_held=False):
+            if itask.state_reset(TASK_STATUS_EXPIRED, is_held=False):
                 self.data_store_mgr.delta_task_state(itask)
                 self.data_store_mgr.delta_task_held(itask)
             self.remove(itask, 'expired')

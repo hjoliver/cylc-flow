@@ -25,6 +25,7 @@ from typing import Any, Dict, List, Set, Tuple, Optional, TYPE_CHECKING
 from metomi.isodatetime.timezone import get_local_time_zone
 
 import cylc.flow.cycling.iso8601
+from cylc.flow import log_task, ORIGINAL_FLOW_NAME
 from cylc.flow.cycling.loader import standardise_point_string
 from cylc.flow.exceptions import PointParsingError
 from cylc.flow.platforms import get_platform
@@ -250,13 +251,18 @@ class TaskProxy:
         return f"<{self.__class__.__name__} '{self.identity}'>"
 
     def __str__(self) -> str:
-        """Stringify using identity, status, submit_num, and flows."""
-        return (
+        """Stringify using identity, state, submit_num, and flows.
+
+        Ignore flows is only the original one is present.
+        """
+        res = (
             f"{self.identity} "
-            f"state:{self.state.status} "
-            f"job:{self.submit_num:02d} "
-            f"flows:{'|'.join(self.flows)}"
+            f"{self.state} "
+            f"job:{self.submit_num:02d}"
         )
+        if self.flows and self.flows != {ORIGINAL_FLOW_NAME}:
+            res += f" flows:{','.join(sorted(self.flows))}"
+        return res
 
     def copy_to_reload_successor(self, reload_successor):
         """Copy attributes to successor on reload of this task proxy."""
@@ -432,3 +438,14 @@ class TaskProxy:
     def merge_flows(self, labels: Set) -> None:
         """Merge another set of flows with mine."""
         self.flows.update(labels)
+
+    def state_reset(
+        self, status=None, is_held=None, is_queued=None, is_runahead=None
+    ) -> bool:
+        """Return whether requested change succeeds and causes a change."""
+        before = str(self)
+        changes = self.state.reset(status, is_held, is_queued, is_runahead)
+        if changes:
+            log_task(before, changes)
+            return True
+        return False

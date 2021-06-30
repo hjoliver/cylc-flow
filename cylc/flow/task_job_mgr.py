@@ -173,7 +173,7 @@ class TaskJobManager:
         to_kill_tasks = []
         for itask in itasks:
             if itask.state(*TASK_STATUSES_ACTIVE):
-                itask.state.reset(is_held=True)
+                itask.state_reset(is_held=True)
                 self.data_store_mgr.delta_task_held(itask)
                 to_kill_tasks.append(itask)
             else:
@@ -574,7 +574,7 @@ class TaskJobManager:
         self.data_store_mgr.delta_job_msg(
             get_task_job_id(itask.point, itask.tdef.name, itask.submit_num),
             log_msg)
-        log_msg(itask, log_msg, log_lvl=log_lvl)
+        log_task(itask, log_msg, log_lvl=log_lvl)
 
     def _manip_task_jobs_callback(
             self, ctx, workflow, itasks, summary_callback,

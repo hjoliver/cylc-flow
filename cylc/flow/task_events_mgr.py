@@ -310,7 +310,7 @@ class TaskEventsManager():
                         f"{timer.delay_timeout_as_str()}"
                     )
                 if msg:
-                    log_job(point, name, submit_num, msg, LOG.debug)
+                    log_job(point, name, submit_num, msg, LOG.critical)
             # Ready to run?
             if not timer.is_delay_done() or (
                 # Avoid flooding user's mail box with mail notification.
@@ -506,8 +506,8 @@ class TaskEventsManager():
             itask.job_vacated = True
             # Believe this and change state without polling (could poll?).
             self.reset_inactivity_timer_func()
-            if itask.state.reset(TASK_STATUS_SUBMITTED):
-                itask.state.reset(is_queued=False)
+            if itask.state_reset(TASK_STATUS_SUBMITTED):
+                itask.state_reset(is_queued=False)
                 self.data_store_mgr.delta_task_state(itask)
                 self.data_store_mgr.delta_task_queued(itask)
             self._reset_job_timers(itask)
@@ -824,7 +824,7 @@ class TaskEventsManager():
                 os.getenv("CYLC_WORKFLOW_RUN_DIR")
             )
             itask.state.add_xtrigger(label)
-        if itask.state.reset(TASK_STATUS_WAITING):
+        if itask.state_reset(TASK_STATUS_WAITING):
             self.data_store_mgr.delta_task_state(itask)
 
     def _process_message_failed(self, itask, event_time, message):
@@ -850,7 +850,7 @@ class TaskEventsManager():
                 or itask.try_timers[TimerFlags.EXECUTION_RETRY].next() is None
         ):
             # No retry lined up: definitive failure.
-            if itask.state.reset(TASK_STATUS_FAILED):
+            if itask.state_reset(TASK_STATUS_FAILED):
                 self.setup_event_handlers(itask, self.EVENT_FAILED, message)
                 self.data_store_mgr.delta_task_state(itask)
             log_task(itask, "failed", LOG.critical)
@@ -860,13 +860,10 @@ class TaskEventsManager():
             timer = itask.try_timers[TimerFlags.EXECUTION_RETRY]
             self._retry_task(itask, timer.timeout)
             delay_msg = f"retrying in {timer.delay_timeout_as_str()}"
-            if itask.state.is_held:
-                delay_msg = "held (%s)" % delay_msg
-            msg = "failed, %s" % (delay_msg)
-            log_task(itask, msg)
+            log_task(itask, delay_msg, LOG.warning)
+            msg = f"{self.JOB_FAILED}, {delay_msg}"
             itask.set_summary_message(msg)
-            self.setup_event_handlers(
-                itask, self.EVENT_RETRY, f"{self.JOB_FAILED}, {delay_msg}")
+            self.setup_event_handlers(itask, self.EVENT_RETRY, msg)
         self._reset_job_timers(itask)
         return no_retries
 
@@ -882,7 +879,7 @@ class TaskEventsManager():
         itask.set_summary_time('started', event_time)
         self.workflow_db_mgr.put_update_task_jobs(itask, {
             "time_run": itask.summary['started_time_string']})
-        if itask.state.reset(TASK_STATUS_RUNNING):
+        if itask.state_reset(TASK_STATUS_RUNNING):
             self.setup_event_handlers(
                 itask, self.EVENT_STARTED, f'job {self.EVENT_STARTED}')
             self.data_store_mgr.delta_task_state(itask)
@@ -917,7 +914,7 @@ class TaskEventsManager():
                     msg += "\n  " + output
             if msg:
                 log_task(itask, f"Succeeded with outputs not completed: {msg}")
-        if itask.state.reset(TASK_STATUS_SUCCEEDED):
+        if itask.state_reset(TASK_STATUS_SUCCEEDED):
             self.setup_event_handlers(
                 itask, self.EVENT_SUCCEEDED, f"job {self.EVENT_SUCCEEDED}")
             self.data_store_mgr.delta_task_state(itask)
@@ -947,7 +944,7 @@ class TaskEventsManager():
             # No submission retry lined up: definitive failure.
             # See github #476.
             no_retries = True
-            if itask.state.reset(TASK_STATUS_SUBMIT_FAILED):
+            if itask.state_reset(TASK_STATUS_SUBMIT_FAILED):
                 self.setup_event_handlers(
                     itask, self.EVENT_SUBMIT_FAILED,
                     f'job {self.EVENT_SUBMIT_FAILED}')
@@ -956,15 +953,11 @@ class TaskEventsManager():
             # There is a submission retry lined up.
             timer = itask.try_timers[TimerFlags.SUBMISSION_RETRY]
             self._retry_task(itask, timer.timeout, submit_retry=True)
-            delay_msg = f"submit-retrying in {timer.delay_timeout_as_str()}"
-            if itask.state.is_held:
-                delay_msg = f"held ({delay_msg})"
-            msg = "%s, %s" % (self.EVENT_SUBMIT_FAILED, delay_msg)
-            log_task(itask, msg)
+            delay_msg = f"retrying in {timer.delay_timeout_as_str()}"
+            log_task(itask, delay_msg, LOG.warning)
+            msg = "job {self.EVENT_SUBMIT_FAILED}, {delay_msg}"
             itask.set_summary_message(msg)
-            self.setup_event_handlers(
-                itask, self.EVENT_SUBMIT_RETRY,
-                f"job {self.EVENT_SUBMIT_FAILED}, {delay_msg}")
+            self.setup_event_handlers(itask, self.EVENT_SUBMIT_RETRY, msg)
         self._reset_job_timers(itask)
         return no_retries
 
@@ -988,7 +981,7 @@ class TaskEventsManager():
             # Simulate job execution at this point.
             itask.set_summary_time('submitted', event_time)
             itask.set_summary_time('started', event_time)
-            if itask.state.reset(TASK_STATUS_RUNNING):
+            if itask.state_reset(TASK_STATUS_RUNNING):
                 self.data_store_mgr.delta_task_state(itask)
             itask.state.outputs.set_completion(TASK_OUTPUT_STARTED, True)
             self.data_store_mgr.delta_task_output(itask, TASK_OUTPUT_STARTED)
@@ -1007,8 +1000,8 @@ class TaskEventsManager():
         if itask.state.status == TASK_STATUS_PREPARING:
             # The job started message can (rarely) come in before the submit
             # command returns - in which case do not go back to 'submitted'.
-            if itask.state.reset(TASK_STATUS_SUBMITTED):
-                itask.state.reset(is_queued=False)
+            if itask.state_reset(TASK_STATUS_SUBMITTED):
+                itask.state_reset(is_queued=False)
                 self.setup_event_handlers(
                     itask, self.EVENT_SUBMITTED, f'job {self.EVENT_SUBMITTED}')
                 self.data_store_mgr.delta_task_state(itask)
@@ -1253,7 +1246,7 @@ class TaskEventsManager():
             timeout_str = None
         itask.poll_timer = TaskActionTimer(ctx=ctx, delays=delays)
         # Log timeout and polling schedule
-        message = 'health check settings: %s=%s' % (timeout_key, timeout_str)
+        message = 'health: %s=%s' % (timeout_key, timeout_str)
         # Attempt to group identical consecutive delays as N*DELAY,...
         if itask.poll_timer.delays:
             items = []  # [(number of item - 1, item), ...]

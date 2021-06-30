@@ -16,12 +16,12 @@
 
 import pytest
 
+from cylc.flow import ORIGINAL_FLOW_NAME
 from cylc.flow.cycling.iso8601 import ISO8601Point, ISO8601Sequence, init
 from cylc.flow.subprocctx import SubFuncContext
 from cylc.flow.task_proxy import TaskProxy
 from cylc.flow.taskdef import TaskDef
 from cylc.flow.xtrigger_mgr import RE_STR_TMPL
-from cylc.flow.scheduler import ORIGINAL_FLOW_NAME
 
 
 def test_constructor(xtrigger_mgr):

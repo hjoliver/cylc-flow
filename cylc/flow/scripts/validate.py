@@ -27,7 +27,7 @@ from ansimarkup import parse as cparse
 import sys
 import textwrap
 
-from cylc.flow import LOG, __version__ as CYLC_VERSION
+from cylc.flow import LOG, ORIGINAL_FLOW_NAME, __version__ as CYLC_VERSION
 from cylc.flow.config import WorkflowConfig
 import cylc.flow.flags
 from cylc.flow.profiler import Profiler
@@ -43,7 +43,6 @@ from cylc.flow.option_parsers import (
     Options
 )
 from cylc.flow.workflow_files import parse_workflow_arg
-from cylc.flow.scheduler import ORIGINAL_FLOW_NAME
 
 
 def get_option_parser():

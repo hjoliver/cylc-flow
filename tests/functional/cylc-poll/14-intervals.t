@@ -33,7 +33,7 @@ workflow_run_ok "${TEST_NAME_BASE}-run" \
 #-------------------------------------------------------------------------------
 LOG_FILE="${WORKFLOW_RUN_DIR}/log/workflow/log"
 
-PRE_MSG='-health check settings:'
+PRE_MSG='-health:'
 for INDEX in 1 2; do
     for STAGE in 'submission' 'execution'; do
         POLL_INT='PT2S,6\*PT10S,'
