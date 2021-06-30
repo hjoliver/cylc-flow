@@ -55,7 +55,7 @@ mutation (
   $cyclePoint: CyclePoint,
   $clockTime: TimePoint,
   $task: TaskID,
-  $flowLabel: String,
+  $flow: String,
 ) {
   stop (
     workflows: $wFlows,
@@ -63,7 +63,7 @@ mutation (
     cyclePoint: $cyclePoint,
     clockTime: $clockTime,
     task: $task,
-    flowLabel: $flowLabel
+    flow: $flow
   ) {
     result
   }
@@ -116,7 +116,7 @@ def get_option_parser():
 
     parser.add_option(
         "--flow", metavar="FLOW",
-        help="Stop flow FLOW from spawning any further. "
+        help="Stop flow FLOW from spawning more tasks. "
              "The scheduler will shut down if FLOW is the only flow.",
         action="store", dest="flow")
 

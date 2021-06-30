@@ -40,12 +40,12 @@ MUTATION = '''
 mutation (
   $wFlows: [WorkflowID]!,
   $tasks: [NamespaceIDGlob]!,
-  $flowName: String,
+  $flow: String,
 ) {
   trigger (
     workflows: $wFlows,
     tasks: $tasks,
-    flowName: $flowName
+    flow: $flow
   ) {
     result
   }

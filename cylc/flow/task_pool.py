@@ -1480,13 +1480,9 @@ class TaskPool:
 
     def stop_flow(self, flow):
         """Stop a particular flow from spawning any further."""
-        # Stop tasks belong to flow from continuing.
         for itask in self.get_all_tasks():
-            if flow in itask.flows:
+            with suppress(KeyError):
                 itask.flows.remove(flow)
-                if not itask.flows:
-                    # set to None to prevent reflow
-                    itask.flows = None
 
     @staticmethod
     def _parse_task_item(
