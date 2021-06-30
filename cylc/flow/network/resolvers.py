@@ -711,7 +711,7 @@ class Resolvers(BaseResolvers):
         else:
             return (False, 'Edge distance cannot be negative')
 
-    def force_spawn_children(self, tasks, outputs):
+    def force_spawn_children(self, tasks, outputs, flow):
         """Spawn children of given task outputs.
 
         Args:
@@ -728,8 +728,15 @@ class Resolvers(BaseResolvers):
 
         """
         self.schd.command_queue.put(
-            ("force_spawn_children", (tasks,),
-             {'outputs': outputs}))
+            (
+                "force_spawn_children",
+                (tasks,),
+                {
+                    "outputs": outputs,
+                    "flow": flow
+                }
+            )
+        )
         return (True, 'Command queued')
 
     def stop(

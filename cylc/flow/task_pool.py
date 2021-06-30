@@ -1296,13 +1296,12 @@ class TaskPool:
                     continue
         return n_warnings, task_items
 
-    def force_spawn_children(self, items, outputs):
+    def force_spawn_children(self, items, outputs, flow):
         """Spawn downstream children of given task outputs on user command."""
         n_warnings, task_items = self.match_taskdefs(items)
         for (_, point), taskdef in sorted(task_items.items()):
             # This the upstream target task:
-            # TODO COMMAND MUST SPECIFY FLOW HERE
-            itask = TaskProxy(taskdef, point, flows={"TRIGGER"})
+            itask = TaskProxy(taskdef, point, flows={flow})
             # Spawn downstream on selected outputs.
             for trig, out, _ in itask.state.outputs.get_all():
                 if trig in outputs:

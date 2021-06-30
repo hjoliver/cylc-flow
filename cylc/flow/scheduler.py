@@ -1795,9 +1795,9 @@ class Scheduler:
         """Trigger tasks."""
         return self.pool.force_trigger_tasks(items, flow)
 
-    def command_force_spawn_children(self, items, outputs):
+    def command_force_spawn_children(self, items, outputs, flow):
         """Force spawn task successors."""
-        return self.pool.force_spawn_children(items, outputs)
+        return self.pool.force_spawn_children(items, outputs, flow)
 
     def _update_profile_info(self, category, amount, amount_format="%s"):
         """Update the 1, 5, 15 minute dt averages for a given category."""

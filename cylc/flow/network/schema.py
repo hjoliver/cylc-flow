@@ -1858,6 +1858,7 @@ class SetOutputs(Mutation, TaskMutation):
             default_value=[TASK_OUTPUT_SUCCEEDED],
             description='List of task outputs to satisfy.'
         )
+        flow = String()
 
 
 class Trigger(Mutation, TaskMutation):
