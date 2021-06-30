@@ -43,6 +43,7 @@ from cylc.flow.option_parsers import (
     Options
 )
 from cylc.flow.workflow_files import parse_workflow_arg
+from cylc.flow.scheduler import ORIGINAL_FLOW_NAME
 
 
 def get_option_parser():
@@ -130,7 +131,7 @@ def main(_, options, reg):
         print('Instantiating tasks to check trigger expressions')
     for name, taskdef in cfg.taskdefs.items():
         try:
-            itask = TaskProxy(taskdef, cfg.start_point, {"original"})
+            itask = TaskProxy(taskdef, cfg.start_point, {ORIGINAL_FLOW_NAME})
         except TaskProxySequenceBoundsError:
             # Should already failed above
             mesg = 'Task out of bounds for %s: %s\n' % (cfg.start_point, name)

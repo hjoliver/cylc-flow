@@ -36,7 +36,7 @@ from time import time
 
 from cylc.flow.parsec.config import ItemNotFoundError
 
-from cylc.flow import LOG, LOG_LEVELS
+from cylc.flow import LOG, LOG_LEVELS, log_task, log_job
 from cylc.flow.cfgspec.glbl_cfg import glbl_cfg
 from cylc.flow.hostuserutil import get_host, get_user, is_remote_host
 from cylc.flow.pathutil import (
@@ -248,7 +248,7 @@ class TaskEventsManager():
             msg += ' after %s' % intvl_as_str(itask.timeout - time_ref)
         itask.timeout = None  # emit event only once
         if msg and event:
-            LOG.warning('[%s] -%s', itask, msg)
+            log_task(itask, msg, LOG.warning)
             self.setup_event_handlers(itask, event, msg)
             return True
         else:
@@ -290,20 +290,27 @@ class TaskEventsManager():
             # Set timer if timeout is None.
             if not timer.is_timeout_set():
                 if timer.next() is None:
-                    LOG.warning("%s/%s/%02d %s failed" % (
-                        point, name, submit_num, key1))
+                    log_job(
+                        point, name, submit_num,
+                        f"{key1} failed",
+                        LOG.warning
+                    )
                     self.remove_event_timer(id_key)
                     continue
                 # Report retries and delayed 1st try
-                tmpl = None
+                msg = None
                 if timer.num > 1:
-                    tmpl = "%s/%s/%02d %s failed, retrying in %s"
+                    msg = (
+                        f"{key1} failed, "
+                        f"retrying in {timer.delay_timeout_as_str()}"
+                    )
                 elif timer.delay:
-                    tmpl = "%s/%s/%02d %s will run after %s"
-                if tmpl:
-                    LOG.debug(tmpl % (
-                        point, name, submit_num, key1,
-                        timer.delay_timeout_as_str()))
+                    msg = (
+                        f"{key1} will run after "
+                        f"{timer.delay_timeout_as_str()}"
+                    )
+                if msg:
+                    log_job(point, name, submit_num, msg, LOG.debug)
             # Ready to run?
             if not timer.is_delay_done() or (
                 # Avoid flooding user's mail box with mail notification.
@@ -521,9 +528,7 @@ class TaskEventsManager():
             #  * poll messages that repeat previous results
             # Note that all messages are logged already at the top.
             # No state change.
-            LOG.debug(
-                '[%s] status=%s: unhandled: %s',
-                itask, itask.state.status, message)
+            log_task(itask, f"unhanded: {message}", LOG.debug)
             if severity in LOG_LEVELS.values():
                 severity = getLevelName(severity)
             self._db_events_insert(
@@ -549,16 +554,17 @@ class TaskEventsManager():
         Return True if `.process_message` should contine, False otherwise.
         """
         if self.timestamp:
-            timestamp = " at %s " % event_time
+            timestamp = " at %s" % event_time
         else:
             timestamp = ""
-        logfmt = r'[%s] status=%s: %s%s%s for job(%02d) flow(%s)'
         if flag == self.FLAG_RECEIVED and submit_num != itask.submit_num:
             # Ignore received messages from old jobs
-            LOG.warning(
-                logfmt + r' != current job(%02d)',
-                itask, itask.state, self.FLAG_RECEIVED_IGNORED, message,
-                timestamp, submit_num, itask.flows, itask.submit_num)
+            log_task(
+                itask,
+                f"{self.FLAG_RECEIVED_IGNORED}{message}{timestamp} "
+                f"for job({submit_num:02d}) != job({itask.submit_num:02d})",
+                LOG.warning
+            )
             return False
 
         if (
@@ -582,14 +588,18 @@ class TaskEventsManager():
 
         ):
             # Ignore polled messages if task has a retry lined up
-            LOG.warning(
-                logfmt,
-                itask, itask.state, self.FLAG_POLLED_IGNORED, message,
-                timestamp, submit_num, itask.flows)
+            log_task(
+                itask,
+                f"{self.FLAG_POLLED_IGNORED}{message}{timestamp} ",
+                LOG.warning
+            )
             return False
-        LOG.log(
-            LOG_LEVELS.get(severity, INFO), logfmt, itask, itask.state, flag,
-            message, timestamp, submit_num, itask.flows)
+
+        log_task(
+            itask,
+            f"{flag}{message}{timestamp}",
+            log_lvl=LOG_LEVELS.get(severity, INFO)
+        )
         return True
 
     def setup_event_handlers(self, itask, event, message):
@@ -843,8 +853,7 @@ class TaskEventsManager():
             if itask.state.reset(TASK_STATUS_FAILED):
                 self.setup_event_handlers(itask, self.EVENT_FAILED, message)
                 self.data_store_mgr.delta_task_state(itask)
-            LOG.critical(
-                "[%s] -job(%02d) %s", itask, itask.submit_num, "failed")
+            log_task(itask, "failed", LOG.critical)
             no_retries = True
         else:
             # There is an execution retry lined up.
@@ -854,7 +863,7 @@ class TaskEventsManager():
             if itask.state.is_held:
                 delay_msg = "held (%s)" % delay_msg
             msg = "failed, %s" % (delay_msg)
-            LOG.info("[%s] -job(%02d) %s", itask, itask.submit_num, msg)
+            log_task(itask, msg)
             itask.set_summary_message(msg)
             self.setup_event_handlers(
                 itask, self.EVENT_RETRY, f"{self.JOB_FAILED}, {delay_msg}")
@@ -865,7 +874,7 @@ class TaskEventsManager():
         """Helper for process_message, handle a started message."""
         if itask.job_vacated:
             itask.job_vacated = False
-            LOG.warning(f"[{itask}] -Vacated job restarted")
+            log_task(itask, "Vacated job restarted", LOG.warning)
         self.reset_inactivity_timer_func()
         job_d = get_task_job_id(itask.point, itask.tdef.name, itask.submit_num)
         self.data_store_mgr.delta_job_time(job_d, 'started', event_time)
@@ -907,9 +916,7 @@ class TaskEventsManager():
                         TASK_OUTPUT_FAILED, TASK_OUTPUT_STARTED]:
                     msg += "\n  " + output
             if msg:
-                LOG.info(
-                    f"[{itask}] -Succeeded with outputs not completed: {msg}"
-                )
+                log_task(itask, f"Succeeded with outputs not completed: {msg}")
         if itask.state.reset(TASK_STATUS_SUCCEEDED):
             self.setup_event_handlers(
                 itask, self.EVENT_SUCCEEDED, f"job {self.EVENT_SUCCEEDED}")
@@ -922,7 +929,7 @@ class TaskEventsManager():
         Return True if no retries (hence go to the submit-failed state).
         """
         no_retries = False
-        LOG.error('[%s] -%s', itask, self.EVENT_SUBMIT_FAILED)
+        log_task(itask, self.EVENT_SUBMIT_FAILED, LOG.critical)
         if event_time is None:
             event_time = get_current_time_string()
         self.workflow_db_mgr.put_update_task_jobs(itask, {
@@ -953,7 +960,7 @@ class TaskEventsManager():
             if itask.state.is_held:
                 delay_msg = f"held ({delay_msg})"
             msg = "%s, %s" % (self.EVENT_SUBMIT_FAILED, delay_msg)
-            LOG.info("[%s] -job(%02d) %s", itask, itask.submit_num, msg)
+            log_task(itask, msg)
             itask.set_summary_message(msg)
             self.setup_event_handlers(
                 itask, self.EVENT_SUBMIT_RETRY,
@@ -964,13 +971,13 @@ class TaskEventsManager():
     def _process_message_submitted(self, itask, event_time):
         """Helper for process_message, handle a submit-succeeded message."""
         with suppress(KeyError):
-            LOG.info(
-                '[%s] -job[%02d] submitted to %s:%s[%s]',
+            summary = itask.summary
+            log_task(
                 itask,
-                itask.summary['submit_num'],
-                itask.summary['platforms_used'][itask.summary['submit_num']],
-                itask.summary['job_runner_name'],
-                itask.summary['submit_method_id']
+                f"submitted to "
+                f"{summary['platforms_used'][itask.summary['submit_num']]}:"
+                f"{summary['job_runner_name']}"
+                f"[{summary['submit_method_id']}]"
             )
         self.workflow_db_mgr.put_update_task_jobs(itask, {
             "time_submit_exit": event_time,
@@ -1170,16 +1177,18 @@ class TaskEventsManager():
                 # fmt: on
                 cmd = handler % (handler_data)
             except KeyError as exc:
-                LOG.error(
-                    f"{itask.point}/{itask.tdef.name}/{itask.submit_num:02d} "
-                    f"{key1} bad template: {exc}")
+                log_job(
+                    itask.point, itask.tdef.name, itask.submit_num,
+                    f"{key1} bad template: {exc}",
+                    LOG.critical
+                )
                 continue
 
             if cmd == handler:
                 # Nothing substituted, assume classic interface
                 cmd = (f"{handler} '{event}' '{self.workflow}' "
                        f"'{itask.identity}' '{message}'")
-            LOG.debug(f"[{itask}] -Queueing {event} handler: {cmd}")
+            log_task(itask, f"Queueing {event} handler: {cmd}", LOG.debug)
             self.add_event_timer(
                 id_key,
                 TaskActionTimer(
@@ -1259,7 +1268,7 @@ class TaskEventsManager():
                     message += '%d*' % (num + 1)
                 message += '%s,' % intvl_as_str(item)
             message += '...'
-        LOG.info('[%s] -%s', itask, message)
+        log_task(itask, message)
         # Set next poll time
         self.check_poll_time(itask)
 

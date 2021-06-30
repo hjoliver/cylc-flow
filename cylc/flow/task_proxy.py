@@ -250,8 +250,13 @@ class TaskProxy:
         return f"<{self.__class__.__name__} '{self.identity}'>"
 
     def __str__(self) -> str:
-        """Stringify using "self.identity"."""
-        return self.identity
+        """Stringify using identity, status, submit_num, and flows."""
+        return (
+            f"{self.identity} "
+            f"state:{self.state.status} "
+            f"job:{self.submit_num:02d} "
+            f"flows:{'|'.join(self.flows)}"
+        )
 
     def copy_to_reload_successor(self, reload_successor):
         """Copy attributes to successor on reload of this task proxy."""

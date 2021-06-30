@@ -113,6 +113,9 @@ from cylc.flow.wallclock import (
 from cylc.flow.xtrigger_mgr import XtriggerManager
 
 
+ORIGINAL_FLOW_NAME = "original"
+
+
 class SchedulerStop(CylcError):
     """Scheduler normal stop."""
     pass
@@ -621,7 +624,8 @@ class Scheduler:
     def _load_pool_from_tasks(self):
         """Load task pool with specified tasks, for a new run."""
         LOG.info(f"Start task: {self.options.starttask}")
-        self.pool.force_trigger_tasks(self.options.starttask, "original")
+        self.pool.force_trigger_tasks(
+            self.options.starttask, ORIGINAL_FLOW_NAME)
 
     def _load_pool_from_point(self):
         """Load task pool for a cycle point, for a new run.
@@ -655,7 +659,9 @@ class Scheduler:
             parent_points = tdef.get_parent_points(point)
             if not parent_points or all(
                     x < self.config.start_point for x in parent_points):
-                self.pool.add_to_pool(TaskProxy(tdef, point, {"original"}))
+                self.pool.add_to_pool(
+                    TaskProxy(tdef, point, {ORIGINAL_FLOW_NAME})
+                )
 
     def _load_pool_from_db(self):
         """Load task pool from DB, for a restart."""
@@ -1223,9 +1229,11 @@ class Scheduler:
                         self.curve_auth,
                         self.client_pub_key_dir,
                         self.config.run_mode('simulation')):
-                    # TODO log flows here (beware effect on ref tests)
-                    LOG.info('[%s] -triggered off %s',
-                             itask, itask.state.get_resolved_dependencies())
+                    # (Not using task_log here to avoid breaking func tests)
+                    LOG.info(
+                        f"[{itask.identity}] -triggered off "
+                        f"{itask.state.get_resolved_dependencies()}"
+                    )
 
     def process_workflow_db_queue(self):
         """Update workflow DB."""

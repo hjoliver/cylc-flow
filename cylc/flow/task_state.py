@@ -17,9 +17,7 @@
 """Task state related logic."""
 
 
-from cylc.flow import LOG
 from cylc.flow.prerequisite import Prerequisite
-from cylc.flow.task_id import TaskID
 from cylc.flow.task_outputs import (
     TaskOutputs,
     TASK_OUTPUT_EXPIRED, TASK_OUTPUT_SUBMITTED, TASK_OUTPUT_SUBMIT_FAILED,
@@ -179,8 +177,6 @@ class TaskState:
             True if the task is queued else False.
         .is_runahead (bool):
             True if the task is runahead limited else False.
-        .identity (str):
-            The task ID as `TASK.CYCLE` associated with this object.
         .is_updated (boolean):
             Has the status been updated since previous update?
         .kill_failed (boolean):
@@ -209,7 +205,6 @@ class TaskState:
         "is_held",
         "is_queued",
         "is_runahead",
-        "identity",
         "is_updated",
         "kill_failed",
         "outputs",
@@ -223,7 +218,6 @@ class TaskState:
     ]
 
     def __init__(self, tdef, point, status, is_held):
-        self.identity = TaskID.get(tdef.name, str(point))
         self.status = status
         self.is_held = is_held
         self.is_queued = False
@@ -432,8 +426,6 @@ class TaskState:
             # no change - do nothing
             return False
 
-        prev_message = str(self)
-
         # perform the actual state change
         self.status, self.is_held, self.is_queued, self.is_runahead = (
             requested_status
@@ -441,7 +433,6 @@ class TaskState:
 
         self.time_updated = get_current_time_string()
         self.is_updated = True
-        LOG.debug("[%s] -%s => %s", self.identity, prev_message, str(self))
 
         if is_held:
             # only reset task outputs if not setting task to held
