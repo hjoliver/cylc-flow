@@ -25,7 +25,7 @@ from typing import Any, Dict, List, Set, Tuple, Optional, TYPE_CHECKING
 from metomi.isodatetime.timezone import get_local_time_zone
 
 import cylc.flow.cycling.iso8601
-from cylc.flow import log_task, ORIGINAL_FLOW_NAME
+from cylc.flow import LOG, ORIGINAL_FLOW_NAME
 from cylc.flow.cycling.loader import standardise_point_string
 from cylc.flow.exceptions import PointParsingError
 from cylc.flow.platforms import get_platform
@@ -448,6 +448,6 @@ class TaskProxy:
         """
         before = str(self)
         if self.state.reset(status, is_held, is_queued, is_runahead):
-            log_task(before, f"=> {self.state}")
+            LOG.info(f"[{before}] => {self.state}")
             return True
         return False

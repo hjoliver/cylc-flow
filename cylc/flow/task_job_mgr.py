@@ -37,7 +37,7 @@ from logging import (
 from shutil import rmtree
 from time import time
 
-from cylc.flow import LOG, log_task
+from cylc.flow import LOG
 from cylc.flow.job_runner_mgr import JobPollContext
 from cylc.flow.exceptions import (
     PlatformLookupError,
@@ -156,9 +156,8 @@ class TaskJobManager:
             if self.task_events_mgr.check_job_time(itask, now):
                 poll_tasks.add(itask)
                 if itask.poll_timer.delay is not None:
-                    log_task(
-                        itask,
-                        f"poll now, (next in "
+                    LOG.info(
+                        f"[{itask}] poll now, (next in "
                         f"{itask.poll_timer.delay_timeout_as_str()})"
                     )
         if poll_tasks:
@@ -177,7 +176,7 @@ class TaskJobManager:
                 self.data_store_mgr.delta_task_held(itask)
                 to_kill_tasks.append(itask)
             else:
-                log_task(itask, "task not killable", LOG.warning)
+                LOG.warning(f"[{itask}] not killable")
         self._run_job_cmd(
             self.JOBS_KILL, workflow, to_kill_tasks,
             self._kill_task_jobs_callback)
@@ -315,7 +314,7 @@ class TaskJobManager:
             done_tasks.extend(itasks)
             for itask in itasks:
                 # Log and persist
-                log_task(itask, f"host={host}")
+                LOG.info(f"[{itask}] host={host}")
                 self.workflow_db_mgr.put_insert_task_jobs(itask, {
                     'is_manual_submit': itask.is_manual_submit,
                     'try_num': itask.get_try_num(),
@@ -525,7 +524,7 @@ class TaskJobManager:
                 handle.write((host + line).encode())
         except IOError as exc:
             LOG.warning("%s: write failed\n%s" % (job_activity_log, exc))
-            log_task(itask, f"{host}{line}", LOG.warning)
+            LOG.warning(f"[{itask}] {host}{line}")
 
     def _kill_task_jobs_callback(self, ctx, workflow, itasks):
         """Callback when kill tasks command exits."""
@@ -574,7 +573,7 @@ class TaskJobManager:
         self.data_store_mgr.delta_job_msg(
             get_task_job_id(itask.point, itask.tdef.name, itask.submit_num),
             log_msg)
-        log_task(itask, log_msg, log_lvl=log_lvl)
+        LOG.log(log_lvl, f"[{itask}] {log_msg}")
 
     def _manip_task_jobs_callback(
             self, ctx, workflow, itasks, summary_callback,
@@ -935,17 +934,15 @@ class TaskJobManager:
                 and rtconfig['platform']
                 and rtconfig['platform'] != platform_n
             ):
-                log_task(
-                    itask,
-                    "platform = "
+                LOG.debug(
+                    f"[{itask}] platform = "
                     f"{rtconfig['platform']} evaluated as {platform_n}",
                     LOG.debug
                 )
                 rtconfig['platform'] = platform_n
             elif platform_n is None and rtconfig['remote']['host'] != host_n:
-                log_task(
-                    itask,
-                    f"host = "
+                LOG.debug(
+                    f"[{itask}] host = "
                     f"{rtconfig['remote']['host']} evaluated as {host_n}",
                     LOG.debug
                 )

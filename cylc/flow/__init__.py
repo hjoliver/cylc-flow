@@ -66,20 +66,3 @@ def iter_entry_points(entry_point_name):
         # all cylc packages should take the form cylc-<name>
         if entry_point.dist.key != 'cylc'
     )
-
-
-def log_task(itask, msg, log=LOG.info, log_lvl=None):
-    """Utility function for consistent logging of task messages.
-
-    itask: task proxy or str(task proxy)
-    """
-    fmsg = f"[{itask}] {msg}"
-    if log_lvl is not None:
-        LOG.log(log_lvl, fmsg)
-    else:
-        log(fmsg)
-
-
-def log_job(point, name, submit_num, msg, log=LOG.info):
-    """Utility function for consistent logging of job messages."""
-    log(f"{point}/{name}/{submit_num:02d} {msg}")

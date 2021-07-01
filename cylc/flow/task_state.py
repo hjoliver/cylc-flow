@@ -410,7 +410,6 @@ class TaskState:
             returns: whether state change or not (bool)
 
         """
-        summary = ""
         current_status = (
             self.status,
             self.is_held,

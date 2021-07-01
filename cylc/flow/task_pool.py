@@ -22,7 +22,7 @@ import json
 from time import time
 from typing import Dict, Iterable, List, Optional, Set, TYPE_CHECKING, Tuple
 
-from cylc.flow import LOG, log_task
+from cylc.flow import LOG
 from cylc.flow.cycling.loader import get_point, standardise_point_string
 from cylc.flow.cycling.integer import IntegerInterval
 from cylc.flow.cycling.iso8601 import ISO8601Interval
@@ -588,8 +588,7 @@ class TaskPool:
             # Event-driven final update of task_states table.
             # TODO: same for datastore (still updated by scheduler loop)
             self.workflow_db_mgr.put_update_task_state(itask)
-            log_task(itask, msg, LOG.debug)
-            del itask
+            LOG.debug(f"[{itask}] {msg}")
 
     def get_all_tasks(self) -> List[TaskProxy]:
         """Return a list of all task proxies."""
@@ -743,10 +742,9 @@ class TaskPool:
                 else:
                     # Keep active orphaned task, but stop it from spawning.
                     itask.graph_children = {}
-                    log_task(
-                        itask,
-                        "will not spawn children - task definition removed",
-                        LOG.warning
+                    LOG.warning(
+                        "f[{itask}] will not spawn children "
+                        "- task definition removed"
                     )
             else:
                 new_task = TaskProxy(
@@ -754,12 +752,10 @@ class TaskPool:
                     itask.point, itask.flows, itask.state.status)
                 itask.copy_to_reload_successor(new_task)
                 self._swap_out(new_task)
-                log_task(itask, "reloaded task definition")
+                LOG.info(f"[{itask}] reloaded task definition")
                 if itask.state(*TASK_STATUSES_ACTIVE):
-                    log_task(
-                        itask,
-                        "active with pre-reload settings",
-                        LOG.warning
+                    LOG.warning(
+                        f"[{itask}] active with pre-reload settings"
                     )
 
         # Reassign live tasks to the internal queue
@@ -805,11 +801,9 @@ class TaskPool:
                         is_held=False
                     )
             ):
-                log_task(
-                    itask,
-                    "not running (beyond workflow stop cycle) "
-                    f"{self.stop_point}",
-                    LOG.warning
+                LOG.warning(
+                    f"[{itask}] not running (beyond workflow stop cycle) "
+                    f"{self.stop_point}"
                 )
                 if itask.state_reset(is_held=True):
                     self.data_store_mgr.delta_task_held(itask)
@@ -1093,9 +1087,8 @@ class TaskPool:
             if c_task is not None:
                 # Child already spawned, update it.
                 c_task.merge_flows(itask.flows)
-                log_task(
-                    c_task,
-                    f"Merged flows {','.join(itask.flows)}"
+                LOG.info(
+                    f"[{c_task}] Merged flows {','.join(itask.flows)}"
                 )
             elif itask.flows:
                 # Spawn child only if flows is not empty.
@@ -1127,7 +1120,7 @@ class TaskPool:
                     TASK_STATUS_SUBMITTED,
                     TASK_STATUS_RUNNING,
                     is_held=False):
-                log_task(c_task, 'suiciding while active', LOG.warning)
+                LOG.warning(f"[{c_task}] suiciding while active")
             self.remove(c_task, 'SUICIDE')
 
         # Remove the parent task if finished.
@@ -1220,13 +1213,13 @@ class TaskPool:
 
         itask = TaskProxy(taskdef, point, flows, submit_num=submit_num)
         if (name, point) in self.tasks_to_hold:
-            log_task(itask, "holding (as requested earlier)")
+            LOG.info(f"[{itask}] holding (as requested earlier)")
             self.hold_active_task(itask)
         elif self.hold_point and itask.point > self.hold_point:
             # Hold if beyond the workflow hold point
-            log_task(
-                itask,
-                f"holding (beyond workflow hold point: {self.hold_point})"
+            LOG.info(
+                f"[{itask}] holding (beyond workflow "
+                f"hold point: {self.hold_point})"
             )
             self.hold_active_task(itask)
 
@@ -1237,18 +1230,16 @@ class TaskPool:
                     future_trigger_overrun = True
                     break
             if future_trigger_overrun:
-                log_task(
-                    itask,
-                    "won't run: depends on a task beyond "
-                    f"the stop point ({self.stop_point})",
-                    LOG.warning
+                LOG.warning(
+                    f"[{itask}] won't run: depends on a task beyond "
+                    f"the stop point ({self.stop_point})"
                 )
         # Attempt to satisfy any absolute triggers now.
         # TODO: consider doing this only for tasks with absolute prerequisites.
         if itask.state.prerequisites_are_not_all_satisfied():
             itask.state.satisfy_me(self.abs_outputs_done)
 
-        log_task(itask, "spawned", LOG.info)
+        LOG.info(f"[{itask}] spawned")
         return itask
 
     def match_taskdefs(
@@ -1301,10 +1292,7 @@ class TaskPool:
             # Spawn downstream on selected outputs.
             for trig, out, _ in itask.state.outputs.get_all():
                 if trig in outputs:
-                    log_task(
-                        itask,
-                        f"Forced spawning on {out}"
-                    )
+                    LOG.info(f"[{itask}] Forced spawning on {out}")
                     self.spawn_on_output(itask, out)
 
     def remove_tasks(self, items):
@@ -1349,17 +1337,10 @@ class TaskPool:
             else:
                 # In pool already
                 if itask.state(*TASK_STATUSES_ACTIVE):
-                    log_task(
-                        itask,
-                        "ignoring trigger - already active",
-                        LOG.warning
-                    )
+                    LOG.warning(f"[{itask}] ignoring trigger - already active")
                     continue
                 itask.merge_flows(flows)
-                log_task(
-                    itask,
-                    f"Merged flows: {','.join(flows)}"
-                )
+                LOG.info(f"[{itask}] Merged flows: {','.join(flows)}")
                 itask.is_manual_submit = True
                 itask.reset_try_timers()
                 # (If None, spawner reports cycle bounds errors).
@@ -1368,13 +1349,11 @@ class TaskPool:
                     self.data_store_mgr.delta_task_state(itask)
                 # (No need to set prerequisites satisfied here).
                 if not itask.state.is_queued:
-                    log_task(
-                        itask,
-                        "Queueing. Trigger again to submit immediately."
+                    LOG.info(
+                        f"[{itask}] queued, trigger again to submit now."
                     )
                     self.queue_task(itask)
                 else:
-                    log_task(itask, "De-queueing")
                     self.task_queue_mgr.force_release_task(itask)
         return n_warnings
 
@@ -1437,7 +1416,7 @@ class TaskPool:
                 itask.get_offset_as_seconds(itask.tdef.expiration_offset))
         if time() > itask.expire_time:
             msg = 'Task expired (skipping job).'
-            log_task(itask, msg, LOG.warning)
+            LOG.warning(f"[{itask}] {msg}")
             self.task_events_mgr.setup_event_handlers(itask, "expired", msg)
             # TODO succeeded and expired states are useless due to immediate
             # removal under all circumstances (unhandled failed is still used).
