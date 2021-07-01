@@ -758,7 +758,6 @@ class TaskPool:
                 if itask.state(*TASK_STATUSES_ACTIVE):
                     log_task(
                         itask,
-                        f"job({itask.submit_num:%02d}) "
                         "active with pre-reload settings",
                         LOG.warning
                     )

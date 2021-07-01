@@ -407,7 +407,7 @@ class TaskState:
                 unchanged.
 
         Returns:
-            returns: string summary of change, else empty string.
+            returns: whether state change or not (bool)
 
         """
         summary = ""
@@ -425,27 +425,7 @@ class TaskState:
         )
         if current_status == requested_status:
             # no change - do nothing
-            return summary
-
-        changes = []
-        if status is not None and status != self.status:
-            changes.append(f"=> {status}")
-        if is_held is not None and is_held != self.is_held:
-            if is_held:
-                changes.append("=> held")
-            else:
-                changes.append("<= held")
-        if is_queued is not None and is_queued != self.is_queued:
-            if is_queued:
-                changes.append("=> queued")
-            else:
-                changes.append("<= queued")
-        if is_runahead is not None and is_runahead != self.is_runahead:
-            if is_runahead:
-                changes.append("=> runahead")
-            else:
-                changes.append("<= runahead")
-        summary = ",".join(changes)
+            return False
 
         # perform the actual state change
         self.status, self.is_held, self.is_queued, self.is_runahead = (
@@ -458,7 +438,7 @@ class TaskState:
         if is_held:
             # only reset task outputs if not setting task to held
             # https://github.com/cylc/cylc-flow/pull/2116
-            return summary
+            return True
 
         self.kill_failed = False
 
@@ -481,7 +461,7 @@ class TaskState:
         self.outputs.set_completion(
             TASK_OUTPUT_FAILED, status == TASK_STATUS_FAILED)
 
-        return summary
+        return True
 
     def is_gt(self, status):
         """"Return True if self.status > status."""

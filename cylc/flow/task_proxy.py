@@ -442,10 +442,12 @@ class TaskProxy:
     def state_reset(
         self, status=None, is_held=None, is_queued=None, is_runahead=None
     ) -> bool:
-        """Return whether requested change succeeds and causes a change."""
+        """Effect a task state change.
+
+        Return whether it changed, and log the state transition.
+        """
         before = str(self)
-        changes = self.state.reset(status, is_held, is_queued, is_runahead)
-        if changes:
-            log_task(before, changes)
+        if self.state.reset(status, is_held, is_queued, is_runahead):
+            log_task(before, f"=> {self.state}")
             return True
         return False

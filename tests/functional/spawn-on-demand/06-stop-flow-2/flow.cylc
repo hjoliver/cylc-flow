@@ -21,6 +21,6 @@ fi
          script = """
 if (( CYLC_TASK_SUBMIT_NUMBER == 1 )); then
    cylc trigger --flow=other ${CYLC_WORKFLOW_NAME} foo.1
-   cylc__job__poll_grep_workflow_log "bar\.1 state:running job:02 .*succeeded"
+   cylc__job__poll_grep_workflow_log -E "bar\.1 running job:02.* => succeeded"
 fi
          """

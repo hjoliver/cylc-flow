@@ -69,7 +69,10 @@ def iter_entry_points(entry_point_name):
 
 
 def log_task(itask, msg, log=LOG.info, log_lvl=None):
-    """Utility function for consistent logging of task messages."""
+    """Utility function for consistent logging of task messages.
+
+    itask: task proxy or str(task proxy)
+    """
     fmsg = f"[{itask}] {msg}"
     if log_lvl is not None:
         LOG.log(log_lvl, fmsg)

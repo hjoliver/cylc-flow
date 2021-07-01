@@ -552,11 +552,11 @@ class TaskJobManager:
             if ctx.ret_code:
                 ctx.cmd = cmd_ctx.cmd  # print original command on failure
         log_task_job_activity(ctx, workflow, itask.point, itask.tdef.name)
-        log_lvl = INFO
-        log_msg = 'killed'
+        log_lvl = WARNING
+        log_msg = 'job killed'
         if ctx.ret_code:  # non-zero exit status
             log_lvl = WARNING
-            log_msg = 'kill failed'
+            log_msg = 'job kill failed'
             itask.state.kill_failed = True
         elif itask.state(TASK_STATUS_SUBMITTED):
             self.task_events_mgr.process_message(
