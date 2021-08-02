@@ -157,8 +157,10 @@ class TaskTrigger:
         for standard_name, alt_names in _ALT_TRIGGER_NAMES.items():
             if trigger_name == standard_name or trigger_name in alt_names:
                 return standard_name
-        raise TriggerExpressionError(
-            f"Illegal task trigger name: {trigger_name}")
+        #raise TriggerExpressionError(
+        #    f"Illegal task trigger name: {trigger_name}")
+        # else might be a custom trigger
+        return trigger_name
 
 
 class Dependency:

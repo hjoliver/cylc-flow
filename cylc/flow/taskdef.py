@@ -22,6 +22,7 @@ from cylc.flow.exceptions import TaskDefError
 from cylc.flow.task_id import TaskID
 from cylc.flow.task_state import TASK_OUTPUT_SUCCEEDED
 from cylc.flow import LOG
+from cylc.flow.task_outputs import SORT_ORDERS
 
 
 def generate_graph_children(tdef, point):
@@ -33,8 +34,10 @@ def generate_graph_children(tdef, point):
                 graph_children[output] = []
             for name, trigger in downs:
                 child_point = trigger.get_child_point(point, seq)
-                is_abs = (trigger.offset_is_absolute or
-                          trigger.offset_is_from_icp)
+                is_abs = (
+                    trigger.offset_is_absolute or
+                    trigger.offset_is_from_icp
+                )
                 if is_abs and trigger.get_parent_point(point) != point:
                     # If 'foo[^] => bar' only spawn off of '^'.
                     continue
@@ -133,7 +136,7 @@ class TaskDef:
         self.expiration_offset = None
         self.namespace_hierarchy = []
         self.dependencies = {}
-        self.outputs = set()
+        self.outputs = {}  # {output: (message, required)
         self.graph_children = {}
         self.graph_parents = {}
         self.param_var = {}
@@ -142,6 +145,28 @@ class TaskDef:
 
         self.name = name
         self.elapsed_times = deque(maxlen=self.MAX_LEN_ELAPSED_TIMES)
+
+    def add_output(self, output, message):
+        """Add a new task output as defined under [runtime]."""
+        # optional/required is None until defined by the graph
+        self.outputs[output] = (message, None)
+
+    def add_std_outputs(self):
+        """Add the standard outputs."""
+        # optional/required is None until defined by the graph
+        for output in SORT_ORDERS:
+            self.outputs[output] = (output, None)
+
+    def set_required_output(self, output, required):
+        """Set required/optional type of output."""
+        try:
+            message, old_required = self.outputs[output]
+        except KeyError:
+            raise TaskDefError(f"TODO ILLEGAL OUTPUT {output}")
+        else:
+            if old_required is not None and required != old_required:
+                raise TaskDefError(f"TODO {output} REQUIRED and OPTIONAL!")
+            self.outputs[output] = (message, required)
 
     def add_graph_child(self, trigger, taskname, sequence):
         """Record child task instances that depend on my outputs.

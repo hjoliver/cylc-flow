@@ -53,24 +53,29 @@ class TaskOutputs:
     """
 
     # Memory optimization - constrain possible attributes to this list.
-    __slots__ = ["_by_message", "_by_trigger"]
+    __slots__ = ["_by_message", "_by_trigger", "_required"]
 
     def __init__(self, tdef):
         self._by_message = {}
         self._by_trigger = {}
+        self._required = set()
         # Add standard outputs.
-        for output in SORT_ORDERS:
-            self.add(output)
+        # for output in SORT_ORDERS:
+        #    self.add(output)
         # Add custom message outputs.
-        for trigger, message in tdef.outputs:
-            self.add(message, trigger)
+        # ADD ALL OUTPUTS
+        for trigger, val in tdef.outputs.items():
+            message, required = val
+            self.add(message, trigger, required=required)
 
-    def add(self, message, trigger=None, is_completed=False):
+    def add(self, message, trigger=None, is_completed=False, required=False):
         """Add a new output message"""
         if trigger is None:
             trigger = message
         self._by_message[message] = [trigger, message, is_completed]
         self._by_trigger[trigger] = self._by_message[message]
+        if required:
+            self._required.add(trigger)
 
     def all_completed(self):
         """Return True if all all outputs completed."""
@@ -172,6 +177,13 @@ class TaskOutputs:
             else:
                 return item[_TRIGGER]
 
+    def am_i_complete(self):
+        for trigger, val in self._by_trigger.items():
+            _, _, is_completed = val
+            if not is_completed and trigger in self._required:
+                return False
+        return True
+
     def get_item(self, message):
         """Return output item by message.
 
@@ -204,3 +216,14 @@ class TaskOutputs:
         except ValueError:
             ind = 999
         return (ind, item[_MESSAGE] or '')
+
+    def __str__(self):
+        """PRINT INCOMPLETE OUTPUTS
+
+        TODO probably not the best place to do this.
+        """
+        res = ""
+        for key, val in self._by_trigger.items():
+            if key in self._required and not val[2]:
+                res += f"{key} "
+        return res

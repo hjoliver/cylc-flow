@@ -37,7 +37,7 @@ class GraphNodeParser:
              ([^\]]*)      # Continue until next ']'
              \]            # Stop at next ']'
             )?             # End optional [offset] syntax]
-            (?::([\w-]+))? # Optional output (e.g. :succeed)
+        (?:(:[\w-]+\??|\??))? # Optional output (e.g. :succeed or :fail?)
             $
          """, re.X)
 
@@ -91,7 +91,8 @@ class GraphNodeParser:
         Return:
             tuple:
             (name, offset, output,
-            offset_is_from_icp, offset_is_irregular, offset_is_absolute)
+            offset_is_from_icp, offset_is_irregular, offset_is_absolute,
+            output_is_required)
 
         NOTE that offsets from ICP like foo[^] and foo[^+P1] are not considered
               absolute like foo[2] etc.
@@ -104,6 +105,13 @@ class GraphNodeParser:
             if not match:
                 raise GraphParseError('Illegal graph node: %s' % node)
             name, icp_mark, offset, output = match.groups()
+            output_is_required = True
+            if output:
+                if output.startswith(':'):
+                    output = output[1:]
+                if output.endswith('?'):
+                    output_is_required = False
+                    output = output[:-1]
             offset_is_from_icp = (icp_mark == '^')  # convert to boolean
             if offset_is_from_icp and not offset:
                 offset = self._get_offset()
@@ -118,5 +126,7 @@ class GraphNodeParser:
                     offset = self._get_offset(offset)
             self._nodes[node] = (
                 name, offset, output,
-                offset_is_from_icp, offset_is_irregular, offset_is_absolute)
+                offset_is_from_icp, offset_is_irregular, offset_is_absolute,
+                output_is_required
+            )
         return self._nodes[node]
