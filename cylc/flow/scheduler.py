@@ -1588,7 +1588,6 @@ class Scheduler:
         self.is_stalled = self.pool.is_stalled()
         if self.is_stalled:
             self.run_event_handlers(self.EVENT_STALLED, 'workflow stalled')
-            self.pool.report_unmet_deps()
             if self._get_events_conf('abort on stalled'):
                 raise SchedulerError('Abort on workflow stalled is set')
             # Start workflow timeout timer
@@ -1648,8 +1647,9 @@ class Scheduler:
 
         if hasattr(self, 'pool'):
             if not self.is_stalled:
-                # (else already reported)
-                self.pool.report_unmet_deps()
+                # (else already logged)
+                # Log partially satisified dependencies and incomplete tasks.
+                self.pool.is_stalled()
             self.pool.warn_stop_orphans()
             try:
                 self.workflow_db_mgr.put_task_event_timers(

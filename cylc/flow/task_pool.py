@@ -38,7 +38,6 @@ from cylc.flow.task_job_logs import get_task_job_id
 from cylc.flow.task_proxy import TaskProxy
 from cylc.flow.task_state import (
     TASK_STATUSES_ACTIVE,
-    TASK_STATUSES_FAILURE,
     TASK_STATUS_WAITING,
     TASK_STATUS_EXPIRED,
     TASK_STATUS_PREPARING,
@@ -942,36 +941,65 @@ class TaskPool:
             LOG.warning("%s/%s/%s: incomplete task event handler %s" % (
                 point, name, submit_num, key1))
 
-    def is_stalled(self):
+    def is_stalled(self, suppress=False):
         """Return True if the workflow is stalled.
 
-        A workflow is stalled if it is not held and the active pool contains
-        only unhandled failed tasks and un-released runahead tasks.
-
+        The workflow is stalled if it is not held and contains only:
+            - runahead-limited tasks
+            - incomplete tasks
+            - partially satisfied prerequisites
         """
         self.release_runahead_tasks()
-        unhandled_failed = []
+
+        # Find incomplete tasks
+        incomplete = []
         for itask in self.get_tasks():
-            if itask.state(*TASK_STATUSES_FAILURE):
-                unhandled_failed.append(itask)
-            elif itask.state.is_runahead:
+            if itask.state.is_runahead:
                 continue
-            else:
+            if itask.state(
+                *TASK_STATUSES_ACTIVE,
+                TASK_STATUS_PREPARING,
+                TASK_STATUS_WAITING
+            ):
+                # Not stalled
                 return False
-        if unhandled_failed:
-            LOG.warning(
-                "Workflow stalled with unhandled failed tasks:\n"
-                + "\n".join(
-                    f"* {itask.identity} ({itask.state.status})"
-                    for itask in unhandled_failed
+            if not itask.state.outputs.am_i_complete():
+                incomplete.append(itask)
+            else:
+                # Not stalled
+                return False
+
+        # Find partially satisfied prerequisites
+        prereqs_map = self._get_partially_sat_prereqs()
+
+        if incomplete or prereqs_map:
+            if not suppress:
+                LOG.critical("Workflow stalled")
+            if incomplete:
+                LOG.warning(
+                    "Incomplete tasks:\n"
+                    + "\n".join(
+                        f"* {itask.identity} ({itask.state.status})"
+                        f" incomplete: {itask.state.outputs}"
+                        for itask in incomplete
+                    )
                 )
-            )
+            if prereqs_map:
+                LOG.warning(
+                    "Partially satisfied prerequisites:\n"
+                    + "\n".join(
+                        f"{id_} is waiting on:"
+                        + "\n".join(
+                            f"\n* {prereq}" for prereq in prereqs
+                        ) for id_, prereqs in prereqs_map.items()
+                    )
+                )
             return True
         else:
             return False
 
-    def report_unmet_deps(self):
-        """Log unmet dependencies on stall or shutdown."""
+    def _get_partially_sat_prereqs(self):
+        """Return any partially satisfied prerequisites in the hidden pool."""
         prereqs_map = {}
         for itask in self.get_hidden_tasks():
             prereqs_map[itask.identity] = []
@@ -998,16 +1026,7 @@ class TaskPool:
                     del prereqs_map[id_]
                     break
 
-        if prereqs_map:
-            LOG.warning(
-                "Partially satisfied prerequisites left over:\n"
-                + "\n".join(
-                    f"{id_} is waiting on:"
-                    + "\n".join(
-                        f"\n* {prereq}" for prereq in prereqs
-                    ) for id_, prereqs in prereqs_map.items()
-                )
-            )
+        return prereqs_map
 
     def hold_active_task(self, itask: TaskProxy) -> None:
         if itask.state.reset(is_held=True):
@@ -1195,11 +1214,18 @@ class TaskPool:
             self.remove(c_task, 'SUICIDE')
 
         # Remove the parent task if finished.
-        if (output in [TASK_OUTPUT_SUCCEEDED, TASK_OUTPUT_EXPIRED]
-                or output == TASK_OUTPUT_FAILED and itask.failure_handled):
+        if (
+            output in [
+                TASK_OUTPUT_SUCCEEDED,
+                TASK_OUTPUT_EXPIRED,
+                TASK_OUTPUT_FAILED
+            ]
+            and itask.state.outputs.am_i_complete()
+        ):
+            # Finished; remove if not incomplete.
+            self.remove(itask, 'finished')
             if itask.identity == self.stop_task_id:
                 self.stop_task_finished = True
-            self.remove(itask, 'finished')
 
     def get_or_spawn_task(self, name, point, flow_label=None, reflow=True,
                           parent_id=None):
