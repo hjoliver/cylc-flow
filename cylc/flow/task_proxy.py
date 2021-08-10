@@ -30,11 +30,7 @@ from cylc.flow.exceptions import PointParsingError
 from cylc.flow.platforms import get_platform
 from cylc.flow.task_id import TaskID
 from cylc.flow.task_action_timer import TimerFlags
-from cylc.flow.task_state import (
-    TaskState,
-    TASK_STATUS_WAITING,
-    TASK_OUTPUT_FAILED,
-    TASK_OUTPUT_SUCCEEDED)
+from cylc.flow.task_state import TaskState, TASK_STATUS_WAITING
 from cylc.flow.taskdef import generate_graph_children
 from cylc.flow.wallclock import get_unix_time_from_time_string as str2time
 
