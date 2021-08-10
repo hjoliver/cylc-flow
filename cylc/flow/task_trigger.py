@@ -16,7 +16,6 @@
 
 from cylc.flow.cycling.loader import (
     get_point, get_point_relative, get_interval)
-from cylc.flow.exceptions import TriggerExpressionError
 from cylc.flow.prerequisite import Prerequisite
 from cylc.flow.task_outputs import (
     TASK_OUTPUT_EXPIRED, TASK_OUTPUT_SUBMITTED, TASK_OUTPUT_SUBMIT_FAILED,
@@ -149,17 +148,13 @@ class TaskTrigger:
 
     @staticmethod
     def get_trigger_name(trigger_name):
-        """Standardise a trigger name.
+        """Straighten out standard trigger aliases: foo:fail -> foo:failed, etc.
 
-        E.g. 'foo:fail' becomes 'foo:failed' etc.
-
+        If not a standard trigger alias, just return the original.
         """
         for standard_name, alt_names in _ALT_TRIGGER_NAMES.items():
             if trigger_name == standard_name or trigger_name in alt_names:
                 return standard_name
-        #raise TriggerExpressionError(
-        #    f"Illegal task trigger name: {trigger_name}")
-        # else might be a custom trigger
         return trigger_name
 
 

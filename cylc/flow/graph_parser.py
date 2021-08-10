@@ -69,13 +69,8 @@ class GraphParser:
         * The default trigger type is ':succeed'.
         * A remote workflow qualified node name looks like this:
             NODE(<REMOTE-WORKFLOW-TRIGGER>)(:TRIGGER-TYPE)
-        * Trigger qualifiers are ignored on the right to allow chaining:
-               "foo => bar => baz & qux"
-          Think of this as describing the graph structure first, then
-          annotating each node with a trigger type that is only meaningful on
-          the left side of each pair (in the default ':succeed' case the
-          trigger type can be omitted, but it is still there in principle).
-          TODO NOT TRUE FOR OPTIONAL OUTPUTS
+        * Outputs (boo:x) are ignored as triggers on the RHS to allow chaining:
+            "foo => bar:x => baz & qux"
     """
 
     OP_AND = '&'
@@ -516,7 +511,8 @@ class GraphParser:
             m = REC_RIGHT.match(right)
             if not m:
                 raise GraphParseError("HUH?")
-            suicide, name, output = m.groups()
+            suicide_char, name, output = m.groups()
+            suicide = (suicide_char == self.__class__.SUICIDE_MARK)
             if output == "":
                 output = ":succeeded"
             elif output == "?":
