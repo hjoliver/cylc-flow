@@ -74,12 +74,12 @@ class TestGraphParser(unittest.TestCase):
         triggers = self.parser.triggers
         families = self.parser.family_map
         self.assertEqual(
-            {'a': {'': ''}, 'b': {'a:succeed': 'a:succeed'}},
+            {'a': {'': ''}, 'b': {'a:succeeded': 'a:succeeded'}},
             original
         )
         self.assertEqual(
             {'a': {'': ([], False)},
-             'b': {'a:succeed': (['a:succeed'], False)}},
+             'b': {'a:succeeded': (['a:succeeded'], False)}},
             triggers
         )
         self.assertEqual({}, families)
@@ -93,12 +93,14 @@ class TestGraphParser(unittest.TestCase):
         families = self.parser.family_map
 
         self.assertEqual({'': ''}, original['a'])
-        self.assertEqual({'a:succeed': 'a:succeed'}, original['b'])
-        self.assertEqual({'b:succeed': 'b:succeed'}, original['c'])
+        self.assertEqual({'a:succeeded': 'a:succeeded'}, original['b'])
+        self.assertEqual({'b:succeeded': 'b:succeeded'}, original['c'])
 
         self.assertEqual({'': ([], False)}, triggers['a'])
-        self.assertEqual({'a:succeed': (['a:succeed'], False)}, triggers['b'])
-        self.assertEqual({'b:succeed': (['b:succeed'], False)}, triggers['c'])
+        self.assertEqual(
+            {'a:succeeded': (['a:succeeded'], False)}, triggers['b'])
+        self.assertEqual(
+            {'b:succeeded': (['b:succeeded'], False)}, triggers['c'])
 
         self.assertEqual({}, families)
 
@@ -112,14 +114,17 @@ class TestGraphParser(unittest.TestCase):
         families = self.parser.family_map
 
         self.assertEqual({'': ''}, original['a'])
-        self.assertEqual({'a:succeed': 'a:succeed'}, original['b'])
-        self.assertEqual({'b:succeed': 'b:succeed'}, original['c'])
-        self.assertEqual({'c:succeed': 'c:succeed'}, original['d'])
+        self.assertEqual({'a:succeeded': 'a:succeeded'}, original['b'])
+        self.assertEqual({'b:succeeded': 'b:succeeded'}, original['c'])
+        self.assertEqual({'c:succeeded': 'c:succeeded'}, original['d'])
 
         self.assertEqual({'': ([], False)}, triggers['a'])
-        self.assertEqual({'a:succeed': (['a:succeed'], False)}, triggers['b'])
-        self.assertEqual({'b:succeed': (['b:succeed'], False)}, triggers['c'])
-        self.assertEqual({'c:succeed': (['c:succeed'], False)}, triggers['d'])
+        self.assertEqual(
+            {'a:succeeded': (['a:succeeded'], False)}, triggers['b'])
+        self.assertEqual(
+            {'b:succeeded': (['b:succeeded'], False)}, triggers['c'])
+        self.assertEqual(
+            {'c:succeeded': (['c:succeeded'], False)}, triggers['d'])
 
         self.assertEqual({}, families)
 
@@ -134,12 +139,12 @@ class TestGraphParser(unittest.TestCase):
         triggers = parameterized_parser.triggers
         families = parameterized_parser.family_map
         self.assertEqual(
-            {'a': {'': ''}, 'b_la_paz': {'a:succeed': 'a:succeed'}},
+            {'a': {'': ''}, 'b_la_paz': {'a:succeeded': 'a:succeeded'}},
             original
         )
         self.assertEqual(
             {'a': {'': ([], False)},
-             'b_la_paz': {'a:succeed': (['a:succeed'], False)}},
+             'b_la_paz': {'a:succeeded': (['a:succeeded'], False)}},
             triggers
         )
         self.assertEqual({}, families)
@@ -156,23 +161,24 @@ class TestGraphParser(unittest.TestCase):
 
     def test_inter_workflow_dependence_simple(self):
         """Test invalid inter-workflow dependence"""
-        self.parser.parse_graph('a<WORKFLOW::TASK:fail> => b')
+        self.parser.parse_graph('a<WORKFLOW::TASK:failed> => b')
         original = self.parser.original
         triggers = self.parser.triggers
         families = self.parser.family_map
         workflow_state_polling_tasks = self.parser.workflow_state_polling_tasks
         self.assertEqual(
-            {'a': {'': ''}, 'b': {'a:succeed': 'a:succeed'}},
+            {'a': {'': ''}, 'b': {'a:succeeded': 'a:succeeded'}},
             original
         )
         self.assertEqual(
             {'a': {'': ([], False)},
-             'b': {'a:succeed': (['a:succeed'], False)}},
+             'b': {'a:succeeded': (['a:succeeded'], False)}},
             triggers
         )
         self.assertEqual({}, families)
-        self.assertEqual(('WORKFLOW', 'TASK', 'fail', '<WORKFLOW::TASK:fail>'),
-                         workflow_state_polling_tasks['a'])
+        self.assertEqual(
+            ('WORKFLOW', 'TASK', 'failed', '<WORKFLOW::TASK:failed>'),
+            workflow_state_polling_tasks['a'])
 
     def test_line_continuation(self):
         """Test syntax-driven line continuation."""
@@ -189,8 +195,8 @@ class TestGraphParser(unittest.TestCase):
         gp3.parse_graph(graph3)
         res = {
             'a': {'': ([], False)},
-            'c': {'b:succeed': (['b:succeed'], False)},
-            'b': {'a:succeed': (['a:succeed'], False)}
+            'c': {'b:succeeded': (['b:succeeded'], False)},
+            'b': {'a:succeeded': (['a:succeeded'], False)}
         }
         self.assertEqual(gp1.triggers, res)
         self.assertEqual(gp1.triggers, gp2.triggers)
@@ -205,19 +211,19 @@ class TestGraphParser(unittest.TestCase):
         self.assertRaises(GraphParseError, gp.parse_graph, graph)
 
     def test_def_trigger(self):
-        """Test default trigger is :succeed."""
+        """Test default trigger is :succeeded."""
         gp1 = GraphParser()
         gp1.parse_graph("foo => bar")
         gp2 = GraphParser()
-        gp2.parse_graph("foo:succeed => bar")
+        gp2.parse_graph("foo:succeeded => bar")
         self.assertEqual(gp1.triggers, gp2.triggers)
 
     def test_finish_trigger(self):
         """Test finish trigger expansion."""
         gp1 = GraphParser()
-        gp1.parse_graph("foo:finish => bar")
+        gp1.parse_graph("foo:finished => bar")
         gp2 = GraphParser()
-        gp2.parse_graph("(foo:succeed | foo:fail) => bar")
+        gp2.parse_graph("(foo:succeeded | foo:failed) => bar")
         self.assertEqual(gp1.triggers, gp2.triggers)
 
     def test_fam_all_to_all(self):
@@ -269,8 +275,8 @@ class TestGraphParser(unittest.TestCase):
 
         gp2 = GraphParser(fam_map)
         gp2.parse_graph("""
-            (m1:fail | m2:fail) => b1
-            (m1:fail | m2:fail) => b2""")
+            (m1:failed | m2:failed) => b1
+            (m1:failed | m2:failed) => b2""")
         self.assertEqual(gp1.triggers, gp2.triggers)
 
     def test_fam_finish(self):
@@ -279,8 +285,11 @@ class TestGraphParser(unittest.TestCase):
         gp1 = GraphParser(fam_map)
         gp1.parse_graph("FAM:finish-all => post")
         gp2 = GraphParser(fam_map)
-        gp2.parse_graph("""
-            ((m1:succeed | m1:fail) & (m2:succeed | m2:fail)) => post""")
+        gp2.parse_graph(
+            """
+            ((m1:succeeded | m1:failed) & (m2:succeeded | m2:failed)) => post
+            """
+        )
         self.assertEqual(gp1.triggers, gp2.triggers)
 
     def test_parameter_expand(self):
@@ -343,8 +352,8 @@ class TestGraphParser(unittest.TestCase):
         gp1.parse_graph("(foo:start | bar) => baz")
         res = {
             'baz': {
-                '(foo:start|bar:succeed)': (
-                    ['foo:start', 'bar:succeed'], False)
+                '(foo:start|bar:succeeded)': (
+                    ['foo:start', 'bar:succeeded'], False)
             },
             'foo': {
                 '': ([], False)
@@ -370,11 +379,11 @@ class TestGraphParser(unittest.TestCase):
         gp1 = GraphParser()
         gp1.parse_graph("""
         bar
-        foo => bar:succeed => baz""")
+        foo => bar:succeeded => baz""")
         gp2 = GraphParser()
         gp2.parse_graph("""
             foo => bar
-            bar:succeed => baz""")
+            bar:succeeded => baz""")
         self.assertEqual(gp1.triggers, gp2.triggers)
 
     def test_double_oper(self):
@@ -398,25 +407,25 @@ class TestGraphParser(unittest.TestCase):
         self.assertRaises(
             GraphParseError, gp.parse_graph, "foo[-P1Y]<m,n> => bar")
         self.assertRaises(
-            GraphParseError, gp.parse_graph, "foo:fail<m,n> => bar")
+            GraphParseError, gp.parse_graph, "foo:failed<m,n> => bar")
         self.assertRaises(
-            GraphParseError, gp.parse_graph, "foo:fail[-P1Y] => bar")
+            GraphParseError, gp.parse_graph, "foo:failed[-P1Y] => bar")
         self.assertRaises(
-            GraphParseError, gp.parse_graph, "foo[-P1Y]:fail<m,n> => bar")
+            GraphParseError, gp.parse_graph, "foo[-P1Y]:failed<m,n> => bar")
         self.assertRaises(
-            GraphParseError, gp.parse_graph, "foo[-P1Y]<m,n>:fail => bar")
+            GraphParseError, gp.parse_graph, "foo[-P1Y]<m,n>:failed => bar")
         self.assertRaises(
-            GraphParseError, gp.parse_graph, "foo<m,n>:fail[-P1Y] => bar")
+            GraphParseError, gp.parse_graph, "foo<m,n>:failed[-P1Y] => bar")
         self.assertRaises(
-            GraphParseError, gp.parse_graph, "foo:fail<m,n>[-P1Y] => bar")
+            GraphParseError, gp.parse_graph, "foo:failed<m,n>[-P1Y] => bar")
         self.assertRaises(
-            GraphParseError, gp.parse_graph, "<m,n>:fail[-P1Y] => bar")
+            GraphParseError, gp.parse_graph, "<m,n>:failed[-P1Y] => bar")
         self.assertRaises(
             GraphParseError, gp.parse_graph, "[-P1Y]<m,n> => bar")
         self.assertRaises(
-            GraphParseError, gp.parse_graph, "[-P1Y]<m,n>:fail => bar")
+            GraphParseError, gp.parse_graph, "[-P1Y]<m,n>:failed => bar")
         self.assertRaises(
-            GraphParseError, gp.parse_graph, "bar => foo:fail<m,n>[-P1Y]")
+            GraphParseError, gp.parse_graph, "bar => foo:failed<m,n>[-P1Y]")
         self.assertRaises(
             GraphParseError, gp.parse_graph, "foo[-P1Y]baz => bar")
 
@@ -477,16 +486,16 @@ class TestGraphParser(unittest.TestCase):
                 '': (
                     [], False
                 ),
-                'baz:succeed': (
-                    ['baz:succeed'], False
+                'baz:succeeded': (
+                    ['baz:succeeded'], False
                 )
             },
             'foo_dog': {
-                'foo_cat:succeed': (
-                    ['foo_cat:succeed'], False
+                'foo_cat:succeeded': (
+                    ['foo_cat:succeeded'], False
                 ),
-                'baz:succeed': (
-                    ['baz:succeed'], False
+                'baz:succeeded': (
+                    ['baz:succeeded'], False
                 )
             },
             'baz': {

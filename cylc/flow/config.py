@@ -1935,6 +1935,8 @@ class WorkflowConfig:
             self.sequences.append(seq)
             parser = GraphParser(family_map, self.parameters)
             parser.parse_graph(graph)
+            import json
+            print(json.dumps(parser.triggers, indent=2))
             self.workflow_polling_tasks.update(
                 parser.workflow_state_polling_tasks)
             self._proc_triggers(
@@ -1966,7 +1968,7 @@ class WorkflowConfig:
                 )
         # TODO MOVE THIS UP OUT OF THIS FUNCTION
         for name, taskdef in self.taskdefs.items():
-            print(f"NAME {name}")
+            # print(f"NAME {name}")
             for output in taskdef.outputs:
                 try:
                     # inconsistent task opt/req already caught by parser
@@ -1976,10 +1978,10 @@ class WorkflowConfig:
                         optional = parser.memb_output_opt[(name, ":" + output)]
                     except KeyError:
                         # raise WorkflowConfigError(f'WTF?? {name}, {output}')
-                        print(f'    (skip {output})')
+                        # print(f'    (skip {output})')
                         # output not used in graph
                         continue
-                print(f'  {output} ({optional})')
+                # print(f'  {output} ({optional})')
                 taskdef.set_required_output(output, not optional)
 
     def find_taskdefs(self, name: str) -> List[TaskDef]:
