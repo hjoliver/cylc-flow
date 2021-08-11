@@ -21,6 +21,7 @@ import contextlib
 from cylc.flow.exceptions import GraphParseError
 from cylc.flow.param_expand import GraphExpander
 from cylc.flow.task_id import TaskID
+from cylc.flow.task_trigger import TaskTrigger
 
 
 ARROW = '=>'
@@ -428,21 +429,27 @@ class GraphParser:
                 info = []
                 expr = ''
 
-            # Make success triggers explicit.
             n_info = []
             for name, offset, trig in info:
-                if not trig and not name.startswith('@'):
-                    # (Avoiding @trigger nodes.)
-                    trig = self.__class__.TRIG_SUCCEEDED
-                    if offset:
-                        this = r'\b%s\b%s(?!:)' % (
-                            re.escape(name), re.escape(offset))
-                    else:
-                        this = r'\b%s\b(?![\[:])' % re.escape(name)
+                if trig.endswith(self.__class__.OPTIONAL_MARK):
+                    # Ignore on left (all tasks get processed left and right)
+                    trig = trig[:-1]
+                if name.startswith('@'):
+                    n_info.append((name, offset, trig))
+                if trig:
+                    n_trig = ":" + TaskTrigger.standardise_name(trig[1:])
+                else:
+                    # Make success triggers explicit.
+                    n_trig = self.__class__.TRIG_SUCCEEDED
+                if offset:
+                    this = r'\b%s\b%s\b%s' % (
+                        re.escape(name), re.escape(offset), re.escape(trig))
+                else:
+                    this = r'\b%s\b%s' % (re.escape(name), re.escape(trig))
+                that = name + offset + n_trig
+                expr = re.sub(this, that, expr)
+                n_info.append((name, offset, n_trig))
 
-                    that = name + offset + trig
-                    expr = re.sub(this, that, expr)
-                n_info.append((name, offset, trig))
             info = n_info
 
             # Determine semantics of all family triggers present.
@@ -565,10 +572,11 @@ class GraphParser:
                     f"{oexp} can't trigger both {name} and !{name}"
                 )
 
-        if output == "":
+        if family and output == "":
             # Unqualified family on RHS implies nothing about outputs
             return
 
+        output = ":" + TaskTrigger.standardise_name(output[1:])
         # Add or check {(name, output): optional} in output_map.
         try:
             already = output_map[(name, output)]

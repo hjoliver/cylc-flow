@@ -349,11 +349,11 @@ class TestGraphParser(unittest.TestCase):
     def test_conditional(self):
         """Test generation of conditional triggers."""
         gp1 = GraphParser()
-        gp1.parse_graph("(foo:start | bar) => baz")
+        gp1.parse_graph("(foo:started | bar) => baz")
         res = {
             'baz': {
-                '(foo:start|bar:succeeded)': (
-                    ['foo:start', 'bar:succeeded'], False)
+                '(foo:started|bar:succeeded)': (
+                    ['foo:started', 'bar:succeeded'], False)
             },
             'foo': {
                 '': ([], False)
@@ -517,6 +517,32 @@ class TestGraphParser(unittest.TestCase):
             }
         }
         self.assertEqual(gp.triggers, triggers)
+
+    def test_optional_outputs(self):
+        """Test ..."""
+        # fam_map = {'FAM': ['m1', 'm2'], 'BAM': ['b1', 'b2']}
+        # OPTIONAL = True
+        REQUIRED = False
+        gp = GraphParser()
+        gp.parse_graph(
+            """
+            a1 => b1
+            a2:succeed => b2
+            a3:succeeded => b3:succeeded
+
+            c => d?
+            """
+        )
+        print(gp.task_output_opt)
+        for i in range(1, 4):
+            self.assertEqual(
+                gp.task_output_opt[(f'a{i}', gp.TRIG_SUCCEEDED)],
+                REQUIRED
+            )
+            self.assertEqual(
+                gp.task_output_opt[(f'b{i}', gp.TRIG_SUCCEEDED)],
+                REQUIRED
+            )
 
 
 if __name__ == "__main__":

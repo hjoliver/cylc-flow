@@ -1569,8 +1569,7 @@ class WorkflowConfig:
                 # Qualifier is a task message.
                 qualifier = outputs[output]
             elif output:
-                # Qualifier specified => standardise.
-                qualifier = TaskTrigger.get_trigger_name(output)
+                qualifier = output
             else:
                 # No qualifier specified => use "succeeded".
                 qualifier = TASK_OUTPUT_SUCCEEDED
@@ -1937,6 +1936,7 @@ class WorkflowConfig:
             parser.parse_graph(graph)
             import json
             print(json.dumps(parser.triggers, indent=2))
+            print(parser.task_output_opt)
             self.workflow_polling_tasks.update(
                 parser.workflow_state_polling_tasks)
             self._proc_triggers(
