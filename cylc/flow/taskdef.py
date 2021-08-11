@@ -145,13 +145,14 @@ class TaskDef:
 
         self.name = name
         self.elapsed_times = deque(maxlen=self.MAX_LEN_ELAPSED_TIMES)
+        self._add_std_outputs()
 
     def add_output(self, output, message):
         """Add a new task output as defined under [runtime]."""
         # optional/required is None until defined by the graph
         self.outputs[output] = (message, None)
 
-    def add_std_outputs(self):
+    def _add_std_outputs(self):
         """Add the standard outputs."""
         # optional/required is None until defined by the graph
         for output in SORT_ORDERS:

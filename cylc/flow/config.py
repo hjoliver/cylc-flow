@@ -83,7 +83,7 @@ from cylc.flow.task_events_mgr import (
     get_event_handler_data
 )
 from cylc.flow.task_id import TaskID
-from cylc.flow.task_outputs import TASK_OUTPUT_SUCCEEDED
+from cylc.flow.task_outputs import TASK_OUTPUT_SUCCEEDED, TaskOutputs
 from cylc.flow.task_trigger import TaskTrigger, Dependency
 from cylc.flow.taskdef import TaskDef
 from cylc.flow.unicode_rules import (
@@ -1485,27 +1485,6 @@ class WorkflowConfig:
             name, _, _, _, _, _, _ = (   # TODO
                 GraphNodeParser.get_inst().parse(node))
 
-            if name not in self.cfg['runtime']:
-                # implicit inheritance from root
-                self.implicit_tasks.add(name)
-                # These can't just be a reference to root runtime as we have to
-                # make some items task-specific: e.g. subst task name in URLs.
-                self.cfg['runtime'][name] = OrderedDictWithDefaults()
-                replicate(self.cfg['runtime'][name],
-                          self.cfg['runtime']['root'])
-                if 'root' not in self.runtime['descendants']:
-                    # (happens when no runtimes are defined in flow.cylc)
-                    self.runtime['descendants']['root'] = []
-                if 'root' not in self.runtime['first-parent descendants']:
-                    # (happens when no runtimes are defined in flow.cylc)
-                    self.runtime['first-parent descendants']['root'] = []
-                self.runtime['parents'][name] = ['root']
-                self.runtime['linearized ancestors'][name] = [name, 'root']
-                self.runtime['first-parent ancestors'][name] = [name, 'root']
-                self.runtime['descendants']['root'].append(name)
-                self.runtime['first-parent descendants']['root'].append(name)
-                self.ns_defn_order.append(name)
-
             # check task name legality and create the taskdef
             taskdef = self.get_taskdef(name, orig_expr)
 
@@ -1566,11 +1545,14 @@ class WorkflowConfig:
             # Qualifier.
             outputs = self.cfg['runtime'][name]['outputs']
             if outputs and (output in outputs):
-                # Qualifier is a task message.
+                # Qualifier is a custom task message.
                 qualifier = outputs[output]
             elif output:
-                # Qualifier specified => standardise.
-                qualifier = TaskTrigger.get_trigger_name(output)
+                if not TaskOutputs.is_valid_std_name(output):
+                    raise WorkflowConfigError(
+                        f"Custom output not defined: {name}:{output}"
+                    )
+                qualifier = output
             else:
                 # No qualifier specified => use "succeeded".
                 qualifier = TASK_OUTPUT_SUCCEEDED
@@ -1935,6 +1917,9 @@ class WorkflowConfig:
             self.sequences.append(seq)
             parser = GraphParser(family_map, self.parameters)
             parser.parse_graph(graph)
+            import json
+            print(json.dumps(parser.triggers, indent=2))
+            print(parser.task_output_opt)
             self.workflow_polling_tasks.update(
                 parser.workflow_state_polling_tasks)
             self._proc_triggers(
@@ -1956,6 +1941,7 @@ class WorkflowConfig:
                 self.generate_edges(
                     expr, orig, lefts, right, seq, suicide
                 )
+                print(lefts, right)
                 self.generate_taskdefs(
                     orig, lefts, right, seq, suicide, parser
                 )
@@ -1966,7 +1952,7 @@ class WorkflowConfig:
                 )
         # TODO MOVE THIS UP OUT OF THIS FUNCTION
         for name, taskdef in self.taskdefs.items():
-            print(f"NAME {name}")
+            # print(f"NAME {name}")
             for output in taskdef.outputs:
                 try:
                     # inconsistent task opt/req already caught by parser
@@ -1976,10 +1962,10 @@ class WorkflowConfig:
                         optional = parser.memb_output_opt[(name, ":" + output)]
                     except KeyError:
                         # raise WorkflowConfigError(f'WTF?? {name}, {output}')
-                        print(f'    (skip {output})')
+                        # print(f'    (skip {output})')
                         # output not used in graph
                         continue
-                print(f'  {output} ({optional})')
+                # print(f'  {output} ({optional})')
                 taskdef.set_required_output(output, not optional)
 
     def find_taskdefs(self, name: str) -> List[TaskDef]:
@@ -2018,6 +2004,27 @@ class WorkflowConfig:
     ) -> TaskDef:
         """Return an instance of TaskDef for task name."""
         if name not in self.taskdefs:
+            if name not in self.cfg['runtime']:
+                # implicit inheritance from root
+                self.implicit_tasks.add(name)
+                # These can't just be a reference to root runtime as we have to
+                # make some items task-specific: e.g. subst task name in URLs.
+                self.cfg['runtime'][name] = OrderedDictWithDefaults()
+                replicate(self.cfg['runtime'][name],
+                          self.cfg['runtime']['root'])
+                if 'root' not in self.runtime['descendants']:
+                    # (happens when no runtimes are defined in flow.cylc)
+                    self.runtime['descendants']['root'] = []
+                if 'root' not in self.runtime['first-parent descendants']:
+                    # (happens when no runtimes are defined in flow.cylc)
+                    self.runtime['first-parent descendants']['root'] = []
+                self.runtime['parents'][name] = ['root']
+                self.runtime['linearized ancestors'][name] = [name, 'root']
+                self.runtime['first-parent ancestors'][name] = [name, 'root']
+                self.runtime['descendants']['root'].append(name)
+                self.runtime['first-parent descendants']['root'].append(name)
+                self.ns_defn_order.append(name)
+
             try:
                 self.taskdefs[name] = self._get_taskdef(name)
             except TaskDefError as exc:
@@ -2037,8 +2044,6 @@ class WorkflowConfig:
                             f'{output} = {message}" - {msg}'
                         )
                     self.taskdefs[name].add_output(output, message)
-                # Record standard outputs
-                self.taskdefs[name].add_std_outputs()
 
         return self.taskdefs[name]
 

@@ -23,6 +23,7 @@ TASK_OUTPUT_SUBMIT_FAILED = "submit-failed"
 TASK_OUTPUT_STARTED = "started"
 TASK_OUTPUT_SUCCEEDED = "succeeded"
 TASK_OUTPUT_FAILED = "failed"
+TASK_OUTPUT_FINISHED = "finished"
 
 SORT_ORDERS = (
     TASK_OUTPUT_EXPIRED,
@@ -59,11 +60,7 @@ class TaskOutputs:
         self._by_message = {}
         self._by_trigger = {}
         self._required = set()
-        # Add standard outputs.
-        # for output in SORT_ORDERS:
-        #    self.add(output)
-        # Add custom message outputs.
-        # ADD ALL OUTPUTS
+        # Add outputs from task def.
         for trigger, val in tdef.outputs.items():
             message, required = val
             self.add(message, trigger, required=required)
@@ -207,6 +204,11 @@ class TaskOutputs:
             return self._by_trigger[trigger]
         else:
             return self._by_message[message]
+
+    @staticmethod
+    def is_valid_std_name(name):
+        """Check name is a valid standard output name."""
+        return name in SORT_ORDERS
 
     @staticmethod
     def msg_sort_key(item):

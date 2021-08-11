@@ -19,7 +19,9 @@ from cylc.flow.cycling.loader import (
 from cylc.flow.prerequisite import Prerequisite
 from cylc.flow.task_outputs import (
     TASK_OUTPUT_EXPIRED, TASK_OUTPUT_SUBMITTED, TASK_OUTPUT_SUBMIT_FAILED,
-    TASK_OUTPUT_STARTED, TASK_OUTPUT_SUCCEEDED, TASK_OUTPUT_FAILED)
+    TASK_OUTPUT_STARTED, TASK_OUTPUT_SUCCEEDED, TASK_OUTPUT_FAILED,
+    TASK_OUTPUT_FINISHED
+)
 
 # Task trigger names (e.g. foo:fail => bar).
 # Can use "foo:fail => bar" or "foo:failed => bar", etc.
@@ -30,6 +32,7 @@ _ALT_TRIGGER_NAMES = {
     TASK_OUTPUT_STARTED: ["start"],
     TASK_OUTPUT_SUCCEEDED: ["succeed"],
     TASK_OUTPUT_FAILED: ["fail"],
+    TASK_OUTPUT_FINISHED: ["finish"],
 }
 
 
@@ -147,15 +150,16 @@ class TaskTrigger:
             return '%s:%s' % (self.task_name, self.output)
 
     @staticmethod
-    def get_trigger_name(trigger_name):
-        """Straighten out standard trigger aliases: foo:fail -> foo:failed, etc.
+    def standardise_name(name):
+        """Replace trigger name aliases with standard names.
 
-        If not a standard trigger alias, just return the original.
+        Arg name should be a valid standard name or alias, otherwise assumed
+        to be a custom trigger and return as-is.
         """
         for standard_name, alt_names in _ALT_TRIGGER_NAMES.items():
-            if trigger_name == standard_name or trigger_name in alt_names:
+            if name == standard_name or name in alt_names:
                 return standard_name
-        return trigger_name
+        return name
 
 
 class Dependency:
