@@ -1,0 +1,50 @@
+
+# replacement of fail with failed not working:
+(a:fail | b:fail) => c
+# same with "foo" (succeeded)!
+R1 = foo:fail | (foo & bar:fail) => something
+R1 = (foo | bar) => blah 
+
+# doc:
+can't have different optionality in different graph sections 
+
+#? needed even on right of suicide trigger here:
+[scheduling]
+    [[graph]]
+        R1 = """
+            hello => goodbye?
+            goodbye:fail? => really_goodbye
+            goodbye? => !really_goodbye
+            really_goodbye => !goodbye?
+        """
+[runtime]
+    [[hello]]
+        script = echo Hello World!
+    [[goodbye]]
+        script = """
+            echo Goodbye ... oops!
+            false
+        """
+
+# ERROR bad trigger:
+foo:x? | foo:y => blah
+
+# tests/k/cyclers/30-r1_at_icp_or.t
+    ERROR bad trigger expression:
+ foo[^]|bool(self.satisfied[("bar", "20130808T1200Z", "succeeded")])  
+
+# NEEDS foo[^]:succeeded  !!!!
+# (also cylc-show/05-complex)
+
+
+# expired needs ? too? 
+ cylctb-20210812T045150Z-ibS-/f/clock-expire/00-basic 
+
+
+# Does not add success required!:
+# tests/f/reload/19-remote-kill.t 
+foo:start => bar
+
+# cyclers/33-integer1.t
+stalls because of a partially satisfied future trigger 
+
