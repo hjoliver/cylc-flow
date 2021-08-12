@@ -6,7 +6,7 @@
     final cycle point = 20130809T18
     [[graph]]
         R1 = "foo"
-        R1/T12 = "foo[^] | bar => baz"
+        R1/T12 = "foo[^]:succeeded | bar => baz"
         T12 = "baz[-P1D] => baz"
 [runtime]
     [[root]]

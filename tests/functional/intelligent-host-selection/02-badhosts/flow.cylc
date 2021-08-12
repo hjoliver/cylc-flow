@@ -12,13 +12,15 @@ Tasks
     [[events]]
         abort on stalled = true
 
-
 [scheduling]
     cycling mode = integer
     initial cycle point = 1
     [[graph]]
         # Run good and mixed as controls
-        R1 = badhosttask:submit-fail => goodhosttask & mixedhosttask
+        R1 = """
+badhosttask:submit-fail? => goodhosttask & mixedhosttask
+badhosttask  # TODO success required if runs?
+"""
 
 [runtime]
     [[root]]

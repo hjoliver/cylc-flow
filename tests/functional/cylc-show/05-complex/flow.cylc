@@ -6,7 +6,8 @@
     final cycle point = +P1D
     runahead limit = P2
     [[graph]]
-        T00 = a & b & (c | (d & e)) & f[-P1D] => f
+# TODO SIMPLIFY
+        T00 = a & b & (c:succeeded | (d:succeeded & e:succeeded)) & f[-P1D]:succeeded => f
 [runtime]
     [[root]]
         script = true

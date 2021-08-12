@@ -12,6 +12,8 @@
             # local ones in order to factor out remote-init time
             remote-1:start & remote-2:start => local-1 & local-2 & local-3
             KILLABLE:start-all => killer
+            remote-1  # TODO
+            remote-2
         """
 
 [runtime]

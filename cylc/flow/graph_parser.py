@@ -81,6 +81,7 @@ class GraphParser:
     SUICIDE_MARK = '!'
     # TODO: IMPORT OUTPUT NAMES HERE:
     TRIG_SUCCEEDED = ':succeeded'
+    TRIG_STARTED = ':started'
     TRIG_FAILED = ':failed'
     TRIG_FINISHED = ':finished'
     TRIG_SUBMITTED = ":submitted"
@@ -478,7 +479,11 @@ class GraphParser:
                         # Unqualified (FAM => foo) or bad (FAM:bad => foo).
                         raise GraphParseError(
                             "bad family trigger in %s" % expr)
-                    family_trig_map[(name, trig)] = (ttype + "ed", ext)  # TODO
+                    # TODO FIX THIS CRAP
+                    if ttype == ":submit":
+                        family_trig_map[(name, trig)] = (ttype + "ted", ext)
+                    else:
+                        family_trig_map[(name, trig)] = (ttype + "ed", ext)
 
                 else:
                     # Not family
@@ -524,6 +529,13 @@ class GraphParser:
         if fam_trigger == self.__class__.TRIG_FAM_SUCCEED_ALL:
             mem_output = self.__class__.TRIG_SUCCEEDED
             optional = False
+        elif fam_trigger in (
+            self.__class__.TRIG_FAM_START_ALL,
+            self.__class__.TRIG_FAM_START_ANY,
+        ):
+            # started never optional; only checked after task finished
+            mem_output = self.__class__.TRIG_STARTED
+            optional = False
         elif fam_trigger == self.__class__.TRIG_FAM_FAIL_ALL:
             mem_output = self.__class__.TRIG_FAILED
             optional = False
@@ -539,13 +551,13 @@ class GraphParser:
             mem_output = self.__class__.TRIG_SUBMITTED
             optional = False
         elif fam_trigger == self.__class__.TRIG_FAM_SUBMIT_FAIL_ALL:
-            mem_output = self.__class__.TRIG_SUBMIT
+            mem_output = self.__class__.TRIG_SUBMIT_FAILED
             optional = False
         elif fam_trigger in (  # noqa SIM106
             self.__class__.TRIG_FAM_SUBMIT_ANY,
             self.__class__.TRIG_FAM_SUBMIT_FAIL_ANY
         ):
-            mem_output = self.__class__.TRIG_SUBMIT
+            mem_output = self.__class__.TRIG_SUBMITTED
             optional = True
         else:
             raise GraphParseError(

@@ -7,7 +7,10 @@
 
 [scheduling]
     [[graph]]
-        R1 = foo:start => bar
+        R1 = """
+foo
+foo:start => bar
+"""
 
 [runtime]
     [[bar]]
