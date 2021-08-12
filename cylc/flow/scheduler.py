@@ -1648,7 +1648,7 @@ class Scheduler:
         if hasattr(self, 'pool'):
             if not self.is_stalled:
                 # (else already logged)
-                # Log partially satisified dependencies and incomplete tasks.
+                # Log partially satisfied dependencies and incomplete tasks.
                 self.pool.is_stalled()
             self.pool.warn_stop_orphans()
             try:
