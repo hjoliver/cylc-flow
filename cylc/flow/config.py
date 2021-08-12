@@ -1917,9 +1917,6 @@ class WorkflowConfig:
             self.sequences.append(seq)
             parser = GraphParser(family_map, self.parameters)
             parser.parse_graph(graph)
-            import json
-            print(json.dumps(parser.triggers, indent=2))
-            print(parser.task_output_opt)
             self.workflow_polling_tasks.update(
                 parser.workflow_state_polling_tasks)
             self._proc_triggers(
@@ -1941,7 +1938,6 @@ class WorkflowConfig:
                 self.generate_edges(
                     expr, orig, lefts, right, seq, suicide
                 )
-                print(lefts, right)
                 self.generate_taskdefs(
                     orig, lefts, right, seq, suicide, parser
                 )
