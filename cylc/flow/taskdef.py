@@ -20,7 +20,7 @@ from collections import deque
 
 from cylc.flow.exceptions import TaskDefError
 from cylc.flow.task_id import TaskID
-from cylc.flow.task_state import TASK_OUTPUT_SUCCEEDED
+from cylc.flow.task_state import TASK_OUTPUT_SUCCEEDED, TASK_OUTPUT_FAILED
 from cylc.flow import LOG
 from cylc.flow.task_outputs import SORT_ORDERS
 
@@ -157,7 +157,7 @@ class TaskDef:
         for output in SORT_ORDERS:
             self.outputs[output] = (output, None)
 
-    def set_required_output(self, output, required):
+    def set_required_output(self, name, output, required):
         """Set required/optional type of output."""
         try:
             message, old_required = self.outputs[output]
@@ -167,6 +167,28 @@ class TaskDef:
             if old_required is not None and required != old_required:
                 raise TaskDefError(f"TODO {output} REQUIRED and OPTIONAL!")
             self.outputs[output] = (message, required)
+        # Check for consistent use of mutually exclusive standard outputs.
+        if output in [TASK_OUTPUT_SUCCEEDED, TASK_OUTPUT_FAILED]:
+            if output == TASK_OUTPUT_SUCCEEDED:
+                opposite = TASK_OUTPUT_FAILED
+            else:
+                opposite = TASK_OUTPUT_SUCCEEDED
+            try:
+                _, opposite_required = self.outputs[opposite]
+            except KeyError:
+                pass
+            else:
+                if required and opposite_required:
+                    raise TaskDefError(
+                        f"{name}:{output} and :{opposite} can't"
+                        " both be required")
+                elif (
+                    not required and opposite_required
+                    or required and not opposite_required
+                ):
+                    raise TaskDefError(
+                        f"If {name}:{output} is optional"
+                        f" so must be {name}:{opposite}")
 
     def add_graph_child(self, trigger, taskname, sequence):
         """Record child task instances that depend on my outputs.

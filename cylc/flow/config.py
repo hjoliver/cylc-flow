@@ -1982,7 +1982,7 @@ class WorkflowConfig:
                         # output not used in graph
                         continue
                 # print(f'  {output} ({optional})')
-                taskdef.set_required_output(output, not optional)
+                taskdef.set_required_output(name, output, not optional)
 
     def find_taskdefs(self, name: str) -> List[TaskDef]:
         """Find TaskDef objects in family "name" or matching "name".

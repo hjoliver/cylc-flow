@@ -518,10 +518,9 @@ class TestGraphParser(unittest.TestCase):
         }
         self.assertEqual(gp.triggers, triggers)
 
-    def test_optional_outputs(self):
+    def test_task_optional_outputs(self):
         """Test ..."""
-        # fam_map = {'FAM': ['m1', 'm2'], 'BAM': ['b1', 'b2']}
-        # OPTIONAL = True
+        OPTIONAL = True
         REQUIRED = False
         gp = GraphParser()
         gp.parse_graph(
@@ -530,10 +529,13 @@ class TestGraphParser(unittest.TestCase):
             a2:succeed => b2
             a3:succeeded => b3:succeeded
 
-            c => d?
+            c1? => d1?
+            c2:succeed? => d2?
+            c3:succeeded? => d3:succeeded?
+
+            x:fail? => y
             """
         )
-        print(gp.task_output_opt)
         for i in range(1, 4):
             self.assertEqual(
                 gp.task_output_opt[(f'a{i}', gp.TRIG_SUCCEEDED)],
@@ -543,6 +545,76 @@ class TestGraphParser(unittest.TestCase):
                 gp.task_output_opt[(f'b{i}', gp.TRIG_SUCCEEDED)],
                 REQUIRED
             )
+
+            self.assertEqual(
+                gp.task_output_opt[(f'c{i}', gp.TRIG_SUCCEEDED)],
+                OPTIONAL
+            )
+            self.assertEqual(
+                gp.task_output_opt[(f'd{i}', gp.TRIG_SUCCEEDED)],
+                OPTIONAL
+            )
+
+        self.assertEqual(
+            gp.task_output_opt[('x', gp.TRIG_FAILED)],
+            OPTIONAL
+        )
+
+    def test_family_optional_outputs(self):
+        """Test ..."""
+        fam_map = {
+            'FAM': ['f1', 'f2'],
+            'BAM': ['b1', 'b2'],
+            'WAM': ['w1', 'w2'],
+        }
+        OPTIONAL = True
+        REQUIRED = False
+        gp = GraphParser(fam_map)
+        gp.parse_graph(
+            """
+            FAM:succeed-all => f
+            BAM:succeed-any => b
+            WAM:succeed-all => w?
+            w2?
+            """
+        )
+
+        for member in ['f1', 'f2']:
+            self.assertEqual(
+                gp.memb_output_opt[(member, gp.TRIG_SUCCEEDED)],
+                REQUIRED
+            )
+        self.assertEqual(
+            gp.task_output_opt[('f', gp.TRIG_SUCCEEDED)],
+            REQUIRED
+        )
+
+        for member in ['b1', 'b2']:
+            self.assertEqual(
+                gp.memb_output_opt[(member, gp.TRIG_SUCCEEDED)],
+                OPTIONAL
+            )
+        self.assertEqual(
+            gp.task_output_opt[('b', gp.TRIG_SUCCEEDED)],
+            REQUIRED
+        )
+
+        self.assertEqual(
+            gp.memb_output_opt[('w1', gp.TRIG_SUCCEEDED)],
+            REQUIRED
+        )
+        self.assertEqual(
+            gp.memb_output_opt[('w2', gp.TRIG_SUCCEEDED)],
+            REQUIRED
+        )
+        self.assertEqual(
+            gp.task_output_opt[('w', gp.TRIG_SUCCEEDED)],
+            OPTIONAL
+        )
+        self.assertEqual(
+            gp.task_output_opt[('w', gp.TRIG_SUCCEEDED)],
+            OPTIONAL
+        )
 
 
 if __name__ == "__main__":
