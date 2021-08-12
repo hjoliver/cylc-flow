@@ -952,7 +952,7 @@ class TaskPool:
         self.release_runahead_tasks()
 
         stalled_incomplete = False
-        stalled_prereqs = False
+        stalled_prereq = False
 
         # Find incomplete tasks
         incomplete = []
@@ -1001,7 +1001,7 @@ class TaskPool:
                 for id_ in prereqs_map:
                     name, point = TaskID().split(id_)
                     if get_point(point) <= self.stop_point:
-                        prereq_stalled = True
+                        stalled_prereq = True
 
             if stalled_incomplete or stalled_prereq:
                 if not suppress:

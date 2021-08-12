@@ -593,7 +593,7 @@ class GraphParser:
             if already != optional:
                 if not family:
                     raise GraphParseError(
-                        "{name}{output} can't be both optional and required"
+                        f"{name}{output} can't be both optional and required"
                     )
                 else:
                     output_map[(name, output)] = True

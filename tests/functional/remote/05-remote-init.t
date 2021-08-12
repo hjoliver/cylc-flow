@@ -55,7 +55,7 @@ f|0|0|ariel
 g|0|0|localhost
 __SELECT__
 
-grep_ok "WARNING - Workflow stalled with unhandled failed tasks:" \
+grep_ok "WARNING - Incomplete tasks:" \
     "${TEST_NAME_BASE}-run.stderr"
 grep_ok "* b.1 (submit-failed)
 	* a.1 (submit-failed)" \
