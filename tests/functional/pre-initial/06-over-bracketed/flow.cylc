@@ -6,7 +6,7 @@
     final cycle point = 20131225T1200Z
     [[graph]]
         T12 = """
-            (a[-P1D]:fail | b[-P1D]:fail | c[-P1D]:fail) => d
+            (a[-P1D]:failed | b[-P1D]:failed | c[-P1D]:failed) => d
             a & b & c  # Implied by implicit cycling now...
         """
 [runtime]

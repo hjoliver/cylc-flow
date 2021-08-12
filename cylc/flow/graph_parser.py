@@ -553,11 +553,7 @@ class GraphParser:
     ):
         """Record parsed triggers and outputs."""
 
-        # Record triggers
-        self.triggers.setdefault(name, {})
-        self.triggers[name][expr] = (trigs, suicide)
-        self.original.setdefault(name, {})
-        self.original[name][expr] = orig_expr
+        # TODO CAN WE RETURN IF expr == "" HERE?
 
         # Check suicide triggers
         with contextlib.suppress(KeyError):
@@ -566,12 +562,20 @@ class GraphParser:
             # "expr => member" and "expr => !member" in the graph,
             # or simply a duplicate trigger not recognized earlier
             # because of parameter offsets.
-            if suicide or osuicide:
+            if not expr:
+                pass
+            elif suicide is not osuicide:
                 oexp = re.sub(r'(&|\|)', r' \1 ', orig_expr)
                 oexp = re.sub(r':succeeded', '', oexp)
                 raise GraphParseError(
                     f"{oexp} can't trigger both {name} and !{name}"
                 )
+
+        # Record triggers
+        self.triggers.setdefault(name, {})
+        self.triggers[name][expr] = (trigs, suicide)
+        self.original.setdefault(name, {})
+        self.original[name][expr] = orig_expr
 
         if family and output == "":
             # Unqualified family on RHS implies nothing about outputs

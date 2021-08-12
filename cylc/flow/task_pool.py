@@ -951,6 +951,9 @@ class TaskPool:
         """
         self.release_runahead_tasks()
 
+        stalled_incomplete = False
+        stalled_prereqs = False
+
         # Find incomplete tasks
         incomplete = []
         for itask in self.get_tasks():
@@ -973,9 +976,8 @@ class TaskPool:
         prereqs_map = self._get_partially_sat_prereqs()
 
         if incomplete or prereqs_map:
-            if not suppress:
-                LOG.critical("Workflow stalled")
             if incomplete:
+                stalled_incomplete = True
                 LOG.warning(
                     "Incomplete tasks:\n"
                     + "\n".join(
@@ -994,7 +996,17 @@ class TaskPool:
                         ) for id_, prereqs in prereqs_map.items()
                     )
                 )
-            return True
+                # Stalled unless prereqs are beyond stop point
+                stalled_prereq = False
+                for id_ in prereqs_map:
+                    name, point = TaskID().split(id_)
+                    if get_point(point) <= self.stop_point:
+                        prereq_stalled = True
+
+            if stalled_incomplete or stalled_prereq:
+                if not suppress:
+                    LOG.critical("Workflow stalled")
+                return True
         else:
             return False
 

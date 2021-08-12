@@ -27,7 +27,7 @@ cat >'flow.cylc' <<'__FLOW_CONFIG__'
     allow implicit tasks = True
 [scheduling]
 [[graph]]
-R1 = foo:fail | (foo & bar:fail) => something
+R1 = foo:failed | (foo:succeeded & bar:failed) => something
 [runtime]
 [[root]]
 script = true
