@@ -8,8 +8,11 @@
 [scheduling]
     [[graph]]
         R1 = """
-            t0:failed & t1:failed => !t2
-            t0 | t1 => t2
+            t0:failed? & t1:failed? => !t2
+# TODO failed? should imply this:
+t0?
+t1?
+            t0? | t1? => t2
         """
 [runtime]
     [[t0]]
