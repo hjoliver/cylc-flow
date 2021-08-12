@@ -421,9 +421,14 @@ class GraphParser:
 
         for left in lefts:
             # Extract information about all nodes on the left.
+
             if left:
+                if "?" in left:
+                    # TODO IS THIS A PROBLEM
+                    left = re.sub(r'\?', '', left)
                 info = self.__class__.REC_NODES.findall(left)
                 expr = left
+
             else:
                 # There is no left-hand-side task.
                 info = []

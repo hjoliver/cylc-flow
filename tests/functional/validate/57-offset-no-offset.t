@@ -27,7 +27,8 @@ cat >'flow.cylc' <<'__FLOW_CONFIG__'
 [scheduling]
     initial cycle point = 2010
 [[graph]]
-    P1D = foo | foo[-P1D] => bar
+# TODO :succeeded should not be needed here
+    P1D = foo:succeeded | foo[-P1D]:succeeded => bar
 [runtime]
     [[foo, bar]]
         script = true

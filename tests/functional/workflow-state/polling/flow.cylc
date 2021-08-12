@@ -6,8 +6,9 @@
     allow implicit tasks = True
 [scheduling]
     [[graph]]
+# TODO check use of "bad:fail" here (instead of :failed)
         R1 = """
-            l-good<{{UPSTREAM}}::good-stuff> & lbad<{{UPSTREAM}}::bad:fail>
+            l-good<{{UPSTREAM}}::good-stuff> & lbad<{{UPSTREAM}}::bad:failed>
             l-mess<{{UPSTREAM}}::messenger> => done
         """
 [runtime]

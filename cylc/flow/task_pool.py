@@ -1002,6 +1002,7 @@ class TaskPool:
                     name, point = TaskID().split(id_)
                     if get_point(point) <= self.stop_point:
                         stalled_prereq = True
+                        break
 
             if stalled_incomplete or stalled_prereq:
                 if not suppress:
