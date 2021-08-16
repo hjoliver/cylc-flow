@@ -1490,8 +1490,7 @@ class WorkflowConfig:
                 # if right is None, lefts are lone nodes
                 # for which we still define the taskdefs
                 continue
-            name, _, _, _, _, _, _ = (   # TODO
-                GraphNodeParser.get_inst().parse(node))
+            name = GraphNodeParser.get_inst().parse(node)[0]
 
             # check task name legality and create the taskdef
             taskdef = self.get_taskdef(name, orig_expr)
@@ -1509,8 +1508,7 @@ class WorkflowConfig:
                 # if right is None, lefts are lone nodes
                 # for which we still define the taskdefs
                 continue
-            name, offset, _, _, _, _, _ = (  # TODO
-                GraphNodeParser.get_inst().parse(node))
+            name, offset = GraphNodeParser.get_inst().parse(node)[:2]
 
             taskdef = self.get_taskdef(name, orig_expr)
             # Only add sequence to taskdef if explicit (not an offset).

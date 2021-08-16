@@ -1456,7 +1456,7 @@ class TaskPool:
                     self.data_store_mgr.delta_task_state(itask)
                 # (No need to set prerequisites satisfied here).
                 if not itask.state.is_queued:
-                    LOG.info("Force-trigger: queueing {itask.identity}")
+                    LOG.info(f"Force-trigger: queueing {itask.identity}")
                     self.queue_task(itask)
                 else:
                     self.task_queue_mgr.force_release_task(itask)
