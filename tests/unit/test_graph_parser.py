@@ -18,6 +18,10 @@ import unittest
 
 from cylc.flow.exceptions import GraphParseError, ParamExpandError
 from cylc.flow.graph_parser import GraphParser
+from cylc.flow.task_outputs import (
+    TASK_OUTPUT_SUCCEEDED,
+    TASK_OUTPUT_FAILED
+)
 
 
 class TestGraphParser(unittest.TestCase):
@@ -530,27 +534,28 @@ class TestGraphParser(unittest.TestCase):
             x:fail? => y
             """
         )
+        print(gp.task_output_opt)
         for i in range(1, 4):
             self.assertEqual(
-                gp.task_output_opt[(f'a{i}', gp.TRIG_SUCCEEDED)],
+                gp.task_output_opt[(f'a{i}', TASK_OUTPUT_SUCCEEDED)],
                 REQUIRED
             )
             self.assertEqual(
-                gp.task_output_opt[(f'b{i}', gp.TRIG_SUCCEEDED)],
+                gp.task_output_opt[(f'b{i}', TASK_OUTPUT_SUCCEEDED)],
                 REQUIRED
             )
 
             self.assertEqual(
-                gp.task_output_opt[(f'c{i}', gp.TRIG_SUCCEEDED)],
+                gp.task_output_opt[(f'c{i}', TASK_OUTPUT_SUCCEEDED)],
                 OPTIONAL
             )
             self.assertEqual(
-                gp.task_output_opt[(f'd{i}', gp.TRIG_SUCCEEDED)],
+                gp.task_output_opt[(f'd{i}', TASK_OUTPUT_SUCCEEDED)],
                 OPTIONAL
             )
 
         self.assertEqual(
-            gp.task_output_opt[('x', gp.TRIG_FAILED)],
+            gp.task_output_opt[('x', TASK_OUTPUT_FAILED)],
             OPTIONAL
         )
 
@@ -575,38 +580,38 @@ class TestGraphParser(unittest.TestCase):
 
         for member in ['f1', 'f2']:
             self.assertEqual(
-                gp.memb_output_opt[(member, gp.TRIG_SUCCEEDED)],
+                gp.memb_output_opt[(member, TASK_OUTPUT_SUCCEEDED)],
                 REQUIRED
             )
         self.assertEqual(
-            gp.task_output_opt[('f', gp.TRIG_SUCCEEDED)],
+            gp.task_output_opt[('f', TASK_OUTPUT_SUCCEEDED)],
             REQUIRED
         )
 
         for member in ['b1', 'b2']:
             self.assertEqual(
-                gp.memb_output_opt[(member, gp.TRIG_SUCCEEDED)],
+                gp.memb_output_opt[(member, TASK_OUTPUT_SUCCEEDED)],
                 OPTIONAL
             )
         self.assertEqual(
-            gp.task_output_opt[('b', gp.TRIG_SUCCEEDED)],
+            gp.task_output_opt[('b', TASK_OUTPUT_SUCCEEDED)],
             REQUIRED
         )
 
         self.assertEqual(
-            gp.memb_output_opt[('w1', gp.TRIG_SUCCEEDED)],
+            gp.memb_output_opt[('w1', TASK_OUTPUT_SUCCEEDED)],
             REQUIRED
         )
         self.assertEqual(
-            gp.memb_output_opt[('w2', gp.TRIG_SUCCEEDED)],
+            gp.memb_output_opt[('w2', TASK_OUTPUT_SUCCEEDED)],
             REQUIRED
         )
         self.assertEqual(
-            gp.task_output_opt[('w', gp.TRIG_SUCCEEDED)],
+            gp.task_output_opt[('w', TASK_OUTPUT_SUCCEEDED)],
             OPTIONAL
         )
         self.assertEqual(
-            gp.task_output_opt[('w', gp.TRIG_SUCCEEDED)],
+            gp.task_output_opt[('w', TASK_OUTPUT_SUCCEEDED)],
             OPTIONAL
         )
 

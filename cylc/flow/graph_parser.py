@@ -22,6 +22,14 @@ from cylc.flow.exceptions import GraphParseError
 from cylc.flow.param_expand import GraphExpander
 from cylc.flow.task_id import TaskID
 from cylc.flow.task_trigger import TaskTrigger
+from cylc.flow.task_outputs import (
+    TASK_OUTPUT_SUCCEEDED,
+    TASK_OUTPUT_STARTED,
+    TASK_OUTPUT_FAILED,
+    TASK_OUTPUT_FINISHED,
+    TASK_OUTPUT_SUBMITTED,
+    TASK_OUTPUT_SUBMIT_FAILED
+)
 
 
 ARROW = '=>'
@@ -80,7 +88,6 @@ class GraphParser:
     OP_OR_ERR = '||'
     SUICIDE_MARK = '!'
     # TODO: IMPORT OUTPUT NAMES HERE:
-    TRIG_SUCCEEDED = ':succeeded'
     TRIG_STARTED = ':started'
     TRIG_FAILED = ':failed'
     TRIG_FINISHED = ':finished'
@@ -111,7 +118,8 @@ class GraphParser:
 
     _RE_PARAMS = r'<[\w,=\-+]+>'
     _RE_OFFSET = r'\[[\w\-\+\^:]+\]'
-    _RE_TRIG = r':[\w\-]+\??|\??'  # task or fam trigger, plus optional "?"
+    # task or fam trigger, plus optional "?"
+    _RE_TRIG = r'[\w\-]+\??|\??'  # TODO: use task name re
 
     # Match if there are any spaces which could lead to graph problems
     REC_GRAPH_BAD_SPACES_LINE = re.compile(
@@ -126,6 +134,7 @@ class GraphParser:
     REC_ACTION = re.compile(r'@[\w\-+%]+')
 
     # Match fully qualified parameterized single nodes.
+    # TODO capture groups unecessary here:
     REC_NODE_FULL = re.compile(
         _RE_SUICIDE +
         r'''
@@ -134,19 +143,14 @@ class GraphParser:
         ''')                             # node name
         )+                               # allow task<param> to repeat
         (?:''' + _RE_OFFSET + r''')?     # optional cycle point offset
-        (?:''' + _RE_TRIG + r''')?       # optional trigger type
+        (?::''' + _RE_TRIG + r''')?       # optional trigger type
         ''', re.X)                       # end of string
 
     # Extract node or action from left-side expressions after param expansion.
     REC_NODES = re.compile(r'''
         (''' + _RE_NODE_OR_ACTION + r''')      # node name
         (''' + _RE_OFFSET + r''')?   # optional cycle point offset
-        (''' + _RE_TRIG + r''')?     # optional trigger type
-    ''', re.X)
-
-    REC_TRIG_QUAL = re.compile(r'''
-        (?:''' + _RE_NODE + r''')    # node name (ignore)
-        (''' + _RE_TRIG + r''')?     # optional trigger type
+       (?::(''' + _RE_TRIG + r'''))?     # optional trigger type
     ''', re.X)
 
     REC_COMMENT = re.compile('#.*$')
@@ -157,7 +161,7 @@ class GraphParser:
     # Detect and extract workflow state polling task info.
     REC_WORKFLOW_STATE = re.compile(
         r'(' + TaskID.NAME_RE + r')(<([\w.\-/]+)::(' +
-        TaskID.NAME_RE + r')(' + _RE_TRIG + r')?>)')
+        TaskID.NAME_RE + r')(?::(' + _RE_TRIG + r'))?>)')
 
     # Remove out-of-range nodes
     # <TASK_NAME_PART> : [^\s&\|] # i.e. sequence of not <AND|OR|SPACE>
@@ -180,7 +184,7 @@ class GraphParser:
         r'''
         (!)?                       # optional suicide mark
         (''' + _RE_NODE + r''')    # node name
-        (''' + _RE_TRIG + r''')?   # optional trigger type
+        (?::(''' + _RE_TRIG + r'''))?   # optional trigger type
         ''',
         re.X
     )
@@ -266,13 +270,13 @@ class GraphParser:
             for item in repl.match_groups:
                 l_task, r_all, r_workflow, r_task, r_status = item
                 if r_status:
-                    r_status = r_status[1:]
+                    r_status = TaskTrigger.standardise_name(r_status)
                 else:
-                    r_status = self.__class__.TRIG_SUCCEEDED[1:]
+                    r_status = TASK_OUTPUT_SUCCEEDED
                 self.workflow_state_polling_tasks[l_task] = (
                     r_workflow,
                     r_task,
-                    TaskTrigger.standardise_name(r_status),
+                    r_status,
                     r_all
                 )
             full_lines.append(full_line)
@@ -344,7 +348,7 @@ class GraphParser:
                 chain[0]
             ):
                 if not name.startswith('@'):
-                    pairs.add((None, name + offset + output))
+                    pairs.add((None, f"{name}{offset}:{output}"))
             for i in range(0, len(chain) - 1):
                 pairs.add((chain[i], chain[i + 1]))
 
@@ -447,30 +451,30 @@ class GraphParser:
                     optional = False
                 if trig:
                     # Replace with standard trigger name if necessary
-                    n_trig = ":" + TaskTrigger.standardise_name(trig[1:])
+                    n_trig = TaskTrigger.standardise_name(trig)
                     if n_trig != trig:
                         if offset:
-                            this = r'\b%s\b%s%s(?!:)' % (
+                            this = r'\b%s\b%s:%s(?!:)' % (
                                 re.escape(name),
                                 re.escape(offset),
                                 re.escape(trig)
                             )
                         else:
-                            this = r'\b%s%s\b(?![\[:])' % (
+                            this = r'\b%s:%s\b(?![\[:])' % (
                                 re.escape(name),
                                 re.escape(trig)
                             )
-                        that = name + offset + n_trig
+                        that = f"{name}{offset}:{n_trig}"
                         expr = re.sub(this, that, expr)
                 else:
                     # Make success triggers explicit.
-                    n_trig = self.__class__.TRIG_SUCCEEDED
+                    n_trig = TASK_OUTPUT_SUCCEEDED
                     if offset:
                         this = r'\b%s\b%s(?!:)' % (
                             re.escape(name), re.escape(offset))
                     else:
                         this = r'\b%s\b(?![\[:])' % re.escape(name)
-                    that = name + offset + n_trig
+                    that = f"{name}{offset}:{n_trig}"
                     expr = re.sub(this, that, expr)
 
                 if optional:
@@ -549,17 +553,17 @@ class GraphParser:
             return (fam_trigger, None)
 
         if fam_trigger == self.__class__.TRIG_FAM_SUCCEED_ALL:
-            mem_output = self.__class__.TRIG_SUCCEEDED
+            mem_output = TASK_OUTPUT_SUCCEEDED
             optional = False
         elif fam_trigger in (
             self.__class__.TRIG_FAM_START_ALL,
             self.__class__.TRIG_FAM_START_ANY,
         ):
             # started is never optional (and only checked if task finishes)
-            mem_output = self.__class__.TRIG_STARTED
+            mem_output = TASK_OUTPUT_STARTED
             optional = False
         elif fam_trigger == self.__class__.TRIG_FAM_FAIL_ALL:
-            mem_output = self.__class__.TRIG_FAILED
+            mem_output = TASK_OUTPUT_FAILED
             optional = False
         elif fam_trigger in (
             self.__class__.TRIG_FAM_SUCCEED_ANY,
@@ -567,20 +571,19 @@ class GraphParser:
             self.__class__.TRIG_FAM_FINISH_ALL,
             self.__class__.TRIG_FAM_FINISH_ANY
         ):
-            mem_output = self.__class__.TRIG_SUCCEEDED
+            mem_output = TASK_OUTPUT_SUCCEEDED
             optional = True
         elif fam_trigger == self.__class__.TRIG_FAM_SUBMIT_ALL:
-            mem_output = self.__class__.TRIG_SUBMITTED
+            mem_output = TASK_OUTPUT_SUBMITTED
             optional = False
         elif fam_trigger == self.__class__.TRIG_FAM_SUBMIT_FAIL_ALL:
-            mem_output = self.__class__.TRIG_SUBMIT_FAILED
+            mem_output = TASK_OUTPUT_SUBMIT_FAILED
             optional = False
         elif fam_trigger in (  # noqa SIM106
             self.__class__.TRIG_FAM_SUBMIT_ANY,
             self.__class__.TRIG_FAM_SUBMIT_FAIL_ANY
         ):
-            mem_output = self.__class__.TRIG_SUBMIT
-            mem_output = self.__class__.TRIG_SUBMITTED
+            mem_output = TASK_OUTPUT_SUBMITTED
             optional = True
         else:
             raise GraphParseError(
@@ -592,7 +595,6 @@ class GraphParser:
         orig_expr, family=False
     ):
         """Record parsed triggers and outputs."""
-
         # TODO CAN WE RETURN IF expr == "" HERE?
 
         # Check suicide triggers
@@ -622,7 +624,8 @@ class GraphParser:
             # or from a family name on the right side.
             return
 
-        output = ":" + TaskTrigger.standardise_name(output[1:])
+        if output:
+            output = TaskTrigger.standardise_name(output)
         # Add or check {(name, output): optional} in output_map.
         try:
             already = output_map[(name, output)]
@@ -634,7 +637,7 @@ class GraphParser:
             if already != optional:
                 if not family:
                     raise GraphParseError(
-                        f"{name}{output} can't be both optional and required"
+                        f"{name}:{output} can't be both optional and required"
                     )
                 else:
                     output_map[(name, output)] = True
@@ -648,18 +651,18 @@ class GraphParser:
         trigs = []
         for name, offset, trigger in info:
             # Replace finish triggers (must be done after member substn).
-            if trigger == self.__class__.TRIG_FINISHED:
-                this = "%s%s%s" % (name, offset, trigger)
-                that = "(%s%s%s%s%s%s%s)" % (
-                    name, offset, self.__class__.TRIG_SUCCEEDED,
+            if trigger == TASK_OUTPUT_FINISHED:
+                this = "%s%s:%s" % (name, offset, trigger)
+                that = "(%s%s:%s%s%s%s:%s)" % (
+                    name, offset, TASK_OUTPUT_SUCCEEDED,
                     self.__class__.OP_OR,
-                    name, offset, self.__class__.TRIG_FAILED)
+                    name, offset, TASK_OUTPUT_FAILED)
                 expr = expr.replace(this, that)
                 trigs += [
-                    "%s%s%s" % (name, offset, self.__class__.TRIG_SUCCEEDED),
-                    "%s%s%s" % (name, offset, self.__class__.TRIG_FAILED)]
+                    "%s%s:%s" % (name, offset, TASK_OUTPUT_SUCCEEDED),
+                    "%s%s:%s" % (name, offset, TASK_OUTPUT_FAILED)]
             else:
-                trigs += ["%s%s%s" % (name, offset, trigger)]
+                trigs += ["%s%s:%s" % (name, offset, trigger)]
 
         for right in rights:
             m = self.__class__.REC_RHS_NODE.match(right)
@@ -668,17 +671,18 @@ class GraphParser:
             suicide_char, name, output = m.groups()
             suicide = (suicide_char == self.__class__.SUICIDE_MARK)
 
-            if output.endswith(self.__class__.OPTIONAL_MARK):
+            if output and output.endswith(self.__class__.OPTIONAL_MARK):
                 output = output[:-1]
                 optional = True
             else:
                 optional = False
 
-            if output == "" and name not in self.family_map:
+            if not output and name not in self.family_map:
                 # Make implicit success case explicit.
-                output = self.__class__.TRIG_SUCCEEDED
+                output = TASK_OUTPUT_SUCCEEDED
 
             if name not in self.family_map:
+                print(name, output, optional, 'xxxx')
                 self._set_triggers(
                     self.task_output_opt, name, output, optional,
                     suicide, trigs, expr, orig_expr
@@ -688,7 +692,7 @@ class GraphParser:
                 if optional:
                     raise GraphParseError(
                         "Family triggers can't be optional: "
-                        f"{name}{output}{self.__class__.OPTIONAL_MARK}"
+                        f"{name}:{output}{self.__class__.OPTIONAL_MARK}"
                     )
                 output, optional = self._fam_trigger_to_member_output(
                     name, output)
