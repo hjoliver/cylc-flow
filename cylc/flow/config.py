@@ -1962,10 +1962,10 @@ class WorkflowConfig:
             for output in taskdef.outputs:
                 try:
                     # inconsistent task opt/req already caught by parser
-                    optional = parser.task_output_opt[(name, ":" + output)]
+                    optional = parser.task_output_opt[(name, output)]
                 except KeyError:
                     try:
-                        optional = parser.memb_output_opt[(name, ":" + output)]
+                        optional = parser.memb_output_opt[(name, output)]
                     except KeyError:
                         # raise WorkflowConfigError(f'WTF?? {name}, {output}')
                         # print(f'    (skip {output})')
