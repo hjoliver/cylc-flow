@@ -306,15 +306,13 @@ def test_parse_reg__ok(
         expected_path: Expected path returned for src=True only.
     """
     paths: dict = setup__test_parse_reg()
-    expected: Union[str, Tuple[str, Path]]
+    expected: Tuple[str, Path]
     expected_reg = expected_reg.format(**paths)
     if src:
         expected_path = expected_path.format(**paths)
-        expected = (expected_reg, Path(expected_path))
-        assert parse_reg(reg, src) == expected
+        assert Path(expected_path) == parse_reg(reg, src)[1]
     else:
-        expected = Path(expected_reg)
-        assert parse_reg(reg, src) == expected
+        assert expected_reg == parse_reg(reg, src)[0]
 
 
 @pytest.mark.parametrize(
@@ -432,17 +430,15 @@ def test_parse_reg__various(
             parse_reg(reg, src)
         assert expected_err_msg in str(exc_info.value)
     else:
-        expected: Union[str, Tuple[str, Path]]
+        expected: Tuple[str, Path]
         assert expected_reg is not None
         expected_reg = expected_reg.format(**paths)
         if src:
             assert expected_path is not None
             expected_path = expected_path.format(**paths)
-            expected = (expected_reg, Path(expected_path))
-            assert parse_reg(reg, src) == expected
+            assert Path(expected_path) == parse_reg(reg, src)[1]
         else:
-            expected = expected_reg
-            assert parse_reg(reg, src) == Path(expected)
+            assert expected_reg == parse_reg(reg, src)[0]
 
 
 @pytest.mark.parametrize(
