@@ -38,6 +38,7 @@ from typing import (
 from typing_extensions import Literal
 import zmq.auth
 
+import cylc.flow.flags
 from cylc.flow import LOG
 from cylc.flow.cfgspec.glbl_cfg import glbl_cfg
 from cylc.flow.exceptions import (
@@ -320,8 +321,10 @@ To start a new run, stop the old one first with one or more of these:
 """
 
 SUITERC_DEPR_MSG = (
-    f"The filename '{WorkflowFiles.SUITE_RC}' is deprecated "
-    f"in favour of '{WorkflowFiles.FLOW_FILE}'"
+    f"Back-compat mode turned ON for Cylc 7 '{WorkflowFiles.SUITE_RC}' "
+    "files.\n"
+    f"Do NOT rename to '{WorkflowFiles.FLOW_FILE}' without "
+    "upgrading to Cylc 8 syntax."
 )
 
 NO_FLOW_FILE_MSG = (
@@ -1096,15 +1099,22 @@ def parse_reg(reg: str, src: bool = False) -> Union[str, Tuple[str, Path]]:
     reg: Path = Path(expand_path(reg))
 
     if src:
-        return _parse_src_reg(reg)
+        parsed = _parse_src_reg(reg)
+        abs_path = parsed[1]
+    else:
+        abs_path = Path(get_workflow_run_dir(reg))
+        if abs_path.is_file():
+            raise WorkflowFilesError(
+                f"Workflow name must refer to a directory, not a file: {reg}"
+            )
+        abs_path, reg = infer_latest_run(abs_path)
+        parsed = reg
 
-    abs_path = Path(get_workflow_run_dir(reg))
-    if abs_path.is_file():
-        raise WorkflowFilesError(
-            f"Workflow name must refer to a directory, not a file: {reg}"
-        )
-    abs_path, reg = infer_latest_run(abs_path)
-    return str(reg)
+    if os.path.realpath(abs_path).endswith('suite.rc'):
+        cylc.flow.flags.cylc7_back_compat = True
+        LOG.warning(SUITERC_DEPR_MSG)
+
+    return parsed
 
 
 def _parse_src_reg(reg: Path) -> Tuple[str, Path]:
@@ -1161,6 +1171,7 @@ def _parse_src_reg(reg: Path) -> Tuple[str, Path]:
         reg = reg.parent
     else:
         abs_path = check_flow_file(abs_path)
+
     return (str(reg), abs_path)
 
 
@@ -1616,20 +1627,19 @@ def check_flow_file(
             return flow_file_path
         if flow_file_path.resolve() == suite_rc_path.resolve():
             # A symlink that points to *existing* suite.rc
-            if logger:
-                logger.warning(SUITERC_DEPR_MSG)
             return flow_file_path
     if suite_rc_path.is_file():
         if not symlink_suiterc:
-            if logger:
-                logger.warning(SUITERC_DEPR_MSG)
             return suite_rc_path
         if flow_file_path.is_symlink():
             # Symlink broken or points elsewhere - replace
             flow_file_path.unlink()
         flow_file_path.symlink_to(WorkflowFiles.SUITE_RC)
         if logger:
-            logger.warning(f'{SUITERC_DEPR_MSG}. Symlink created.')
+            logger.warning(
+                f"Symlink created: "
+                f"{WorkflowFiles.FLOW_FILE} -> {WorkflowFiles.SUITE_RC}"
+            )
         return flow_file_path
     raise WorkflowFilesError(NO_FLOW_FILE_MSG.format(path))
 
