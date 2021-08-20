@@ -58,7 +58,6 @@ Fourth beta release of Cylc 8.
 
 ### Enhancements
 
-
 [#4367](https://github.com/cylc/cylc-flow/pull/4367) -
 Make the central wrapper work with arbitrary virtual environment names.
 
