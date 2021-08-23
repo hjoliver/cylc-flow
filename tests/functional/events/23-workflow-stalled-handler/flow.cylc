@@ -2,7 +2,7 @@
     UTC mode = True # Ignore DST
     [[events]]
         stall timeout = PT10S
-        stall handler = "cylc set-outputs --flow=other %(workflow)s bar.1"
+        stall handler = "cylc set-outputs --flow=1 %(workflow)s bar.1"
         expected task failures = bar.1
 [scheduling]
     [[graph]]

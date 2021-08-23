@@ -59,13 +59,16 @@ class FlowMgr:
 
     def update_flows(self, flow_nums: Set[int]) -> None:
         """Load metadata for selected flows from DB - on restart."""
+        LOG.critical(flow_nums)
         self.flows = self.db_mgr.pri_dao.select_workflow_flows(flow_nums)
         self.dump_to_log()
 
     def dump_to_log(self) -> None:
         """Dump current flows to log."""
+        # Don't log as error or critical here - we grep the log for errors
+        # before detaching.
         for f in self.flows:
-            LOG.critical(
+            LOG.info(
                 f"flow: {f}: "
                 f"({self.flows[f]['description']}) "
                 f"{self.flows[f]['start_time']} "
