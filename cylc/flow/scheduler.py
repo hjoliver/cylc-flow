@@ -1690,7 +1690,6 @@ class Scheduler:
             if not self.is_stalled:
                 # (else already logged)
                 # Log partially satisfied dependencies and incomplete tasks.
-                print("HELLO", self.is_paused)
                 self.pool.is_stalled()
             self.pool.warn_stop_orphans()
             try:
