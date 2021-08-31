@@ -31,14 +31,14 @@ class FlowMgr:
     def __init__(self, db_mgr: "WorkflowDatabaseManager") -> None:
         """Initialise the flow manager."""
         self.db_mgr = db_mgr
-        self.counter: int = 0
+        self.counter = 0
         self.flows: Dict[int, Dict[str, str]] = {}
 
     def get_new_flow(self, description: str = "no description") -> int:
         """Increment flow counter, record flow metadata."""
         self.counter += 1
         # record start time to nearest second
-        now: datetime = datetime.now()
+        now = datetime.now()
         now_sec: str = str(now - timedelta(microseconds=now.microsecond))
         self.flows[self.counter] = {
             "description": description,
@@ -63,15 +63,10 @@ class FlowMgr:
         self.dump_to_log()
 
     def dump_to_log(self) -> None:
-        """Dump current flows to log."""
-        # Don't log as error or critical here - we grep the log for errors
-        # before detaching.
+        """Dump current flow info to log."""
         for f in self.flows:
             LOG.info(
                 f"flow: {f}: "
                 f"({self.flows[f]['description']}) "
                 f"{self.flows[f]['start_time']} "
             )
-
-    # def get_flow_metadata(self, flow_num: Set[int]):
-    #    return self.flows[flow_num]
