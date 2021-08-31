@@ -59,7 +59,6 @@ class FlowMgr:
 
     def update_flows(self, flow_nums: Set[int]) -> None:
         """Load metadata for selected flows from DB - on restart."""
-        LOG.critical(flow_nums)
         self.flows = self.db_mgr.pri_dao.select_workflow_flows(flow_nums)
         self.dump_to_log()
 
