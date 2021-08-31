@@ -1354,8 +1354,11 @@ class TaskPool:
                 or self._get_hidden_task_by_id(task_id)
             )
             if itask is None:
-                # Spawn with new flow number.
-                flow_nums = {self.flow_mgr.get_new_flow(flow_descr)}
+                # Spawn with new flow number, unless no reflow.
+                if reflow:
+                    flow_nums = {self.flow_mgr.get_new_flow(flow_descr)}
+                else:
+                    flow_nums = set()
                 itask = self.spawn_task(name, point, flow_nums)
                 if itask is None:
                     continue
