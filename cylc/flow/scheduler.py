@@ -1591,7 +1591,7 @@ class Scheduler:
             and time() > self.stall_timer_timeout
         ):
             self.stall_already_timed_out = True
-            message = 'stall timed out after %s' % (
+            message = 'timed out %s after stall' % (
                 get_seconds_as_interval_string(
                     self._get_events_conf(self.EVENT_STALL_TIMEOUT)
                 )
@@ -1607,7 +1607,7 @@ class Scheduler:
             return
         if time() > self.workflow_inactivity_timeout:
             self.already_inactive = True
-            message = 'workflow timed out after inactivity for %s' % (
+            message = 'timed out after %s of inactivity' % (
                 get_seconds_as_interval_string(
                     self._get_events_conf(self.EVENT_INACTIVITY_TIMEOUT)))
             LOG.warning(message)
