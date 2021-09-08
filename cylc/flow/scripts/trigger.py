@@ -46,11 +46,13 @@ mutation (
   $wFlows: [WorkflowID]!,
   $tasks: [NamespaceIDGlob]!,
   $reflow: Boolean,
+  $flowDescr: String,
 ) {
   trigger (
     workflows: $wFlows,
     tasks: $tasks,
-    reflow: $reflow
+    reflow: $reflow,
+    flowDescr: $flowDescr
   ) {
     result
   }
@@ -66,9 +68,16 @@ def get_option_parser():
             ('[TASK_GLOB ...]', 'Task matching patterns')])
 
     parser.add_option(
-        "-r", "--reflow",
-        help="Start a new flow from the triggered task.",
-        action="store_true", default=False, dest="reflow")
+        "--reflow", action="store_true",
+        dest="reflow", default=False,
+        help="Start a new flow from the triggered task."
+    )
+
+    parser.add_option(
+        "--meta", metavar="DESCRIPTION", action="store",
+        dest="flow_descr", default="",
+        help="(with --reflow) a descriptive string for the new flow."
+    )
 
     return parser
 
@@ -76,6 +85,8 @@ def get_option_parser():
 @cli_function(get_option_parser)
 def main(parser: COP, options: 'Values', workflow: str, *task_globs: str):
     """CLI for "cylc trigger"."""
+    if options.flow_descr and not options.reflow:
+        parser.error("--meta requires --reflow")
     workflow, _ = parse_reg(workflow)
     pclient = get_client(workflow, timeout=options.comms_timeout)
 
@@ -85,6 +96,7 @@ def main(parser: COP, options: 'Values', workflow: str, *task_globs: str):
             'wFlows': [workflow],
             'tasks': list(task_globs),
             'reflow': options.reflow,
+            'flowDescr': options.flow_descr,
         }
     }
 
