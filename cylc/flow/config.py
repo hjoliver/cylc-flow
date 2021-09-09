@@ -899,7 +899,16 @@ class WorkflowConfig:
 
     def validate_namespace_names(self):
         """Validate task and family names."""
+        for name in self.implicit_tasks:
+            success, message = TaskNameValidator.validate(name)
+            if not success:
+                raise WorkflowConfigError(
+                    f'{name} cannot be an implicit task\n{message}'
+                )
         for name in self.cfg['runtime']:
+            if name == 'root':
+                # root is allowed to be defined in the runtime section
+                continue
             success, message = TaskNameValidator.validate(name)
             if not success:
                 raise WorkflowConfigError(
@@ -2038,7 +2047,9 @@ class WorkflowConfig:
     ) -> TaskDef:
         """Return an instance of TaskDef for task name."""
         if name not in self.taskdefs:
-            if name not in self.cfg['runtime']:
+            if name == 'root':
+                self.implicit_tasks.add(name)
+            elif name not in self.cfg['runtime']:
                 # implicit inheritance from root
                 self.implicit_tasks.add(name)
                 # These can't just be a reference to root runtime as we have to
