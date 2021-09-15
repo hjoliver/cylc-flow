@@ -743,8 +743,10 @@ class TaskJobManager:
                         itask = tasks[(point, name, submit_num)]
                         callback(workflow, itask, ctx, line)
                     except (LookupError, ValueError) as exc:
+                        # Note this catches KeyError too.
                         LOG.warning(
                             'Unhandled %s output: %s', ctx.cmd_key, line)
+                        # TODO - this looks like an uncaught error, in the log:
                         LOG.exception(exc)
         # Task jobs that are in the original command but did not get a status
         # in the output. Handle as failures.

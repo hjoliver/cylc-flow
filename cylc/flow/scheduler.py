@@ -918,7 +918,14 @@ class Scheduler:
         if self.config.run_mode('simulation'):
             return
         itasks, bad_items = self.pool.filter_task_proxies(items)
-        self.task_job_mgr.poll_task_jobs(self.workflow, itasks)
+        self.task_job_mgr.poll_task_jobs(
+            self.workflow,
+            [
+                itask
+                for itask in itasks
+                if itask.state(*TASK_STATUSES_ACTIVE, TASK_STATUS_FAILED)
+            ]
+        )
         return len(bad_items)
 
     def command_kill_tasks(self, items=None):
