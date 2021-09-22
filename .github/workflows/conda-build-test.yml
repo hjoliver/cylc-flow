@@ -1,0 +1,29 @@
+name: conda builds
+
+on:
+  pull_request:
+    paths:
+      - 'conda-environment.yml'
+  schedule:
+    - cron: '17 22 * * 6'
+  workflow_dispatch:
+
+jobs:
+  test_conda_install:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: checkout cylc-flow
+        uses: actions/checkout@v2
+
+      - name: build conda env
+        run: |
+            conda env create \
+              -f conda-environment.yml
+
+      - name: check cylc-version
+        run: |
+          find /usr/share/miniconda/envs/cylc-dev/. -name "activate.d" | tee > activates.txt
+          if [[ $(cat activates.txt | wc -l) -ne 0 ]]; then
+              exit 1
+          fi
