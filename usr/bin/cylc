@@ -191,7 +191,6 @@ elif [[ -d "${CYLC_HOME}/conda-meta" && \
         -f "${CYLC_HOME%/*/*}/etc/profile.d/conda.sh" ]]; then
     # A normal Conda environment
     . "${CYLC_HOME%/*/*}/etc/profile.d/conda.sh"
-    # conda activate "${CYLC_HOME##*/}" || exit 1
 fi
 if [[ ! -x "${CYLC_HOME}/bin/${0##*/}" ]]; then
     echo 1>&2 "ERROR: ${0##*/} not found in ${CYLC_HOME}"
