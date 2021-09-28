@@ -1410,7 +1410,7 @@ class Scheduler:
 
             self.process_command_queue()
 
-            if not self.is_paused and self.pool.release_runahead_tasks():
+            if self.pool.release_runahead_tasks():
                 self.is_updated = True
                 self.reset_inactivity_timer()
 
