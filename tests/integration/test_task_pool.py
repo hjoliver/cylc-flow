@@ -25,6 +25,8 @@ from cylc.flow.cycling.integer import IntegerPoint
 from cylc.flow.scheduler import Scheduler
 
 
+# NOTE: foo & bar have no parents so when they are released from runahead at
+# start-up (with workflow paused) next instances are spawned into runahead.
 EXAMPLE_FLOW_CFG = {
     'scheduler': {
         'allow implicit tasks': True
@@ -116,7 +118,7 @@ async def example_flow(
     'items, expected_task_ids, expected_bad_items, expected_warnings',
     [
         param(
-            ['foo'], ['foo.1'], [], [],
+            ['foo'], ['foo.1', 'foo.2'], [], [],
             id="Basic"
         ),
         param(
@@ -128,19 +130,19 @@ async def example_flow(
             id="Family name"
         ),
         param(
-            ['foo.*'], ['foo.1'], [], [],
+            ['foo.*'], ['foo.1', 'foo.2'], [], [],
             id="Point glob"
         ),
         param(
-            ['*:waiting'], ['foo.1', 'bar.1'], [], [],
+            ['*:waiting'], ['foo.1', 'foo.2', 'bar.1', 'bar.2'], [], [],
             id="Task state"
         ),
         param(
-            ['foo.2'], [], ['foo.2'], ["No active tasks matching: foo.2"],
+            ['foo.2'], ['foo.2'], [], ["No active tasks matching: foo.2"],
             id="Task not yet spawned"
         ),
         param(
-            ['foo.1', 'bar.2'], ['foo.1'], ['bar.2'],
+            ['foo.1', 'bar.2'], ['foo.1', 'bar.2'], [],
             ["No active tasks matching: bar.2"],
             id="Multiple items"
         ),

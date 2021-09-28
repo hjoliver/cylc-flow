@@ -1273,6 +1273,7 @@ class Scheduler:
 
     async def workflow_shutdown(self):
         """Determines if the workflow can be shutdown yet."""
+        self.pool.log_task_pool()
         if self.pool.check_abort_on_task_fails():
             self._set_stop(StopMode.AUTO_ON_TASK_FAILURE)
 

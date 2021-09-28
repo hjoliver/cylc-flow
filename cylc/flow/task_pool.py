@@ -1682,7 +1682,7 @@ class TaskPool:
     def log_task_pool(self):
         """Log content of task and prerequisite pools in debug mode."""
         if self.main_pool_list:
-            LOG.debug(
+            LOG.critical(
                 "Task pool:\n"
                 + "\n".join(
                     f"* {itask} status={itask.state.status}"
@@ -1691,7 +1691,7 @@ class TaskPool:
                 )
             )
         if self.hidden_pool_list:
-            LOG.debug(
+            LOG.critical(
                 "Hidden pool:\n"
                 + "\n".join(
                     f"* {itask} status={itask.state.status}"
