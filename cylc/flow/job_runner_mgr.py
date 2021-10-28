@@ -124,6 +124,7 @@ import traceback
 from shutil import rmtree
 from signal import SIGKILL
 from subprocess import DEVNULL  # nosec
+from time import sleep
 
 from cylc.flow.task_message import (
     CYLC_JOB_PID, CYLC_JOB_INIT_TIME, CYLC_JOB_EXIT_TIME, CYLC_JOB_EXIT,
@@ -134,6 +135,7 @@ from cylc.flow.task_job_logs import (
 from cylc.flow.task_outputs import TASK_OUTPUT_SUCCEEDED
 from cylc.flow.wallclock import get_current_time_string
 from cylc.flow.parsec.OrderedDict import OrderedDict
+from cylc.flow.cfgspec.glbl_cfg import glbl_cfg
 
 
 class JobPollContext():
@@ -230,6 +232,9 @@ class JobRunnerManager():
         self.clean_env = clean_env
         self.path = path
         self.env = env
+        self.dev_job_prep_delay = glbl_cfg().get(
+            ['development', 'job preparation delay']
+        )
 
     def _get_sys(self, job_runner_name):
         """Return an instance of the class for "job_runner_name"."""
@@ -382,6 +387,8 @@ class JobRunnerManager():
             items = self._jobs_submit_prep_by_args(job_log_root, job_log_dirs)
         now = get_current_time_string(override_use_utc=utc_mode)
         for job_log_dir, job_runner_name, submit_opts in items:
+            if self.dev_job_prep_delay:
+                sleep(self.dev_job_prep_delay)
             job_file_path = os.path.join(
                 job_log_root, job_log_dir, JOB_LOG_JOB)
             if not job_runner_name:

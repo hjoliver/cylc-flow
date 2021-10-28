@@ -1040,6 +1040,20 @@ with Conf('global.cylc', desc='''
         Conf('mail events', VDR.V_STRING_LIST)
         Conf('submission timeout', VDR.V_INTERVAL)
 
+    with Conf('development', desc='''
+        .. versionadded:: 8.0.0
+
+           Settings useful for Cylc developers.
+    '''):
+        Conf('job preparation delay', VDR.V_INTERVAL, desc='''
+             Add an artificial time delay to the job preparation process.
+             This makes all tasks stay in the "preparing" state for a while.
+        ''')
+        Conf('job submission delay', VDR.V_INTERVAL, desc='''
+             Add an artificial time delay to the job submission process.
+             This makes all tasks stay in the "submitted" state for a while.
+        ''')
+
 
 def upg(cfg, descr):
     """Upgrader."""

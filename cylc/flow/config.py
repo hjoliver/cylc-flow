@@ -463,6 +463,8 @@ class WorkflowConfig:
         if self.run_mode('simulation', 'dummy', 'dummy-local'):
             self.configure_sim_modes()
 
+        self.tweak_script_items()
+
         self.configure_workflow_state_polling_tasks()
 
         self._check_task_event_handlers()
@@ -1223,6 +1225,24 @@ class WorkflowConfig:
             comstr += " " + tdef.workflow_polling_cfg['workflow']
             script = "echo " + comstr + "\n" + comstr
             rtc['script'] = script
+
+    def tweak_script_items(self):
+        """Automatic tweaking of task job scripting.
+
+        For global config '[development]job submissions delay`, add a sleep
+        to job init-script to extend the duration of the submitted state.
+
+        """
+        delay = glbl_cfg().get(['development', 'job submission delay'])
+        if delay is not None:
+            for tdef in self.taskdefs.values():
+                if tdef.rtconfig['init-script'] is None:
+                    tdef.rtconfig['init-script'] = ""
+                tdef.rtconfig['init-script'] += (
+                    "\n# global config"
+                    f" [development]job submission delay = {delay}:"
+                    f"\nsleep {float(delay)}"
+                )
 
     def configure_sim_modes(self):
         """Adjust task defs for simulation mode and dummy modes."""
