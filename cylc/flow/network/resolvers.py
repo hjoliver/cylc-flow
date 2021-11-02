@@ -712,7 +712,7 @@ class Resolvers(BaseResolvers):
         else:
             return (False, 'Edge distance cannot be negative')
 
-    def force_spawn_children(self, tasks, outputs, flow_num):
+    def force_spawn_children(self, tasks, outputs=None, flow_num=None):
         """Spawn children of given task outputs.
 
         User-facing method name: set_outputs.
