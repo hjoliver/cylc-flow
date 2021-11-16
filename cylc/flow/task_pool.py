@@ -1323,6 +1323,9 @@ class TaskPool:
         # Spawn if on-sequence and within recurrence bounds.
         taskdef = self.config.get_taskdef(name)
         if not taskdef.is_valid_point(point):
+            LOG.debug(
+                f"Not spawning attempt {name}.{point}: invalid cycle point"
+            )
             return None
 
         itask = TaskProxy(taskdef, point, flow_nums, submit_num=submit_num)
