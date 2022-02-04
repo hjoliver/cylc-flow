@@ -17,7 +17,7 @@
 
 """cylc trigger [OPTIONS] ARGS
 
-Manually trigger tasks.
+Manually trigger workflow tasks.
 
 Examples:
   # trigger task foo in cycle 1234 in my_flow
@@ -29,10 +29,30 @@ Examples:
   # start a new "flow" by triggering 1234/foo
   $ cylc trigger --reflow my_flow//1234/foo
 
-Note: waiting tasks that are queue-limited will be queued if triggered, to
-submit as normal when released by the queue; queued tasks will submit
-immediately if triggered, even if that violates the queue limit (so you may
-need to trigger a queue-limited task twice to get it to submit immediately).
+Triggering a task queues it to run (Cylc internal queues) regardless of its
+prerequisites.
+
+Triggering a queued task causes it to submit immediately, regardless of queue
+limit.
+
+An "active task" is already submitted or running. Cylc ignores attempts to
+re-trigger an active task because multiple concurrent instances of the same job
+would conflict.
+
+An "active waiting task" has satisfied task-prerequisites but is held back by a
+queue limit, the runahead limit, a clock trigger, an xtrigger, or a task hold.
+Active waiting tasks already belong to a flow; triggering just queues them to
+run earlier as part of the same ongoing flow, so the --reflow option makes no
+difference here.
+
+An "incomplete task" finished without completing expected outputs. These are
+retained by scheduler in expectation of retriggering to continue the same
+flow, so the --reflow option makes no difference here either.
+
+Other tasks, behind or ahead of current active (and active waiting) tasks in
+the graph, do not yet belong to a flow. If you trigger one of these, the
+scheduler can run just the triggered task (the default) independent of any
+flow, or it can start a new flow to continue on from that task (--reflow).
 
 """
 
