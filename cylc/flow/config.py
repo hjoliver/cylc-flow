@@ -506,6 +506,19 @@ class WorkflowConfig:
                     self.feet.append(foot)
         self.feet.sort()  # sort effects get_graph_raw output
 
+        self.excluded_tasks = set()
+
+        # TODO check incl and excl tasks are defined
+        # TODO expand family names in incl and excl
+        # TODO datastore not cleaned up if tasks excluded?
+        if self.cfg['scheduling']['include at start-up']:
+            for name in self.taskdefs:
+                if name not in self.cfg['scheduling']['include at start-up']:
+                    self.excluded_tasks.add(name)
+        for name in self.cfg['scheduling']['exclude at start-up']:
+            if name in self.taskdefs:
+                self.excluded_tasks.add(name)
+
         # Replace workflow and task name in workflow and task URLs.
         self.cfg['meta']['URL'] = self.cfg['meta']['URL'] % {
             'workflow_name': self.workflow}

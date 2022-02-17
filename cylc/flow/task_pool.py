@@ -1287,12 +1287,13 @@ class TaskPool:
                     continue
                 # Spawn child only if itask.flow_nums is not empty.
                 c_task = self.spawn_task(c_name, c_point, itask.flow_nums)
+                if c_task is None:
+                    continue
                 if completed_only:
                     c_task.state.satisfy_me({
                         (str(itask.point), itask.tdef.name, output)
                     })
                     self.data_store_mgr.delta_task_prerequisite(c_task)
-
                 self.add_to_pool(c_task)
 
     def can_spawn(self, name: str, point: 'PointBase') -> bool:
@@ -1323,6 +1324,8 @@ class TaskPool:
         flow_nums: Set[int],
     ) -> Optional[TaskProxy]:
         """Spawn point/name. Return the spawned task, or None."""
+        if name in self.config.excluded_tasks:
+            return None
         if not self.can_spawn(name, point):
             return None
 
@@ -1466,6 +1469,8 @@ class TaskPool:
                 itask = self.spawn_task(name, point, flow_nums)
                 if itask is None:
                     continue
+                with suppress(KeyError):
+                    self.config.excluded_tasks.remove(name)
                 itask.is_manual_submit = True
                 # This will queue the task.
                 self.add_to_pool(itask, is_new=True)

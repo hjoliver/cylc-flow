@@ -668,7 +668,12 @@ with Conf(
                necessary to allow a future task to be triggered, preventing
                the workflow from stalling.
         ''')
-
+        Conf('exclude at start-up', VDR.V_STRING_LIST, desc='''
+               BLAAAAAAAAAAAAAAAAAAAAAAAARRRRGGGGHHHHHHHHHHHHHHHH.
+                    ''')
+        Conf('include at start-up', VDR.V_STRING_LIST, desc='''
+               BLAAAAAAAAAAAAAAAAAAAAAAAARRRRGGGGHHHHHHHHHHHHHHHH.
+                    ''')
         with Conf('queues', desc='''
             Configuration of internal queues of tasks.
 
