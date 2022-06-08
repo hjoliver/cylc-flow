@@ -145,7 +145,7 @@ def filter_ids(
             if tokens.get(lowest_token.value):
                 break
 
-        cycles = []
+        cycles = set()
         tasks = []
 
         # filter by cycle
@@ -159,11 +159,11 @@ def filter_ids(
                     if not point_match(icycle, cycle, pattern_match):
                         continue
                     if cycle_sel == '*':
-                        cycles.append(icycle)
+                        cycles.add(icycle)
                         continue
                     for itask in itasks.values():
                         if match(itask.state.status, cycle_sel):
-                            cycles.append(icycle)
+                            cycles.add(icycle)
                             break
 
         # filter by task
@@ -213,7 +213,7 @@ def filter_ids(
             if warn:
                 LOG.warning(f"No active tasks matching: {id_}")
         else:
-            _cycles.extend(cycles)
+            _cycles.extend(list(cycles))
             _tasks.extend(tasks)
 
     ret: List[Any] = []
