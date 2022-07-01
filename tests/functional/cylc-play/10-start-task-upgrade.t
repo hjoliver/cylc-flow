@@ -15,26 +15,17 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-# Checking that syntax of relative initial cycle point is validated.
-# Note: remember to update this test after 01/01/2117
+# ensure that legacy task ids are upgraded automatically when specified
+# with --start-task
 
 . "$(dirname "$0")/test_header"
-set_test_number 3
 
-cat >'flow.cylc' <<'__FLOW_CONFIG__'
-[scheduler]
-    UTC mode = true
-    allow implicit tasks = True
-[scheduling]
-    initial cycle point = previous(-17T1200Z; -18T1200Z) - P1D
-    [[graph]]
-        P1D = t1
-__FLOW_CONFIG__
+set_test_number 2
 
-run_ok "${TEST_NAME_BASE}-val" cylc validate .
+run_fail "${TEST_NAME_BASE}" \
+    cylc play Agrajag --start-task foo.123 --start-task bar.234
 
-TEST_NAME="${TEST_NAME_BASE}-graph"
-run_ok "$TEST_NAME" cylc graph --reference .
-grep_ok "20171231T1200Z/t1" "${TEST_NAME}.stdout"
+grep_ok \
+    'Cylc7 format is deprecated, using: 123/foo 234/bar' \
+    "${TEST_NAME_BASE}.stderr"
 
-exit
