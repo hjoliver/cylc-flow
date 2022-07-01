@@ -49,6 +49,9 @@ in `global.cylc[install]source dirs`.
 
 ### Fixes
 
+[#4906](https://github.com/cylc/cylc-flow/pull/4906) - Fix delayed spawning of
+parentless tasks that have parents in some cycle points.
+
 [#4936](https://github.com/cylc/cylc-flow/pull/4936) - Fix incorrect
 error messages when workflow CLI commands fail.
 
