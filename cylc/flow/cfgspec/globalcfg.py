@@ -122,6 +122,10 @@ the logs. If ``False``, the local/system time zone will be used.
    :cylc:conf:`flow.cylc[scheduler]cycle point time zone`.
 '''
 
+EVENTS_DESCR = '''
+Configure the workflow event handling system.
+'''
+
 EVENTS_SETTINGS = {  # workflow events
     'handlers': '''
         Configure :term:`event handlers` that run when certain workflow
@@ -398,26 +402,21 @@ want to configure more frequent polling.
 '''
 
 TASK_EVENTS_DESCR = '''
-Configure :term:`event handlers` that run when certain task events occur.
+Configure the task event handling system.
 
-This section configures specific *task* event handlers; see
-:cylc:conf:`flow.cylc[scheduler][events]` for *workflow* event handlers.
+See also :cylc:conf:`flow.cylc[scheduler][events]` for *workflow* events.
 
-Event handlers can be held in the workflow ``bin/`` directory, otherwise it is
-up to you to ensure their location is in ``$PATH`` (in the shell in which the
-scheduler runs). They should require little resource to run and return quickly.
+Task :term:`event handlers` are scripts to run when task events occur.
 
-Each task event handler can be specified as a list of command lines or command
-line templates. For a full list of supported template variables see
-:ref:`task_event_template_variables`.
+Event handlers can be stored in the workflow ``bin/`` directory, or 
+anywhere the scheduler environment ``$PATH``. They should return quickly.
 
-For an explanation of the substitution syntax, see
+Multiple event handlers can be specified as a list of command line templates.
+For supported template variables see :ref:`task_event_template_variables`.
+Python template substitution syntax is used:
 `String Formatting Operations in the Python documentation
 <https://docs.python.org/3/library/stdtypes.html
 #printf-style-string-formatting>`_.
-
-Additional variables can be passed to event handlers using
-:ref:`Jinja2 <User Guide Jinja2>`.
 '''
 
 TASK_EVENTS_SETTINGS = {
@@ -787,9 +786,9 @@ with Conf('global.cylc', desc='''
                    {REPLACES}``[suite host self-identification]``.
             ''')
 
-        with Conf('events', desc='''
-            :Defaults For: :cylc:conf:`flow.cylc[scheduler][events]`.
-        '''):
+        with Conf('events',
+                  desc=default_for(EVENTS_DESCR, '[scheduler][events]')
+             ):
             for item, desc in EVENTS_SETTINGS.items():
                 desc = default_for(desc, f"[scheduler][events]{item}")
                 vdr_type = VDR.V_STRING_LIST
