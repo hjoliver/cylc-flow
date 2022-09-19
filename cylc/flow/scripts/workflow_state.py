@@ -29,8 +29,6 @@ Override default polling parameters with --max-polls and --interval.
 
 If the database does not exist at first, polls are consumed waiting for it.
 
-For task outputs, give the task message, not the output label.
-
 For non-cycling workflows, provide --point=1 for specific queries.
 
 This command can be used to make polling tasks that trigger off of tasks in
@@ -53,17 +51,17 @@ Examples:
   # Print all tasks with the current or latest status "succeeded":
   $ cylc workflow-state --status=succeeded CYLC_WORKFLOW_ID
 
-  # Print all tasks that generated the output message "file1 ready":
-  $ cylc workflow-state --message="file1 ready" WORKFLOW_ID
+  # Print all tasks that generated the output "file1":
+  $ cylc workflow-state --output="file1" WORKFLOW_ID
 
-  # Print all tasks "foo" that generated the output message "file1 ready":
-  $ cylc workflow-state --task=foo --message="file1 ready" WORKFLOW_ID
+  # Print all tasks "foo" that generated the output "file1 ready":
+  $ cylc workflow-state --task=foo --output="file1" WORKFLOW_ID
 
   # POLL UNTIL task 2033/foo succeeds:
   $ cylc workflow-state --task=foo --point=2033 --status=succeeded WORKFLOW_ID
 
-  # POLL UNTIL task 2033/foo generates output message "hello":
-  $ cylc workflow-state --task=foo --point=2033 --message="hello" WORKFLOW_ID
+  # POLL UNTIL task 2033/foo generates output "hello":
+  $ cylc workflow-state --task=foo --point=2033 --output="hello" WORKFLOW_ID
 """
 
 import asyncio
@@ -128,6 +126,7 @@ class WorkflowPoller(Poller):
                 if cylc.flow.flags.verbosity > 0:
                     sys.stderr.write('.')
                 sleep(self.interval)
+
         if cylc.flow.flags.verbosity > 0:
             sys.stderr.write('\n')
 
@@ -144,9 +143,14 @@ class WorkflowPoller(Poller):
 
     async def check(self):
         """Return True if desired workflow state achieved, else False"""
+
         return self.checker.task_state_met(
-            self.args['task'], self.args['cycle'],
-            self.args['status'], self.args['message'])
+            self.args['task'],
+            self.args['cycle'],
+            status=self.args['status'],
+            output=self.args['output'],
+            flow_num=self.args['flow_num']
+        )
 
 
 def get_option_parser() -> COP:
@@ -193,9 +197,14 @@ def get_option_parser() -> COP:
         action="store", dest="status", default=None, choices=statuses)
 
     parser.add_option(
-        "-O", "--output", "-m", "--message", metavar="MESSAGE",
-        help="Task output message (not the label used in the graph).",
-        action="store", dest="msg", default=None)
+        "-O", "--output", metavar="OUTPUT",
+        help="Check for a given task output.",
+        action="store", dest="output", default=None)
+
+    parser.add_option(
+        "--flow",
+        help="Check for a specific flow number (default latest flow).",
+        action="store", type="int", dest="flow_num", default=None)
 
     WorkflowPoller.add_to_cmd_options(parser)
 
@@ -222,9 +231,12 @@ def main(parser: COP, options: 'Values', workflow_id: str) -> None:
     if options.offset:
         options.cycle = str(add_offset(options.cycle, options.offset))
 
-    # Exit if both task state and message are to being polled
-    if options.status and options.msg:
+    # Exit if both task state and output are to being polled
+    if options.status and options.output:
         raise InputError("cannot poll both status and custom output")
+
+    if options.output and not options.task and not options.cycle:
+        raise InputError("need a taskname and cycle point")
 
     workflow_id = infer_latest_run_from_id(workflow_id, options.alt_run_dir)
 
@@ -234,7 +246,8 @@ def main(parser: COP, options: 'Values', workflow_id: str) -> None:
         'task': options.task,
         'cycle': options.cycle,
         'status': options.status,
-        'message': options.msg,
+        'output': options.output,
+        'flow_num': options.flow_num
     }
 
     spoller = WorkflowPoller(
@@ -254,9 +267,10 @@ def main(parser: COP, options: 'Values', workflow_id: str) -> None:
         spoller.condition = options.status
         if not asyncio.run(spoller.poll()):
             sys.exit(1)
-    elif options.msg and options.task and options.cycle:
-        # poll for a custom task output
-        spoller.condition = "output: %s" % options.msg
+
+    elif options.output and options.task and options.cycle:
+        # poll for a task output
+        spoller.condition = "output: %s" % options.output
         if not asyncio.run(spoller.poll()):
             sys.exit(1)
     else:
@@ -266,5 +280,6 @@ def main(parser: COP, options: 'Values', workflow_id: str) -> None:
                 task=options.task,
                 cycle=formatted_pt,
                 status=options.status,
-                message=options.msg,
+                output=options.output,
+                flow_num=options.flow_num
             ))

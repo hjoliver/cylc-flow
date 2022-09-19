@@ -15,11 +15,11 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 import errno
-import json
 import os
 import sqlite3
 import sys
 from typing import Optional
+from textwrap import dedent
 
 from cylc.flow.pathutil import expand_path
 from cylc.flow.rundb import CylcWorkflowDAO
@@ -29,10 +29,11 @@ from cylc.flow.task_state import (
     TASK_STATUS_SUCCEEDED,
     TASK_STATUS_FAILED
 )
+from cylc.flow.util import deserialise
 
 
 class CylcWorkflowDBChecker:
-    """Object for querying a workflow database"""
+    """Object for querying a workflow database."""
     STATE_ALIASES = {
         'finish': [
             TASK_STATUS_FAILED,
@@ -86,11 +87,11 @@ class CylcWorkflowDBChecker:
             sys.stderr.write("INFO: No results to display.\n")
         else:
             for row in res:
-                sys.stdout.write((", ").join(row) + "\n")
+                sys.stdout.write((", ").join([str(s) for s in row]) + "\n")
 
     def _get_pt_fmt(self):
         """Query a workflow database for a 'cycle point format' entry"""
-        for row in self.conn.execute(
+        for row in self.conn.execute(dedent(
             rf'''
                 SELECT
                     value
@@ -98,7 +99,7 @@ class CylcWorkflowDBChecker:
                     {CylcWorkflowDAO.TABLE_WORKFLOW_PARAMS}
                 WHERE
                     key==?
-            ''',  # nosec (table name is code constant)
+            '''),  # nosec (table name is code constant)
             ['cycle_point_format']
         ):
             return row[0]
@@ -127,7 +128,7 @@ class CylcWorkflowDBChecker:
             return row[0]
 
     def state_lookup(self, state):
-        """allows for multiple states to be searched via a status alias"""
+        """Allows for multiple states to be searched via a status alias."""
         if state in self.STATE_ALIASES:
             return self.STATE_ALIASES[state]
         else:
@@ -138,13 +139,18 @@ class CylcWorkflowDBChecker:
         task: Optional[str] = None,
         cycle: Optional[str] = None,
         status: Optional[str] = None,
-        message: Optional[str] = None
+        output: Optional[str] = None,
+        flow_num: Optional[int] = None
     ):
         """Query task status or outputs in workflow database.
 
-        Returns a list of tasks with matching status or output message.
+        Returns a list of data for tasks with matching status or output:
+        For a status query:
+           [(name, cycle, status, serialised-flows), ...]
+        For an output query:
+           [(name, cycle, serialised-outputs, serialised-flows), ...]
 
-        All args can be None - print the entire task_states table.
+        If all args are None, print the whole task_states table.
 
         NOTE: the task_states table holds the latest state only, so querying
         (e.g.) submitted will fail for a task that is running or finished.
@@ -162,22 +168,25 @@ class CylcWorkflowDBChecker:
         stmt_args = []
         stmt_wheres = []
 
-        if message:
+        # TODO: back compat flow_nums DB
+        if output:
             target_table = CylcWorkflowDAO.TABLE_TASK_OUTPUTS
-            mask = "name, cycle, outputs"
+            mask = "name, cycle, outputs, flow_nums"
         else:
             target_table = CylcWorkflowDAO.TABLE_TASK_STATES
-            mask = "name, cycle, status"
+            mask = "name, cycle, status, flow_nums"
 
-        stmt = rf'''
+        stmt = dedent(rf'''
             SELECT
                 {mask}
             FROM
                 {target_table}
-        '''  # nosec
+        ''')  # nosec
         # * mask is hardcoded
         # * target_table is a code constant
 
+        # Select from DB by name, cycle, status.
+        # (But not by output or flow - they are serialised lists).
         if task:
             stmt_wheres.append("name==?")
             stmt_args.append(task)
@@ -194,55 +203,66 @@ class CylcWorkflowDBChecker:
             stmt_wheres.append("(" + (" OR ").join(stmt_frags) + ")")
 
         if stmt_wheres:
-            stmt += " where " + (" AND ").join(stmt_wheres)
+            stmt += "WHERE\n    " + (" AND ").join(stmt_wheres)
 
-        # Note we can't use "where outputs==message"; because the outputs
-        # table holds a serialized string of all received outputs.
+        if status:
+            stmt += dedent("""
+                ORDER BY
+                    submit_num
+            """)
+
+        # idx_status = 2
+        # idx_flow = 3
+
+        # TODO option to list outputs instead of status
+        # TODO if flows not specified, use the most recent for the task
 
         res = []
         for row in self.conn.execute(stmt, stmt_args):
-            if row[-1] is not None:
-                # (final column - status - can be None in Cylc 7 DBs)
-                res.append(list(row))
+            if row[2] is None:
+                # status can be None in Cylc 7 DBs
+                continue
+            flow_nums = deserialise(row[3])
+            if flow_num is not None and flow_num not in flow_nums:
+                continue
+            res.append(list(row))
 
-        if message:
+        if output:
             # Replace res with a task-states like result,
-            # [[foo, 2032, message], [foo, 2033, message]]
+            # [[foo, 2032, output], [foo, 2033, output]]
             if self.back_compat_mode:
-                # Cylc 7 DB: list of {label: message}
-                res = [
-                    [item[0], item[1], message]
+                # Cylc 7 DB: list of {output: message}
+                results = [
+                    [item[0], item[1], output]
                     for item in res
-                    if message in json.loads(item[2]).values()
+                    if output in deserialise(item[2]).values()
                 ]
             else:
-                # Cylc 8 DB list of [message]
-                res = [
-                    [item[0], item[1], message]
-                    for item in res
-                    if message in json.loads(item[2])
-                ]
-        return res
+                # Cylc 8 DB list of [output]
+                results = []
+                for name, cycle, outputs_str, flows_str in res:
+                    flows = deserialise(flows_str)
+                    outputs = deserialise(outputs_str)
+                    if output not in outputs:
+                        continue
+                    results.append([name, cycle, output, flows])
+        else:
+            results = res
+        return results
 
     def task_state_met(
         self,
         task: str,
         cycle: str,
         status: Optional[str] = None,
-        message: Optional[str] = None
+        output: Optional[str] = None,
+        flow_num: int = None
     ):
-        """Return True if cycle/task has achieved status or output message.
+        """Return True if cycle/task has achieved status or output.
 
-        Called when polling for a status or output message.
+        Call when polling for a status or output message.
+
         """
         return bool(
-            self.workflow_state_query(task, cycle, status, message)
-        )
-
-    @staticmethod
-    def validate_mask(mask):
-        fieldnames = ["name", "status", "cycle"]  # extract from rundb.py?
-        return all(
-            term.strip(' ') in fieldnames
-            for term in mask.split(',')
+            self.workflow_state_query(task, cycle, status, output, flow_num)
         )
