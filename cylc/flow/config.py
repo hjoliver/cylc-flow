@@ -271,8 +271,8 @@ class WorkflowConfig:
         self.xtrigger_mgr = xtrigger_mgr
         self.workflow_polling_tasks = {}  # type: ignore # TODO figure out type
 
-        self.initial_point: 'PointBase'
-        self.start_point: 'PointBase'
+        self.initial_point: Optional['PointBase'] = None
+        self.start_point: Optional['PointBase'] = None
         self.stop_point: Optional['PointBase'] = None
         self.final_point: Optional['PointBase'] = None
         self.nocycle_sequences: Set['NocycleSequence'] = set()
@@ -589,9 +589,12 @@ class WorkflowConfig:
         if (
             'cycling mode' not in self.cfg['scheduling'] and
             self.cfg['scheduling'].get('initial cycle point', '1') == '1' and
-            all(item in ['graph', '1', 'R1'] for item in graphdict)
+            all(
+                item in ['graph', '1', 'R1', 'startup', 'shutdown']
+                for item in graphdict
+            )
         ):
-            # Pure acyclic graph, assume integer cycling mode with '1' cycle
+            # Non-cycling graph, assume integer cycling mode with '1' cycle
             self.cfg['scheduling']['cycling mode'] = INTEGER_CYCLING_TYPE
             for key in ('initial cycle point', 'final cycle point'):
                 if key not in self.cfg['scheduling']:
