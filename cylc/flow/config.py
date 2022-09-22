@@ -26,6 +26,10 @@ Do some consistency checking, then construct task proxy objects and graph
 structures.
 """
 
+# TODO NOCYCLE GRAPHS:
+# - graph and check-circular for startup and shutdown
+# - validation should disallow reuse of task names in the 3 sections
+
 from contextlib import suppress
 from copy import copy
 from fnmatch import fnmatchcase
@@ -54,6 +58,7 @@ from cylc.flow.cycling.loader import (
     get_sequence, get_sequence_cls, init_cyclers, get_dump_format,
     INTEGER_CYCLING_TYPE, ISO8601_CYCLING_TYPE
 )
+from cylc.flow.cycling.nocycle import NOCYCLE_GRAPHS, NocycleSequence
 from cylc.flow.id import Tokens
 from cylc.flow.cycling.integer import IntegerInterval
 from cylc.flow.cycling.iso8601 import ingest_time, ISO8601Interval
@@ -61,6 +66,7 @@ from cylc.flow.exceptions import (
     CylcError,
     WorkflowConfigError,
     IntervalParsingError,
+    SequenceParsingError,
     TaskDefError,
     ParamExpandError,
     InputError
@@ -269,6 +275,7 @@ class WorkflowConfig:
         self.start_point: 'PointBase'
         self.stop_point: Optional['PointBase'] = None
         self.final_point: Optional['PointBase'] = None
+        self.nocycle_sequences: Set['NocycleSequence'] = set()
         self.sequences: List['SequenceBase'] = []
         self.actual_first_point: Optional['PointBase'] = None
         self._start_point_for_actual_first_point: Optional['PointBase'] = None
@@ -2054,6 +2061,12 @@ class WorkflowConfig:
         for section, graph in sections:
             try:
                 seq = get_sequence(section, icp, fcp)
+            except SequenceParsingError:
+                if section in NOCYCLE_GRAPHS:
+                    seq = NocycleSequence(section)
+                    self.nocycle_sequences.add(seq)
+                else:
+                    raise
             except (AttributeError, TypeError, ValueError, CylcError) as exc:
                 if cylc.flow.flags.verbosity > 1:
                     traceback.print_exc()
@@ -2063,7 +2076,10 @@ class WorkflowConfig:
                 if isinstance(exc, CylcError):
                     msg += ' %s' % exc.args[0]
                 raise WorkflowConfigError(msg)
-            self.sequences.append(seq)
+
+            else:
+                self.sequences.append(seq)
+
             parser = GraphParser(
                 family_map,
                 self.parameters,
