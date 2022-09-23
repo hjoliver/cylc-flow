@@ -367,7 +367,8 @@ async def test_hold_tasks(
     items: List[str],
     expected_tasks_to_hold_ids: List[str],
     expected_warnings: List[str],
-    example_flow: Scheduler, caplog: pytest.LogCaptureFixture,
+    example_flow: Scheduler,
+    caplog: pytest.LogCaptureFixture,
     db_select: Callable
 ) -> None:
     """Test TaskPool.hold_tasks().
@@ -400,7 +401,8 @@ async def test_hold_tasks(
 
 
 async def test_release_held_tasks(
-    example_flow: Scheduler, db_select: Callable
+    example_flow: Scheduler,
+    db_select: Callable
 ) -> None:
     """Test TaskPool.release_held_tasks().
 
@@ -446,7 +448,8 @@ async def test_release_held_tasks(
 async def test_hold_point(
     hold_after_point: int,
     expected_held_task_ids: List[str],
-    example_flow: Scheduler, db_select: Callable
+    example_flow: Scheduler,
+    db_select: Callable
 ) -> None:
     """Test TaskPool.set_hold_point() and .release_hold_point()"""
     expected_held_task_ids = sorted(expected_held_task_ids)
@@ -533,7 +536,6 @@ async def test_preparing_tasks_on_restart(one_conf, flow, scheduler, start):
     async with start(one):
         task = one.pool.filter_task_proxies(['*'])[0][0]
         assert task.state(TASK_STATUS_SUCCEEDED)
-
 
 async def test_reload_stopcp(
     flow: Callable, scheduler: Callable, start: Callable

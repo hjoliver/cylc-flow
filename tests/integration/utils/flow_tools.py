@@ -58,6 +58,14 @@ def _make_flow(
     return reg
 
 
+def _load_graph(sched):
+    """Get scheduler to load the main graph."""
+    if sched.is_restart:
+        sched._load_pool_from_db()
+    else:
+        sched._load_pool_from_point()
+
+
 @contextmanager
 def _make_scheduler():
     """Return a scheduler object for a flow registration."""
@@ -95,6 +103,7 @@ async def _start_flow(
         # exception occurs in Scheduler
         try:
             await schd.start()
+            _load_graph(schd)
         finally:
             # After this `yield`, the `with` block of the context manager
             # is executed:
@@ -126,6 +135,7 @@ async def _run_flow(
         # exception occurs in Scheduler
         try:
             await schd.start()
+            _load_graph(schd)
             # Do not await as we need to yield control to the main loop:
             task = asyncio.create_task(schd.run_scheduler())
         finally:

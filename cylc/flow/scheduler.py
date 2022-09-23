@@ -640,6 +640,23 @@ class Scheduler:
                 partial(self.pool.load_nocycle_graph, NOCYCLE_SEQ_ALPHA)
             )
 
+    async def run_graphs(self):
+        self.graph_loaders = []
+        if self.is_restart:
+            # Restart from DB.
+            self.task_job_mgr.task_remote_mgr.is_restart = True
+            self._load_pool_from_db()
+            self.restart_remote_init()
+            # next graphs depends on content of restart pool
+            self._get_graph_loaders()
+            await self.main_loop()
+        else:
+            self._get_graph_loaders()
+
+            while self.graph_loaders:
+                (self.graph_loaders.pop())()
+                await self.main_loop()
+
     async def run_scheduler(self):
         """Start the scheduler main loop."""
         try:
@@ -657,21 +674,7 @@ class Scheduler:
             sleep(0)
             self.profiler.start()
 
-            self.graph_loaders = []
-            if self.is_restart:
-                # Restart from DB.
-                self.task_job_mgr.task_remote_mgr.is_restart = True
-                self._load_pool_from_db()
-                self.restart_remote_init()
-                # next graphs depends on content of restart pool
-                self._get_graph_loaders()
-                await self.main_loop()
-            else:
-                self._get_graph_loaders()
-
-            while self.graph_loaders:
-                (self.graph_loaders.pop())()
-                await self.main_loop()
+            await self.run_graphs()
 
         except SchedulerStop as exc:
             # deliberate stop
