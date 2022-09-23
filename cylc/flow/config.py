@@ -270,8 +270,8 @@ class WorkflowConfig:
         self.xtrigger_mgr = xtrigger_mgr
         self.workflow_polling_tasks = {}  # type: ignore # TODO figure out type
 
-        self.initial_point: Optional['PointBase'] = None
-        self.start_point: Optional['PointBase'] = None
+        self.initial_point: 'PointBase'
+        self.start_point: 'PointBase'
         self.stop_point: Optional['PointBase'] = None
         self.final_point: Optional['PointBase'] = None
         self.nocycle_sequences: Set['NocycleSequence'] = set()

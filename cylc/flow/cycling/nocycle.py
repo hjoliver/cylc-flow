@@ -18,6 +18,8 @@
 Cycling logic for isolated non-cycling startup and shutdown graphs.
 """
 
+from cylc.flow.cycling import PointBase, SequenceBase, cmp
+
 # TODO: scheduler check DB to be sure alpha and omega sections have run or not.
 
 # cycle point values
@@ -30,7 +32,7 @@ NOCYCLE_POINTS = (
 )
 
 
-class NocyclePoint:
+class NocyclePoint(PointBase):
     """A string-valued point."""
 
     def __init__(self, value: str) -> None:
@@ -59,8 +61,27 @@ class NocyclePoint:
     def __str__(self):
         return self.value
 
+    def _cmp(self, other):
+        return cmp(int(self), int(other))
 
-class NocycleSequence:
+    def add(self, other):
+        # NOT USED
+        return None
+
+    def sub(self, other):
+        # NOT USED
+        return None
+
+    def TYPE(self) -> str:
+        # NOT USED
+        return self.__class__.__name__
+
+    def TYPE_SORT_KEY(self) -> int:
+        # NOT USED
+        return 0
+
+
+class NocycleSequence(SequenceBase):
     """A single point sequence."""
 
     def __init__(self, dep_section, p_context_start=None, p_context_stop=None):
@@ -95,6 +116,43 @@ class NocycleSequence:
 
     def __str__(self):
         return str(self.point)
+
+    def TYPE(self) -> str:
+        raise NotImplementedError
+
+    def TYPE_SORT_KEY(self) -> int:
+        raise NotImplementedError
+
+    def get_async_expr(cls, start_point=0):
+        raise NotImplementedError
+
+    def get_interval(self):
+        """Return the cycling interval of this sequence."""
+        raise NotImplementedError
+
+    def get_offset(self):
+        """Deprecated: return the offset used for this sequence."""
+        raise NotImplementedError
+
+    def set_offset(self, i_offset):
+        """Deprecated: alter state to offset the entire sequence."""
+        raise NotImplementedError
+
+    def is_on_sequence(self, point):
+        """Is point on-sequence, disregarding bounds?"""
+        raise NotImplementedError
+
+    def get_prev_point(self, point):
+        """Return the previous point < point, or None if out of bounds."""
+        raise NotImplementedError
+
+    def get_nearest_prev_point(self, point):
+        """Return the largest point < some arbitrary point."""
+        raise NotImplementedError
+
+    def get_stop_point(self):
+        """Return the last point in this sequence, or None if unbounded."""
+        raise NotImplementedError
 
 
 NOCYCLE_SEQ_ALPHA = NocycleSequence(NOCYCLE_PT_ALPHA)
