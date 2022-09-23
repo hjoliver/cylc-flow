@@ -444,7 +444,7 @@ class TaskPool:
         (cycle, name, flow_nums, is_late, status, is_held, submit_num, _,
          platform_name, time_submit, time_run, timeout, outputs_str) = row
 
-        if cycle in ("startup", "shutdown"):
+        if cycle in ("alpha", "omega"):
             point = NocyclePoint(cycle)
         else:
             point = get_point(cycle)
@@ -1278,7 +1278,7 @@ class TaskPool:
 
                     if (
                         t.point <= self.runahead_limit_point
-                        or str(t.point) in ["startup", "shutdown"]
+                        or str(t.point) in ["alpha", "omega"]
                     ):
                         self.rh_release_and_queue(t)
 
@@ -1875,11 +1875,15 @@ class TaskPool:
             try:
                 point_str = standardise_point_string(point_str)
             except PointParsingError as exc:
-                LOG.warning(
-                    f"{id_} - invalid cycle point: {point_str} ({exc})")
-                unmatched_tasks.append(id_)
-                continue
-            point = get_point(point_str)
+                if point_str in ["alpha", "omega"]:
+                    point = NocyclePoint(point_str)
+                else:
+                    LOG.warning(
+                        f"{id_} - invalid cycle point: {point_str} ({exc})")
+                    unmatched_tasks.append(id_)
+                    continue
+            else:
+                point = get_point(point_str)
             taskdef = self.config.taskdefs[name_str]
             if taskdef.is_valid_point(point):
                 matched_tasks.add((taskdef.name, point))

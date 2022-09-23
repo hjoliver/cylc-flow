@@ -28,7 +28,6 @@ structures.
 
 # TODO NOCYCLE GRAPHS:
 # - graph and check-circular for startup and shutdown
-# - validation should disallow reuse of task names in the 3 sections
 
 from contextlib import suppress
 from copy import copy
@@ -58,7 +57,11 @@ from cylc.flow.cycling.loader import (
     get_sequence, get_sequence_cls, init_cyclers, get_dump_format,
     INTEGER_CYCLING_TYPE, ISO8601_CYCLING_TYPE
 )
-from cylc.flow.cycling.nocycle import NOCYCLE_GRAPHS, NocycleSequence
+from cylc.flow.cycling.nocycle import (
+    NOCYCLE_SEQ_ALPHA,
+    NOCYCLE_SEQ_OMEGA,
+    NocycleSequence
+)
 from cylc.flow.id import Tokens
 from cylc.flow.cycling.integer import IntegerInterval
 from cylc.flow.cycling.iso8601 import ingest_time, ISO8601Interval
@@ -2064,22 +2067,22 @@ class WorkflowConfig:
         for section, graph in sections:
             try:
                 seq = get_sequence(section, icp, fcp)
-            except SequenceParsingError:
-                if section in NOCYCLE_GRAPHS:
-                    seq = NocycleSequence(section)
-                    self.nocycle_sequences.add(seq)
-                else:
-                    raise
             except (AttributeError, TypeError, ValueError, CylcError) as exc:
-                if cylc.flow.flags.verbosity > 1:
-                    traceback.print_exc()
-                msg = 'Cannot process recurrence %s' % section
-                msg += ' (initial cycle point=%s)' % icp
-                msg += ' (final cycle point=%s)' % fcp
-                if isinstance(exc, CylcError):
-                    msg += ' %s' % exc.args[0]
-                raise WorkflowConfigError(msg)
-
+                try:
+                    seq = NocycleSequence(section)
+                except ValueError:
+                    if cylc.flow.flags.verbosity > 1:
+                        traceback.print_exc()
+                    msg = (
+                        f"Cannot process recurrence {section}"
+                        f" (initial cycle point={icp}"
+                        f" (final cycle point={fcp}"
+                    )
+                    if isinstance(exc, CylcError):
+                        msg += ' %s' % exc.args[0]
+                        raise WorkflowConfigError(msg)
+                else:
+                    self.nocycle_sequences.add(seq)
             else:
                 self.sequences.append(seq)
 

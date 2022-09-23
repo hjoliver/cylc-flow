@@ -55,9 +55,9 @@ from cylc.flow.broadcast_mgr import BroadcastMgr
 from cylc.flow.cfgspec.glbl_cfg import glbl_cfg
 from cylc.flow.config import WorkflowConfig
 from cylc.flow.cycling.nocycle import (
-    NOCYCLE_STARTUP,
-    NOCYCLE_STARTUP_SEQUENCE,
-    NOCYCLE_SHUTDOWN_SEQUENCE
+    NOCYCLE_PT_ALPHA,
+    NOCYCLE_SEQ_ALPHA,
+    NOCYCLE_SEQ_OMEGA
 )
 from cylc.flow.data_store_mgr import DataStoreMgr
 from cylc.flow.id import Tokens
@@ -475,24 +475,24 @@ class Scheduler:
 
         else:
             if (
-                self.config.start_point == "shutdown" and
-                NOCYCLE_SHUTDOWN_SEQUENCE in self.config.nocycle_sequences
+                self.config.start_point == "omega" and
+                NOCYCLE_SEQ_OMEGA in self.config.nocycle_sequences
             ):
-                self.pool.load_nocycle_graph(NOCYCLE_SHUTDOWN_SEQUENCE)
+                self.pool.load_nocycle_graph(NOCYCLE_SEQ_OMEGA)
             elif (
                 self.config.start_point in
-                [self.config.initial_point, "startup"] and
-                NOCYCLE_STARTUP_SEQUENCE in self.config.nocycle_sequences
+                [self.config.initial_point, "alpha"] and
+                NOCYCLE_SEQ_ALPHA in self.config.nocycle_sequences
             ):
-                self.pool.load_nocycle_graph(NOCYCLE_STARTUP_SEQUENCE)
+                self.pool.load_nocycle_graph(NOCYCLE_SEQ_ALPHA)
                 if self.config.sequences:
                     self.next_graphs.append("normal")
-                if NOCYCLE_SHUTDOWN_SEQUENCE in self.config.nocycle_sequences:
-                    self.next_graphs.append("shutdown")
+                if NOCYCLE_SEQ_OMEGA in self.config.nocycle_sequences:
+                    self.next_graphs.append("omega")
             else:
                 self._load_pool_from_point()
-                if NOCYCLE_SHUTDOWN_SEQUENCE in self.config.nocycle_sequences:
-                    self.next_graphs.append("shutdown")
+                if NOCYCLE_SEQ_OMEGA in self.config.nocycle_sequences:
+                    self.next_graphs.append("omega")
 
         self.workflow_db_mgr.put_workflow_params(self)
         self.workflow_db_mgr.put_workflow_template_vars(self.template_vars)
@@ -628,16 +628,16 @@ class Scheduler:
         """Get next graphs base on current pool content."""
         points = [p.value for p in self.pool.get_points()]
         nxt = []
-        if points == [NOCYCLE_STARTUP]:
+        if points == [NOCYCLE_PT_ALPHA]:
             if self.config.sequences:
                 nxt.append("normal")
-            if NOCYCLE_SHUTDOWN_SEQUENCE in self.config.nocycle_sequences:
-                nxt.append("shutdown")
+            if NOCYCLE_SEQ_OMEGA in self.config.nocycle_sequences:
+                nxt.append("omega")
         elif (
-            "shutdown" not in points and
-            NOCYCLE_SHUTDOWN_SEQUENCE in self.config.nocycle_sequences
+            "omega" not in points and
+            NOCYCLE_SEQ_OMEGA in self.config.nocycle_sequences
         ):
-            nxt.append("shutdown")
+            nxt.append("omega")
         return nxt
 
     async def run_scheduler(self):
@@ -685,11 +685,11 @@ class Scheduler:
                 await self.main_loop()
 
             if (
-                "shutdown" in self.next_graphs and
-                NOCYCLE_SHUTDOWN_SEQUENCE in self.config.nocycle_sequences
+                "omega" in self.next_graphs and
+                NOCYCLE_SEQ_OMEGA in self.config.nocycle_sequences
             ):
-                self.next_graphs.remove("shutdown")
-                self.pool.load_nocycle_graph(NOCYCLE_SHUTDOWN_SEQUENCE)
+                self.next_graphs.remove("omega")
+                self.pool.load_nocycle_graph(NOCYCLE_SEQ_OMEGA)
                 await self.main_loop()
 
         except SchedulerStop as exc:
@@ -782,7 +782,7 @@ class Scheduler:
         msg = f"start from {self.config.start_point}"
         if (
             self.config.start_point
-            in ["startup" or self.config.initial_point]
+            in ["alpha" or self.config.initial_point]
         ):
             msg = "Cold " + msg
         LOG.info(msg)
