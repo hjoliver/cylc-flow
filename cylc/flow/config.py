@@ -26,9 +26,6 @@ Do some consistency checking, then construct task proxy objects and graph
 structures.
 """
 
-# TODO NOCYCLE GRAPHS:
-# - graph and check-circular for startup and shutdown
-
 from contextlib import suppress
 from copy import copy
 from fnmatch import fnmatchcase
@@ -58,9 +55,9 @@ from cylc.flow.cycling.loader import (
     INTEGER_CYCLING_TYPE, ISO8601_CYCLING_TYPE
 )
 from cylc.flow.cycling.nocycle import (
+    NocycleSequence,
     NOCYCLE_SEQ_ALPHA,
-    NOCYCLE_SEQ_OMEGA,
-    NocycleSequence
+    NOCYCLE_SEQ_OMEGA
 )
 from cylc.flow.id import Tokens
 from cylc.flow.cycling.integer import IntegerInterval
@@ -69,7 +66,6 @@ from cylc.flow.exceptions import (
     CylcError,
     WorkflowConfigError,
     IntervalParsingError,
-    SequenceParsingError,
     TaskDefError,
     ParamExpandError,
     InputError
@@ -593,7 +589,11 @@ class WorkflowConfig:
             'cycling mode' not in self.cfg['scheduling'] and
             self.cfg['scheduling'].get('initial cycle point', '1') == '1' and
             all(
-                item in ['graph', '1', 'R1', 'startup', 'shutdown']
+                item in [
+                    'graph', '1', 'R1',
+                    str(NOCYCLE_SEQ_ALPHA),
+                    str(NOCYCLE_SEQ_OMEGA)
+                ]
                 for item in graphdict
             )
         ):

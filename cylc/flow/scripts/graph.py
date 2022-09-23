@@ -43,6 +43,10 @@ from tempfile import NamedTemporaryFile
 from typing import Dict, List, Optional, TYPE_CHECKING, Tuple, Callable
 
 from cylc.flow.config import WorkflowConfig
+from cylc.flow.cycling.nocycle import (
+    NOCYCLE_PT_ALPHA,
+    NOCYCLE_PT_OMEGA
+)
 from cylc.flow.exceptions import InputError, CylcError
 from cylc.flow.id import Tokens
 from cylc.flow.id_cli import parse_id
@@ -64,10 +68,20 @@ def sort_integer_node(id_):
     Example:
         >>> sort_integer_node('11/foo')
         ('foo', 11)
-
+        >>> sort_integer_node('alpha/foo')
+        ('foo', 0)
+        >>> sort_integer_node('omega/foo')
+        ('foo', 1)
     """
     tokens = Tokens(id_, relative=True)
-    return (tokens['task'], int(tokens['cycle']))
+    try:
+        return (tokens['task'], int(tokens['cycle']))
+    except ValueError:
+        # nocycle point
+        if tokens['cycle'] == NOCYCLE_PT_ALPHA:
+            return (tokens['task'], 0)
+        else:
+            return (tokens['task'], 1)
 
 
 def sort_integer_edge(id_):
@@ -85,6 +99,28 @@ def sort_integer_edge(id_):
         sort_integer_node(id_[0]),
         sort_integer_node(id_[1]) if id_[1] else ('', 0)
     )
+
+
+def sort_datetime_node(id_):
+    """Return sort tokens for nodes with cyclepoints in datetime format.
+
+    Lexicological sort, but tweaked for nocycle graphs.
+
+    Example:
+        >>> sort_datetime_node('2001/foo')
+        ('foo', '2001')
+        >>> sort_datetime_node('alpha/foo')
+        ('foo', '0')
+        >>> sort_datetime_node('omega/foo')
+        ('foo', '9')
+    """
+    tokens = Tokens(id_, relative=True)
+    if tokens['cycle'] == NOCYCLE_PT_ALPHA:
+        return (tokens['task'], '0')
+    elif tokens['cycle'] == NOCYCLE_PT_OMEGA:
+        return (tokens['task'], '9')
+    else:
+        return (tokens['task'], tokens['cycle'])
 
 
 def sort_datetime_edge(item):
@@ -150,7 +186,7 @@ def _get_graph_nodes_edges(
         edge_sort = sort_integer_edge
     else:
         # datetime sorting
-        node_sort = None  # lexicographically sortable
+        node_sort = sort_datetime_node
         edge_sort = sort_datetime_edge
 
     # get nodes

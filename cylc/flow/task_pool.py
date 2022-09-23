@@ -26,7 +26,7 @@ import logging
 import cylc.flow.flags
 from cylc.flow import LOG
 from cylc.flow.cycling.loader import get_point, standardise_point_string
-from cylc.flow.cycling.nocycle import NocyclePoint
+from cylc.flow.cycling.nocycle import NocyclePoint, NOCYCLE_POINTS
 from cylc.flow.exceptions import WorkflowConfigError, PointParsingError
 from cylc.flow.id import Tokens, detokenise
 from cylc.flow.id_cli import contains_fnmatch
@@ -444,7 +444,7 @@ class TaskPool:
         (cycle, name, flow_nums, is_late, status, is_held, submit_num, _,
          platform_name, time_submit, time_run, timeout, outputs_str) = row
 
-        if cycle in ("alpha", "omega"):
+        if cycle in NOCYCLE_POINTS:
             point = NocyclePoint(cycle)
         else:
             point = get_point(cycle)
@@ -1278,7 +1278,7 @@ class TaskPool:
 
                     if (
                         t.point <= self.runahead_limit_point
-                        or str(t.point) in ["alpha", "omega"]
+                        or str(t.point) in NOCYCLE_POINTS
                     ):
                         self.rh_release_and_queue(t)
 
@@ -1875,7 +1875,7 @@ class TaskPool:
             try:
                 point_str = standardise_point_string(point_str)
             except PointParsingError as exc:
-                if point_str in ["alpha", "omega"]:
+                if point_str in NOCYCLE_POINTS:
                     point = NocyclePoint(point_str)
                 else:
                     LOG.warning(

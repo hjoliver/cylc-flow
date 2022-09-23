@@ -18,9 +18,16 @@
 Cycling logic for isolated non-cycling startup and shutdown graphs.
 """
 
+# TODO: scheduler check DB to be sure alpha and omega sections have run or not.
+
 # cycle point values
 NOCYCLE_PT_ALPHA = "alpha"
 NOCYCLE_PT_OMEGA = "omega"
+
+NOCYCLE_POINTS = (
+    NOCYCLE_PT_ALPHA,
+    NOCYCLE_PT_OMEGA
+)
 
 
 class NocyclePoint:

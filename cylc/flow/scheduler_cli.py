@@ -427,7 +427,6 @@ async def _run(scheduler: Scheduler) -> int:
 @cli_function(get_option_parser)
 def play(parser: COP, options: 'Values', id_: str):
     """Implement cylc play."""
-    #from pudebug import go; go()
     if options.starttask:
         options.starttask = upgrade_legacy_ids(
             *options.starttask,

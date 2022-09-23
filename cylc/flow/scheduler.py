@@ -56,6 +56,7 @@ from cylc.flow.cfgspec.glbl_cfg import glbl_cfg
 from cylc.flow.config import WorkflowConfig
 from cylc.flow.cycling.nocycle import (
     NOCYCLE_PT_ALPHA,
+    NOCYCLE_PT_OMEGA,
     NOCYCLE_SEQ_ALPHA,
     NOCYCLE_SEQ_OMEGA
 )
@@ -462,35 +463,33 @@ class Scheduler:
 
         self.next_graphs = []
         if self.is_restart:
+            # Restart from DB.
             self.task_job_mgr.task_remote_mgr.is_restart = True
             self._load_pool_from_db()
-            if self.restored_stop_task_id is not None:
-                self.pool.set_stop_task(self.restored_stop_task_id)
-            self.next_graphs = self._get_next_graphs()
-            # self.restart_remote_init()  # poll orphaned tasks
-
-        elif self.options.starttask:
-            self._load_pool_from_tasks()
             self.next_graphs = self._get_next_graphs()
 
         else:
-            if (
-                self.config.start_point == "omega" and
-                NOCYCLE_SEQ_OMEGA in self.config.nocycle_sequences
-            ):
-                self.pool.load_nocycle_graph(NOCYCLE_SEQ_OMEGA)
-            elif (
-                self.config.start_point in
-                [self.config.initial_point, "alpha"] and
-                NOCYCLE_SEQ_ALPHA in self.config.nocycle_sequences
-            ):
+            # Cold start.
+            if NOCYCLE_SEQ_ALPHA in self.config.nocycle_sequences:
+                # Run alpha section first if it exists.
                 self.pool.load_nocycle_graph(NOCYCLE_SEQ_ALPHA)
                 if self.config.sequences:
-                    self.next_graphs.append("normal")
+                    if self.options.starttask:
+                        # Cold start from specified tasks.
+                        self.next_graphs.append("normal-tasks")
+                    else:
+                        # Cold start from cycle point.
+                        self.next_graphs.append("normal-point")
                 if NOCYCLE_SEQ_OMEGA in self.config.nocycle_sequences:
                     self.next_graphs.append("omega")
             else:
-                self._load_pool_from_point()
+                # Run main graph, then omega section if it exists.
+                if self.options.starttask:
+                    # Cold start from specified tasks.
+                    self._load_pool_from_tasks()
+                else:
+                    # Cold start from cycle point.
+                    self._load_pool_from_point()
                 if NOCYCLE_SEQ_OMEGA in self.config.nocycle_sequences:
                     self.next_graphs.append("omega")
 
@@ -629,14 +628,19 @@ class Scheduler:
         points = [p.value for p in self.pool.get_points()]
         nxt = []
         if points == [NOCYCLE_PT_ALPHA]:
+            # Only alpha section.
             if self.config.sequences:
-                nxt.append("normal")
+                if self.options.starttask:
+                    nxt.append("normal-tasks")
+                else:
+                    nxt.append("normal-point")
             if NOCYCLE_SEQ_OMEGA in self.config.nocycle_sequences:
                 nxt.append("omega")
         elif (
-            "omega" not in points and
+            NOCYCLE_PT_OMEGA not in points and
             NOCYCLE_SEQ_OMEGA in self.config.nocycle_sequences
         ):
+            # Omega section exists but hasn't started yet.
             nxt.append("omega")
         return nxt
 
@@ -676,18 +680,16 @@ class Scheduler:
             #   - control by pausing flows
 
             await self.main_loop()
-            if (
-                "normal" in self.next_graphs and
-                self.config.sequences
-            ):
-                self.next_graphs.remove("normal")
+            if "normal-point" in self.next_graphs:
+                self.next_graphs.remove("normal-point")
                 self._load_pool_from_point()
                 await self.main_loop()
+            elif "normal-tasks" in self.next_graphs:
+                self.next_graphs.remove("normal-tasks")
+                self._load_pool_from_tasks()
+                await self.main_loop()
 
-            if (
-                "omega" in self.next_graphs and
-                NOCYCLE_SEQ_OMEGA in self.config.nocycle_sequences
-            ):
+            if "omega" in self.next_graphs:
                 self.next_graphs.remove("omega")
                 self.pool.load_nocycle_graph(NOCYCLE_SEQ_OMEGA)
                 await self.main_loop()
@@ -780,10 +782,7 @@ class Scheduler:
         """
         LOG.info("LOADING MAIN GRAPH")
         msg = f"start from {self.config.start_point}"
-        if (
-            self.config.start_point
-            in ["alpha" or self.config.initial_point]
-        ):
+        if self.config.start_point == self.config.initial_point:
             msg = "Cold " + msg
         LOG.info(msg)
         self.pool.load_from_point()
@@ -807,6 +806,9 @@ class Scheduler:
             self.pool.load_abs_outputs_for_restart)
         self.pool.load_db_tasks_to_hold()
         self.pool.update_flow_mgr()
+
+        if self.restored_stop_task_id is not None:
+            self.pool.set_stop_task(self.restored_stop_task_id)
 
     def restart_remote_init(self):
         """Remote init for all submitted/running tasks in the pool."""
@@ -849,8 +851,8 @@ class Scheduler:
         # Poll all pollable tasks
         self.command_poll_tasks(['*/*'])
         # TODO - WHY DOESN'T '*/*' MATCH THE FOLLOWING?
-        self.command_poll_tasks(['startup/*'])
-        self.command_poll_tasks(['shutdown/*'])
+        self.command_poll_tasks([f"{NOCYCLE_PT_ALPHA}/*"])
+        self.command_poll_tasks([f"{NOCYCLE_PT_OMEGA}/*"])
 
     def _load_task_run_times(self, row_idx, row):
         """Load run times of previously succeeded task jobs."""
