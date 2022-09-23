@@ -19,6 +19,7 @@ import asyncio
 from contextlib import suppress
 from collections import deque
 from dataclasses import dataclass
+from functools import partial
 import logging
 from optparse import Values
 import os
@@ -652,46 +653,32 @@ class Scheduler:
                 # Restart from DB.
                 self.task_job_mgr.task_remote_mgr.is_restart = True
                 self._load_pool_from_db()
+                # next graphs depends on content of restart pool
                 self.next_graphs = self._get_next_graphs()
+                await self.main_loop()
 
             else:
                 # Cold start.
                 if NOCYCLE_SEQ_ALPHA in self.config.nocycle_sequences:
                     # Run alpha section first if it exists.
-                    self.pool.load_nocycle_graph(NOCYCLE_SEQ_ALPHA)
-                    if self.config.sequences:
-                        if self.options.starttask:
-                            # Cold start from specified tasks.
-                            self.next_graphs.append("normal-tasks")
-                        else:
-                            # Cold start from cycle point.
-                            self.next_graphs.append("normal-point")
-                    if NOCYCLE_SEQ_OMEGA in self.config.nocycle_sequences:
-                        self.next_graphs.append("omega")
-                else:
-                    # Run main graph, then omega section if it exists.
+                    self.next_graphs.append(
+                        partial(self.pool.load_nocycle_graph, NOCYCLE_SEQ_ALPHA)
+                    )
+                if self.config.sequences:
                     if self.options.starttask:
                         # Cold start from specified tasks.
-                        self._load_pool_from_tasks()
+                        self.next_graphs.append(self._load_pool_from_tasks)
                     else:
                         # Cold start from cycle point.
-                        self._load_pool_from_point()
-                    if NOCYCLE_SEQ_OMEGA in self.config.nocycle_sequences:
-                        self.next_graphs.append("omega")
+                        self.next_graphs.append(self._load_pool_from_point)
+                if NOCYCLE_SEQ_OMEGA in self.config.nocycle_sequences:
+                    self.next_graphs.append(
+                        partial(self.pool.load_nocycle_graph, NOCYCLE_SEQ_OMEGA)
+                    )
+            self.next_graphs.reverse()
 
-            await self.main_loop()
-            if "normal-point" in self.next_graphs:
-                self.next_graphs.remove("normal-point")
-                self._load_pool_from_point()
-                await self.main_loop()
-            elif "normal-tasks" in self.next_graphs:
-                self.next_graphs.remove("normal-tasks")
-                self._load_pool_from_tasks()
-                await self.main_loop()
-
-            if "omega" in self.next_graphs:
-                self.next_graphs.remove("omega")
-                self.pool.load_nocycle_graph(NOCYCLE_SEQ_OMEGA)
+            while self.next_graphs:
+                (self.next_graphs.pop())()
                 await self.main_loop()
 
         except SchedulerStop as exc:
