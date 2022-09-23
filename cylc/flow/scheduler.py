@@ -56,6 +56,7 @@ from cylc.flow.broadcast_mgr import BroadcastMgr
 from cylc.flow.cfgspec.glbl_cfg import glbl_cfg
 from cylc.flow.config import WorkflowConfig
 from cylc.flow.cycling.nocycle import (
+    NOCYCLE_POINTS,
     NOCYCLE_PT_ALPHA,
     NOCYCLE_PT_OMEGA,
     NOCYCLE_SEQ_ALPHA,
@@ -594,31 +595,50 @@ class Scheduler:
 
     def _get_next_graphs(self):
         """Get next graphs base on current pool content."""
+        # Check pool points in case this is a restart.
+        # TODO REALLY NEED TO CHECK DB FOR SECTIONS THAT RAN ALREADY.
         points = [p.value for p in self.pool.get_points()]
-        nxt = []
-        if points == [NOCYCLE_PT_ALPHA]:
-            # Only alpha section.
-            if self.config.sequences:
-                if self.options.starttask:
-                    nxt.append("normal-tasks")
-                else:
-                    nxt.append("normal-point")
-            if NOCYCLE_SEQ_OMEGA in self.config.nocycle_sequences:
-                nxt.append("omega")
-        elif (
-            NOCYCLE_PT_OMEGA not in points and
+
+        # Below, "not points" implies a cold start.
+        if (
             NOCYCLE_SEQ_OMEGA in self.config.nocycle_sequences
+            and (not points or NOCYCLE_PT_OMEGA not in points)
         ):
-            # Omega section exists but hasn't started yet.
-            nxt.append("omega")
-        return nxt
+            # Omega section exists and hasn't started yet.
+            self.next_graphs.append(
+                partial(self.pool.load_nocycle_graph, NOCYCLE_SEQ_OMEGA)
+            )
+        if (
+            self.config.sequences
+            and (
+                not points
+                or (
+                    not any(p not in NOCYCLE_POINTS for p in points)
+                    and NOCYCLE_PT_OMEGA not in points
+                )
+            )
+        ):
+            # Normal graph exists and hasn't started yet.
+            if self.options.starttask:
+                # Cold start from specified tasks.
+                self.next_graphs.append(self._load_pool_from_tasks)
+            else:
+                # Cold start from cycle point.
+                self.next_graphs.append(self._load_pool_from_point)
+
+        if (
+            NOCYCLE_SEQ_ALPHA in self.config.nocycle_sequences
+            and not points
+        ):
+            # Alpha section exists and hasn't started yet.
+            # (Never in a restart).
+            self.next_graphs.append(
+                partial(self.pool.load_nocycle_graph, NOCYCLE_SEQ_ALPHA)
+            )
 
     async def run_scheduler(self):
         """Start the scheduler main loop."""
         try:
-            if self.is_restart:
-                self.restart_remote_init()
-                self.task_job_mgr.task_remote_mgr.is_restart = True
             self.run_event_handlers(self.EVENT_STARTUP, 'workflow starting')
             await asyncio.gather(
                 *main_loop.get_runners(
@@ -627,55 +647,23 @@ class Scheduler:
                     self
                 )
             )
-            self.server.publish_queue.put(
-                self.data_store_mgr.publish_deltas)
+            self.server.publish_queue.put(self.data_store_mgr.publish_deltas)
+
             # Non-async sleep - yield to other threads rather than event loop
             sleep(0)
             self.profiler.start()
-
-            # a = startup; b = cycles; c = shutdown
-            #
-            # Load the task pool and start the main loop.
-            # If cold start from ICP, run [a, b, c]:
-            #
-            # If cold start from point:
-            #   - check point and start in [a,b,c]
-            #
-            # If restart or cold start from tasks, check all points
-            #   - if multiple points, load as-is
-            #
-            # If multiple points:
-            #   - run concurrently
-            #   - control by pausing flows
 
             self.next_graphs = []
             if self.is_restart:
                 # Restart from DB.
                 self.task_job_mgr.task_remote_mgr.is_restart = True
                 self._load_pool_from_db()
+                self.restart_remote_init()
                 # next graphs depends on content of restart pool
-                self.next_graphs = self._get_next_graphs()
+                self._get_next_graphs()
                 await self.main_loop()
-
             else:
-                # Cold start.
-                if NOCYCLE_SEQ_ALPHA in self.config.nocycle_sequences:
-                    # Run alpha section first if it exists.
-                    self.next_graphs.append(
-                        partial(self.pool.load_nocycle_graph, NOCYCLE_SEQ_ALPHA)
-                    )
-                if self.config.sequences:
-                    if self.options.starttask:
-                        # Cold start from specified tasks.
-                        self.next_graphs.append(self._load_pool_from_tasks)
-                    else:
-                        # Cold start from cycle point.
-                        self.next_graphs.append(self._load_pool_from_point)
-                if NOCYCLE_SEQ_OMEGA in self.config.nocycle_sequences:
-                    self.next_graphs.append(
-                        partial(self.pool.load_nocycle_graph, NOCYCLE_SEQ_OMEGA)
-                    )
-            self.next_graphs.reverse()
+                self._get_next_graphs()
 
             while self.next_graphs:
                 (self.next_graphs.pop())()
