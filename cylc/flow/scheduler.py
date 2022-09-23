@@ -299,7 +299,7 @@ class Scheduler:
             pub_d=os.path.join(self.workflow_run_dir, 'log')
         )
         self.is_restart = Path(self.workflow_db_mgr.pri_path).is_file()
-        self.next_graphs: List[str] = []
+        self.graph_loaders: List[str] = []
 
     async def install(self):
         """Get the filesystem in the right state to run the flow.
@@ -593,19 +593,23 @@ class Scheduler:
                     extra=RotatingLogFileHandler.header_extra
                 )
 
-    def _get_next_graphs(self):
+    def _get_graph_loaders(self) -> None:
         """Get next graphs base on current pool content."""
         # Check pool points in case this is a restart.
         # TODO REALLY NEED TO CHECK DB FOR SECTIONS THAT RAN ALREADY.
-        points = [p.value for p in self.pool.get_points()]
 
-        # Below, "not points" implies a cold start.
+        points = [p.value for p in self.pool.get_points()]
+        if self.is_restart and not points:
+            # Restart with empty pool: only unfinished event handlers.
+            # No graph to load.
+            return
+
         if (
             NOCYCLE_SEQ_OMEGA in self.config.nocycle_sequences
             and (not points or NOCYCLE_PT_OMEGA not in points)
         ):
             # Omega section exists and hasn't started yet.
-            self.next_graphs.append(
+            self.graph_loaders.append(
                 partial(self.pool.load_nocycle_graph, NOCYCLE_SEQ_OMEGA)
             )
         if (
@@ -621,18 +625,18 @@ class Scheduler:
             # Normal graph exists and hasn't started yet.
             if self.options.starttask:
                 # Cold start from specified tasks.
-                self.next_graphs.append(self._load_pool_from_tasks)
+                self.graph_loaders.append(self._load_pool_from_tasks)
             else:
                 # Cold start from cycle point.
-                self.next_graphs.append(self._load_pool_from_point)
+                self.graph_loaders.append(self._load_pool_from_point)
 
         if (
             NOCYCLE_SEQ_ALPHA in self.config.nocycle_sequences
-            and not points
+            and not self.is_restart
         ):
             # Alpha section exists and hasn't started yet.
             # (Never in a restart).
-            self.next_graphs.append(
+            self.graph_loaders.append(
                 partial(self.pool.load_nocycle_graph, NOCYCLE_SEQ_ALPHA)
             )
 
@@ -653,20 +657,20 @@ class Scheduler:
             sleep(0)
             self.profiler.start()
 
-            self.next_graphs = []
+            self.graph_loaders = []
             if self.is_restart:
                 # Restart from DB.
                 self.task_job_mgr.task_remote_mgr.is_restart = True
                 self._load_pool_from_db()
                 self.restart_remote_init()
                 # next graphs depends on content of restart pool
-                self._get_next_graphs()
+                self._get_graph_loaders()
                 await self.main_loop()
             else:
-                self._get_next_graphs()
+                self._get_graph_loaders()
 
-            while self.next_graphs:
-                (self.next_graphs.pop())()
+            while self.graph_loaders:
+                (self.graph_loaders.pop())()
                 await self.main_loop()
 
         except SchedulerStop as exc:
@@ -1673,7 +1677,8 @@ class Scheduler:
             # Shutdown workflow if timeouts have occurred
             self.timeout_check()
 
-            if self.graph_finished() and self.next_graphs:
+            if self.graph_finished() and self.graph_loaders:
+                # Return control to load the next graph.
                 break
 
             # Does the workflow need to shutdown on task failure?
