@@ -461,38 +461,6 @@ class Scheduler:
 
         self.data_store_mgr.initiate_data_model()
 
-        self.next_graphs = []
-        if self.is_restart:
-            # Restart from DB.
-            self.task_job_mgr.task_remote_mgr.is_restart = True
-            self._load_pool_from_db()
-            self.next_graphs = self._get_next_graphs()
-
-        else:
-            # Cold start.
-            if NOCYCLE_SEQ_ALPHA in self.config.nocycle_sequences:
-                # Run alpha section first if it exists.
-                self.pool.load_nocycle_graph(NOCYCLE_SEQ_ALPHA)
-                if self.config.sequences:
-                    if self.options.starttask:
-                        # Cold start from specified tasks.
-                        self.next_graphs.append("normal-tasks")
-                    else:
-                        # Cold start from cycle point.
-                        self.next_graphs.append("normal-point")
-                if NOCYCLE_SEQ_OMEGA in self.config.nocycle_sequences:
-                    self.next_graphs.append("omega")
-            else:
-                # Run main graph, then omega section if it exists.
-                if self.options.starttask:
-                    # Cold start from specified tasks.
-                    self._load_pool_from_tasks()
-                else:
-                    # Cold start from cycle point.
-                    self._load_pool_from_point()
-                if NOCYCLE_SEQ_OMEGA in self.config.nocycle_sequences:
-                    self.next_graphs.append("omega")
-
         self.workflow_db_mgr.put_workflow_params(self)
         self.workflow_db_mgr.put_workflow_template_vars(self.template_vars)
         self.workflow_db_mgr.put_runtime_inheritance(self.config)
@@ -678,6 +646,38 @@ class Scheduler:
             # If multiple points:
             #   - run concurrently
             #   - control by pausing flows
+
+            self.next_graphs = []
+            if self.is_restart:
+                # Restart from DB.
+                self.task_job_mgr.task_remote_mgr.is_restart = True
+                self._load_pool_from_db()
+                self.next_graphs = self._get_next_graphs()
+
+            else:
+                # Cold start.
+                if NOCYCLE_SEQ_ALPHA in self.config.nocycle_sequences:
+                    # Run alpha section first if it exists.
+                    self.pool.load_nocycle_graph(NOCYCLE_SEQ_ALPHA)
+                    if self.config.sequences:
+                        if self.options.starttask:
+                            # Cold start from specified tasks.
+                            self.next_graphs.append("normal-tasks")
+                        else:
+                            # Cold start from cycle point.
+                            self.next_graphs.append("normal-point")
+                    if NOCYCLE_SEQ_OMEGA in self.config.nocycle_sequences:
+                        self.next_graphs.append("omega")
+                else:
+                    # Run main graph, then omega section if it exists.
+                    if self.options.starttask:
+                        # Cold start from specified tasks.
+                        self._load_pool_from_tasks()
+                    else:
+                        # Cold start from cycle point.
+                        self._load_pool_from_point()
+                    if NOCYCLE_SEQ_OMEGA in self.config.nocycle_sequences:
+                        self.next_graphs.append("omega")
 
             await self.main_loop()
             if "normal-point" in self.next_graphs:
