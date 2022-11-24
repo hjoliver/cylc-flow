@@ -29,11 +29,15 @@ This spawns downstream child tasks that depend on the specified output, with
 their corresponding prerequisites satisfied. Or if any of the child tasks were
 already spawned, it just updates their prerequisites.
 
-Any implied outputs will also be set:
+### Implied outputs
+
+Implied outputs should also be set, e.g.:
 - started implies submitted
 - custom outputs imply started and submitted
 - failed implies started and submitted (but not custom outputs)
 - succeeded implies expected custom outputs, plus started and submitted
+
+(See Questions below, for possibly unsetting implied outputs)
 
 If all expected outputs are completed, the task will be removed as complete.
 
@@ -62,10 +66,13 @@ numbers. If the target task is already spawned, merge flows.
 `--out=all`: set all *expected* outputs to complete. For optional outputs
 (which may be mutually exclusive) use `--out`.
 
-## Question
+## Questions
 
-We could try to emulate the old `cylc reset --state=STATE` behaviour, where
-STATE implies the corresponding outputs.
+### 1. should we have "state reset"?
+
+We could sort of emulate the old reset state behaviour with `cylc reset
+--state=STATE`, by translating STATE to the prerequisites and outputs, and
+updating the task state in the DB too.
 
 However, I'm keen to promote the idea we don't (e.g.) reset a failed task to
 succeeded; instead we tell the scheduler to carrying on as if certain outputs
@@ -73,3 +80,8 @@ had been completed. Then, the DB will better record what really happened
 (although perhaps we need to add additional flags to the DB to help interpret
 e.g. an incomplete failed task that got its expected outputs "completed"
 manually).
+
+### 2. unsetting implied outputs?
+
+- e.g. submitted implies submit-failed should be unset
+- however, note that unsetting an output has no effect, and seems to contradict 1.? 
