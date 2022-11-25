@@ -1,87 +1,109 @@
 
 # `cylc reset [options] [TASK(S)]`
 
-Command for manual manipulation of task prerequisites and outputs.
+Command for manual manipulation of task prerequisites, outputs, and completion.
 
-- Replaces `cylc set-outputs`, and the proposed `cylc set-prerequisites`
-- Makes `cylc remove` obsolete
+Replaces `cylc set-outputs` (and the proposed `cylc set-prerequisites`) and
+makes `cylc remove` obsolete.
+
 
 ## Background
 
 A "prerequisite" is a dependence on other task outputs, not on xtriggers etc.
 
-A task gets spawned when its first prerequisite gets satisfied (or immediately,
-out to the runahead limit, if it has no prerequisites at all).
+A task gets spawned when its first prerequisite is satisfied (or immediately
+out to the runahead limit if it has no prerequisites).
 
 To "spawn" means to create a new task proxy in the scheduler task pool. Either
-the main pool, if all of the prerequisites are satisfied; or the hidden pool if
-they are only partially satisfied (hidden tasks are not considered "real" yet,
-they're just a way to keep track of partially satisfied prerequisites).
+the main pool (aka `n=0` window); or the hidden pool if there are other
+unsatisfied prerequisites (this is just how we keep track of partially
+satisfied prerequisites).
 
-## Effect of manually setting a prerequisite
+## Effect of manually setting a prerequisite satisfied
 
-This spawns the target task with the specified prerequisite satisfied. Or if
-the task was already spawned, it just updates its prerequisites.
+Spawn the target task with the specified prerequisite satisfied; or 
+update its prerequisite if already spawned. 
 
-## Effect of manually setting an output
 
-This spawns downstream child tasks that depend on the specified output, with
-their corresponding prerequisites satisfied. Or if any of the child tasks were
-already spawned, it just updates their prerequisites.
+## Effect of manually setting an output to completed
+
+Spawn child tasks that depend on the output, with the corresponding
+prerequisite satisfied; or update prerequisites if already spawned.
+
 
 ### Implied outputs
 
-Implied outputs should also be set, e.g.:
+When an output gets completed, we should also complete any implied outputs.
 - started implies submitted
-- custom outputs imply started and submitted
-- failed implies started and submitted (but not custom outputs)
-- succeeded implies expected custom outputs, plus started and submitted
+- succeeded implies started, and all expected custom outputs
+- failed implies started, but not custom outputs
 
-(See Questions below, for possibly unsetting implied outputs)
-
-If all expected outputs are completed, the task will be removed as complete.
+If all expected outputs are complete, the task will be removed as complete.
 
 
-## Overlapping concepts?
+## Conceptual overlap?
 
-Setting a prerequisite satisfied in a target task is not equivalent to `cylc
-trigger` unless the task has only one (unsatisfied) prerequisite.
+Setting a prerequisite satisfied is not equivalent to setting the corresponding
+parent output completed, unless the task is an only child.
 
-Setting a prerequisite satisfied in a target task is not equivalent to setting
-the corresponding parent output completed unless the task is an only child.
+Setting a prerequisite satisfied is not equivalent to `cylc trigger`, unless
+the task has only one (or only one unsatisfied) prerequisite.
 
 
+## Command options
 
-## [options]:
+`--flow=INT`: flow(s) to attribute spawned tasks. Default: all active flows.
+If a task already spawned, merge flows.
 
-`--flow=INT`: flow to which spawned tasks belong. By default, all current flow
-numbers. If the target task is already spawned, merge flows.
+`--pre=PRE`: set a single prerequisite to satisfied.
 
-`--pre=PRE`: set a single prerequisite PRE to satisfied.
+`--pre=all`: set all prerequisites to satisfied. Equivalent to trigger.
 
-`--pre=all`: set all prerequisites satisfied (equivalent to `cylc trigger`).
+`--out=OUT`: set a single output (and any implied outputs) to completed.
 
-`--out=OUT`: set a single output `OUT` (and any implied outputs) to completed.
+`--out=all`: set all *expected* outputs to completed. For optional outputs,
+which may be mutually exclusive, use `--out=OUT`.
 
-`--out=all`: set all *expected* outputs to complete. For optional outputs
-(which may be mutually exclusive) use `--out`.
+`--expire/--forget`: allow the scheduler to forget a task (including `n>0`)
+without running it and without completing its outputs (or spawning children).
+
 
 ## Questions
 
-### 1. should we have "state reset"?
+Reset completed tasks to waiting?
+  - The point of this in Cylc 7 was to set tasks up for running again. In Cylc
+    8 every task in the graph is already "set up" for running in that sense.
+  - **Not needed**
 
-We could sort of emulate the old reset state behaviour with `cylc reset
---state=STATE`, by translating STATE to the prerequisites and outputs, and
-updating the task state in the DB too.
+Reset a failed task to succeeded (or vice versa)?
+  - The point of this in Cylc 7 was to allow the scheduler to carry on as if the
+    task had succeeded (note downstream tasks might need insertion etc. too).
+  - In Cylc 8 we can just tell the scheduler to carry on as if certain
+    prerequisites were satisfied or certain outputs completed (which might in
+    fact be the case if we fixed something external - but that still doesn't
+    mean the failed task actually succeeded). This is more legit from a
+    provenance perspective.
+  - **Not needed**
 
-However, I'm keen to promote the idea we don't (e.g.) reset a failed task to
-succeeded; instead we tell the scheduler to carrying on as if certain outputs
-had been completed. Then, the DB will better record what really happened
-(although perhaps we need to add additional flags to the DB to help interpret
-e.g. an incomplete failed task that got its expected outputs "completed"
-manually).
+Un-satisfying a prerequisite?
+  - If the task has already run, there's no point in doing this.
+  - If the task has not run yet, this would prevent it from running when ready,
+    but that's what hold (or `--expire`) is for.
+  - **Not needed**
 
-### 2. unsetting implied outputs?
+Un-completing an output?
+    - No point, downstream action will already have been triggered.
+    - Flow-wait could be an exception (a completed manually-triggered task
+      waits for the flow to catch up before spawning on its outputs) but
+      expiring the task and trigger anything wanted downsteam expire the... 
 
-- e.g. submitted implies submit-failed should be unset
-- however, note that unsetting an output has no effect, and seems to contradict 1.? 
+## NOTES
+
+- expired doesn't need to be a task state! It would make more sense for it to
+  be a task attribute.
+
+- expired needs to be flow-specific
+
+- we probably need another flag in the DB to record manually-reset
+  prerequisites and outputs without overwriting earlier data
+
