@@ -259,7 +259,6 @@ class WorkflowConfig:
             'SequenceBase', Set[Tuple[str, str, bool, bool]]
         ] = {}
         self.taskdefs: Dict[str, TaskDef] = {}
-        self.clock_offsets = {}
         self.expiration_offsets = {}
         self.ext_triggers = {}  # Old external triggers (client/server)
         self.xtrigger_mgr = xtrigger_mgr
@@ -500,14 +499,10 @@ class WorkflowConfig:
                             # (sub-family)
                             continue
                         result.append(member + extn)
-                        if s_type == 'clock-trigger':
-                            self.clock_offsets[member] = offset_interval
                         if s_type == 'clock-expire':
                             self.expiration_offsets[member] = offset_interval
                         if s_type == 'external-trigger':
                             self.ext_triggers[member] = ext_trigger_msg
-                elif s_type == 'clock-trigger':
-                    self.clock_offsets[name] = offset_interval
                 elif s_type == 'clock-expire':
                     self.expiration_offsets[name] = offset_interval
                 elif s_type == 'external-trigger':
@@ -562,6 +557,8 @@ class WorkflowConfig:
                     self.feet.append(foot)
         self.feet.sort()  # sort effects get_graph_raw output
 
+        self._convert_clock_triggers()
+
         self.process_metadata_urls()
 
         if getattr(self.options, 'is_validate', False):
@@ -570,6 +567,19 @@ class WorkflowConfig:
             self.mem_log("config.py: after _check_circular()")
 
         self.mem_log("config.py: end init config")
+
+    def _convert_clock_triggers(self):
+        for string in self.cfg['scheduling']['special tasks']['clock-trigger']:
+            match = RE_CLOCK_OFFSET.match(string)
+            # (already validated during parsing above)
+            task_name, offset = match.groups()
+            xtrig_name = f'_cylc_clock_trigger_{task_name}'
+            self.cfg['scheduling']['xtriggers'][xtrig_name] = (
+                f'wall_clock({offset})'
+            )
+            taskdef = self.taskdefs[task_name]
+            for seq in taskdef.sequences:
+                taskdef.add_xtrig_label(xtrig_name, seq)
 
     def prelim_process_graph(self) -> None:
         """Ensure graph is not empty; set integer cycling mode and icp/fcp = 1
@@ -1710,7 +1720,6 @@ class WorkflowConfig:
                 )
 
         for label in xtrig_labels:
-
             try:
                 xtrig = self.cfg['scheduling']['xtriggers'][label]
             except KeyError:
@@ -2248,8 +2257,6 @@ class WorkflowConfig:
 
         # TODO - put all taskd.foo items in a single config dict
 
-        if name in self.clock_offsets:
-            taskd.clocktrigger_offset = self.clock_offsets[name]
         if name in self.expiration_offsets:
             taskd.expiration_offset = self.expiration_offsets[name]
         if name in self.ext_triggers:
