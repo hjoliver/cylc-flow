@@ -16,7 +16,7 @@ ones in. -->
 ### Fixes
 
 [#5334](https://github.com/cylc/cylc-flow/pull/5334) - Fix to prevent scheduler
-crash if an already-spawned tasks has new prerequisites added before restart.
+crash if already-spawned tasks have new prerequisites added before a restart.
 
 
 -------------------------------------------------------------------------------
