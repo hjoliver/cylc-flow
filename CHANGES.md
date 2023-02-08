@@ -11,6 +11,15 @@ updated. Only the first match gets replaced, so it's fine to leave the old
 ones in. -->
 
 -------------------------------------------------------------------------------
+## __cylc-8.1.2 (<span actions:bind='release-date'>Upcoming</span>)__
+
+### Fixes
+
+[#5334](https://github.com/cylc/cylc-flow/pull/5334) - Fix to prevent scheduler
+crash if an already-spawned tasks has new prerequisites added before restart.
+
+
+-------------------------------------------------------------------------------
 ## __cylc-8.1.1 (<span actions:bind='release-date'>Released 2023-01-31</span>)__
 
 ### Fixes
