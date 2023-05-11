@@ -140,8 +140,9 @@ class TaskPool:
             self.config.runtime['descendants']
         )
         self.tasks_to_hold: Set[Tuple[str, 'PointBase']] = set()
-        self.tasks_to_spawn: Dict[List[TaskProxy], str] = {}
-        self.tasks_to_spawn_forced: Dict[List[TaskProxy], str] = {}
+
+        self.tasks_to_spawn = {}
+        self.tasks_to_spawn_forced = {}
 
     def set_stop_task(self, task_id):
         """Set stop after a task."""
@@ -1273,23 +1274,63 @@ class TaskPool:
         ):
             self.abort_task_failed = True
 
-        try:
-            if forced:
-                self.tasks_to_spawn_forced[
-                    (itask, output)
-                ] = list(itask.graph_children[output])
-            else:
-                self.tasks_to_spawn[
-                    (itask, output)
-                ] = list(itask.graph_children[output])
-        except KeyError:
-            # No children depend on this output
-            pass
-        else:
-            self.spawn_children()
+        if not itask.flow_nums and not forced:
+             # Can't spawn children
+             # TODO FORCED SHOULDN'T CAUSE TO SPAWN??
+             return
 
-        # Remove after spawning, to avoid briefly emptying the task pool
-        # in simple cases (foo[-P1] => foo) - which can lead to shutdown.
+        if itask.flow_wait:
+             # Don't spawn yet.
+             return
+
+        if output not in itask.graph_children:
+             # No children of this output.
+             return
+
+        for c_name, c_point, is_abs in itask.graph_children[output]:
+
+            c_taskid = Tokens(
+                cycle=str(c_point),
+                task=c_name,
+            ).relative_id
+
+            # Is it spawned already?
+            c_task = (
+                self._get_hidden_task_by_id(c_taskid)
+                or self._get_main_task_by_id(c_taskid)
+            )
+
+            if c_task is not None and c_task != itask:
+                # (Avoid self-suicide: A => !A)
+                self.merge_flows(c_task, itask.flow_nums)
+
+            if c_task is None:
+                # Tee it up for spawning.
+
+                if forced:
+                    try:
+                        self.tasks_to_spawn_forced[(c_name, c_point, is_abs)].append((itask, output))
+                    except KeyError:
+                        self.tasks_to_spawn_forced[(c_name, c_point, is_abs)] = [(itask, output)]
+                else:
+                    try:
+                        self.tasks_to_spawn[(c_name, c_point, is_abs)].append((itask, output))
+                    except KeyError:
+                        self.tasks_to_spawn[(c_name, c_point, is_abs)] = [(itask, output)]
+
+            else:
+                c_task.state.satisfy_me({
+                    (str(itask.point), itask.tdef.name, output)
+                })
+
+            if is_abs:
+                self.abs_outputs_done.add(
+                    (str(itask.point), itask.tdef.name, output))
+                self.workflow_db_mgr.put_insert_abs_output(
+                    str(itask.point), itask.tdef.name, output)
+                self.workflow_db_mgr.process_queued_ops()
+
+        # Remove parent from task pool now if complete.
         if not forced and output in [
             TASK_OUTPUT_SUCCEEDED,
             TASK_OUTPUT_EXPIRED,
@@ -1298,87 +1339,66 @@ class TaskPool:
             self.remove_if_complete(itask)
 
     def spawn_children(self):
-        self._spawn_children(self.tasks_to_spawn)
-        self._spawn_children(self.tasks_to_spawn_forced, forced=True)
+        self._batch_spawn_children(self.tasks_to_spawn)
+        self._batch_spawn_children(self.tasks_to_spawn_forced, forced=True)
 
-    def _spawn_children(self, children, forced=False):
+    def _batch_spawn_children(self, children, forced=False):
+        # TODO HANDLE FORCE-SPAWNED OUTSIDE OF THIS PROCESS
         suicide = []
-        LIMIT = 10
+        LIMIT = 1
         COUNT = 0
-        keys_done = []
-        for key, value in children.items():
-            keys_done.append(key)
-            itask, output = key
-            for C_INNER, (c_name, c_point, is_abs) in enumerate(value):
-                del value[C_INNER]
-                C_INNER += 1
-                COUNT += 1
-                if COUNT > LIMIT:
-                    break
-                if is_abs:
-                    self.abs_outputs_done.add(
-                        (str(itask.point), itask.tdef.name, output))
-                    self.workflow_db_mgr.put_insert_abs_output(
-                        str(itask.point), itask.tdef.name, output)
-                    self.workflow_db_mgr.process_queued_ops()
-
-                c_taskid = Tokens(
-                    cycle=str(c_point),
-                    task=c_name,
-                ).relative_id
-                c_task = (
-                    self._get_hidden_task_by_id(c_taskid)
-                    or self._get_main_task_by_id(c_taskid)
-                )
-                if c_task is not None and c_task != itask:
-                    # (Avoid self-suicide: A => !A)
-                    self.merge_flows(c_task, itask.flow_nums)
-                elif (
-                    c_task is None
-                    and (itask.flow_nums or forced)
-                    and not itask.flow_wait
-                ):
-                    # If child is not in the pool already, and parent belongs
-                    # to a flow (so it can spawn children), and parent is not
-                    # waiting for an upcoming flow merge before spawning ...
-                    # then spawn it.
-                    c_task = self.spawn_task(c_name, c_point, itask.flow_nums)
-
-                if c_task is not None:
-                    # Have child task, update its prerequisites.
-                    if is_abs:
-                        tasks, *_ = self.filter_task_proxies(
-                            [f'*/{c_name}'],
-                            warn=False,
-                        )
-                        if c_task not in tasks:
-                            tasks.append(c_task)
-                    else:
-                        tasks = [c_task]
-                    for t in tasks:
-                        t.state.satisfy_me({
-                            (str(itask.point), itask.tdef.name, output)
-                        })
-                        self.data_store_mgr.delta_task_prerequisite(t)
-                        # Add it to hidden pool or move it to main pool.
-                        self.add_to_pool(t)
-
-                        if t.point <= self.runahead_limit_point:
-                            self.rh_release_and_queue(t)
-
-                        # Event-driven suicide.
-                        if (
-                            t.state.suicide_prerequisites and
-                            t.state.suicide_prerequisites_all_satisfied()
-                        ):
-                            suicide.append(t)
-
+        for (c_name, c_point, is_abs), parents in list(children.items()):
+            COUNT += 1
             if COUNT > LIMIT:
                 break
 
-        for key in keys_done:
-            if not children[key]:
-                del children[key]
+            all_flow_nums = [p[0].flow_nums for p in parents]
+            flow_nums = set().union(*all_flow_nums)
+
+            c_task = self.spawn_task(c_name, c_point, flow_nums)
+
+            del children[(c_name, c_point, is_abs)]
+
+            if c_task is None:
+                continue
+
+            if len(flow_nums) > 1:
+                # Merged tasks get a new row in the db task_states table.
+                self.db_add_new_flow_rows(itask)
+
+            tasks = []
+
+	    # For absolute dependencies, update the preerequisites of any
+	    # already-spawned instances too.
+            if is_abs:
+                tasks, *_ = self.filter_task_proxies(
+                    [f'*/{c_name}'],
+                    warn=False,
+                )
+                if c_task not in tasks:
+                    tasks.append(c_task)
+            else:
+                tasks = [c_task]
+
+            # Update prerequisites.
+            for task in tasks:
+                for (itask, output)  in parents:
+                    task.state.satisfy_me({
+                        (str(itask.point), itask.tdef.name, output)
+                    })
+
+                self.data_store_mgr.delta_task_prerequisite(task)
+
+            self.add_to_pool(c_task)
+            if c_point <= self.runahead_limit_point:
+                self.rh_release_and_queue(c_task)
+
+            # Event-driven suicide.
+            if (
+                c_task.state.suicide_prerequisites and
+                t.state.suicide_prerequisites_all_satisfied()
+            ):
+                suicide.append(t)
 
         for c_task in suicide:
             msg = self.__class__.SUICIDE_MSG
@@ -1461,6 +1481,7 @@ class TaskPool:
                 c_task = (
                     self._get_hidden_task_by_id(c_taskid)
                     or self._get_main_task_by_id(c_taskid)
+                    or self._get_to_spawn_by_id(c_taskid)
                 )
                 if c_task is not None:
                     # already spawned

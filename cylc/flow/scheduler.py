@@ -1398,6 +1398,12 @@ class Scheduler:
 
     async def workflow_shutdown(self):
         """Determines if the workflow can be shutdown yet."""
+        if self.pool.tasks_to_spawn or self.pool.tasks_to_spawn_forced:
+            # Can't shut down if there are still tasks to spawn.
+            # TODO: NEW DB TABLE IN CASE OF UNCLEAN SHUTDOWN; then remove this
+            # restriction.
+            return False
+
         if self.pool.check_abort_on_task_fails():
             self._set_stop(StopMode.AUTO_ON_TASK_FAILURE)
 
