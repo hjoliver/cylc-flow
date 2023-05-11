@@ -1330,6 +1330,11 @@ class TaskPool:
                     str(itask.point), itask.tdef.name, output)
                 self.workflow_db_mgr.process_queued_ops()
 
+        # TODO THIS SHOULD NOT BE REQUIRED HERE (AND WILL NOT ALWAYS WORK?)
+        # OTHERWISE THIS TEST WF SHUTS DOWN AT 2/FOO:
+        # tests/functional/restart/58-waiting-manual-triggered/flow.cylc
+        self.spawn_children()
+ 
         # Remove parent from task pool now if complete.
         if not forced and output in [
             TASK_OUTPUT_SUCCEEDED,
@@ -1345,7 +1350,7 @@ class TaskPool:
     def _batch_spawn_children(self, children, forced=False):
         # TODO HANDLE FORCE-SPAWNED OUTSIDE OF THIS PROCESS
         suicide = []
-        LIMIT = 1
+        LIMIT = 10
         COUNT = 0
         for (c_name, c_point, is_abs), parents in list(children.items()):
             COUNT += 1
