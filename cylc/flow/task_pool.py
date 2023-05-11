@@ -1273,13 +1273,6 @@ class TaskPool:
         ):
             self.abort_task_failed = True
 
-        if not forced and output in [
-            TASK_OUTPUT_SUCCEEDED,
-            TASK_OUTPUT_EXPIRED,
-            TASK_OUTPUT_FAILED
-        ]:
-            self.remove_if_complete(itask)
-
         try:
             if forced:
                 self.tasks_to_spawn_forced[
@@ -1294,6 +1287,16 @@ class TaskPool:
             pass
         else:
             self.spawn_children()
+
+	# Remove after spawning, to avoid briefly emptying the task pool
+	# in simple cases (foo[-P1] => foo) - which can lead to shutdown.
+        if not forced and output in [
+            TASK_OUTPUT_SUCCEEDED,
+            TASK_OUTPUT_EXPIRED,
+            TASK_OUTPUT_FAILED
+        ]:
+            self.remove_if_complete(itask)
+
 
     def spawn_children(self):
         self._spawn_children(self.tasks_to_spawn)
@@ -1860,7 +1863,7 @@ class TaskPool:
                 ):
                     self.remove(itask, "flow stopped")
 
-    def log_task_pool(self, log_lvl=logging.DEBUG):
+    def log_task_pool(self, log_lvl=logging.WARNING):
         """Log content of task and prerequisite pools in debug mode."""
         for pool, name in [
             (self.get_tasks(), "Main"),
