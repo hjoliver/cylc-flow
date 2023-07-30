@@ -32,6 +32,34 @@ FLOW_ALL = "all"
 FLOW_NEW = "new"
 FLOW_NONE = "none"
 
+# For flow-related CLI options:
+ERR_OPT_FLOW_VAL = "Flow values must be integer, 'all', 'new', or 'none'"
+ERR_OPT_FLOW_INT = "Multiple flow options must all be integer valued"
+ERR_OPT_FLOW_META = "Metadata is only for new flows"
+ERR_OPT_FLOW_WAIT = (
+    f'Flow wait is not compatible with "{FLOW_NEW}" or "{FLOW_NONE}" flows.'
+)
+
+
+def validate_flow_opts(options):
+    """Check validity of flow-related CLI options."""
+    for val in options.flow:
+        val = val.strip()
+        if val in [FLOW_NONE, FLOW_NEW, FLOW_ALL]:
+            if len(options.flow) != 1:
+                raise InputError(ERR_OPT_FLOW_INT)
+        else:
+            try:
+                int(val)
+            except ValueError:
+                raise InputError(ERR_OPT_FLOW_VAL.format(val))
+
+    if options.flow_descr and options.flow != [FLOW_NEW]:
+        raise InputError(ERR_OPT_FLOW_META)
+
+    if options.flow_wait and options.flow[0] in [FLOW_NEW, FLOW_NONE]:
+        raise InputError(ERR_OPT_FLOW_WAIT)
+
 
 class FlowMgr:
     """Logic to manage flow counter and flow metadata."""

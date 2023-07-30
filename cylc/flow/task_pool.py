@@ -16,6 +16,7 @@
 
 """Wrangle task proxies to manage the workflow."""
 
+import re
 from contextlib import suppress
 from collections import Counter
 import json
@@ -84,6 +85,15 @@ if TYPE_CHECKING:
     from cylc.flow.flow_mgr import FlowMgr, FlowNums
 
 Pool = Dict['PointBase', Dict[str, TaskProxy]]
+
+
+# CLI prerequisite pattern: point/name:label
+REC_CLI_PREREQ = re.compile(
+    rf"({TaskID.POINT_RE})" +
+    rf"{TaskID.DELIM2}" +
+    rf"({TaskID.NAME_RE})" +
+    r':' + r'(\w+)'  # TODO: formally define qualifier RE?
+)
 
 
 class TaskPool:
@@ -733,7 +743,7 @@ class TaskPool:
             # ntask does not exist: spawn it in the flow.
             ntask = self.spawn_task(name, point, flow_nums)
         else:
-            # ntask already exists (n=0 or incomplete): merge flows.
+            # ntask already exists (n=0): merge flows.
             self.merge_flows(ntask, flow_nums)
         return ntask  # may be None
 
@@ -1290,7 +1300,7 @@ class TaskPool:
 
         Args:
             tasks: List of identifiers or task globs.
-            outputs: List of outputs to spawn on.
+            output: Output to spawn on.
             forced: If True this is a manual spawn command.
 
         """
@@ -1609,44 +1619,79 @@ class TaskPool:
         self.db_add_new_flow_rows(itask)
         return itask
 
+    # TODO RENAME THIS METHOD
     def force_spawn_children(
         self,
         items: Iterable[str],
-        outputs: Optional[List[str]] = None,
-        flow_num: Optional[int] = None
+        outputs: List[str],
+        prerequisites: List[str],
+        flow: List[str],
+        flow_wait: bool = False,
+        flow_descr: Optional[str] = None
     ):
-        """Spawn downstream children of given outputs, on user command.
+        """Force set prerequistes satisfied and outputs completed.
 
-        User-facing command name: set_outputs. Creates a transient parent just
-        for the purpose of spawning children.
+        For prerequisites:
+            - spawn target task if necessary, and set the prerequisites
+
+        For outputs:
+            - spawn child tasks if necessary, and spawn/update prereqs of
+              children
+            - TODO: set outputs completed in the target task (DB, and task
+              proxy if already spawned - but don't spawn a new one)
 
         Args:
-            items: Identifiers for matching task definitions, each with the
-                form "point/name".
-            outputs: List of outputs to spawn on
-            flow_num: Flow number to attribute the outputs
+            items: Identifiers for matching task definitions
+            prerequisites: prerequisites to set and spawn children of
+            outputs: Outputs to set and spawn children of
+            flow: Flow numbers for spawned or updated tasks
+            flow_wait: wait for flows to catch up before continuing
+            flow_descr: description of new flow
 
         """
-        outputs = outputs or [TASK_OUTPUT_SUCCEEDED]
-        if flow_num is None:
-            flow_nums = None
-        else:
-            flow_nums = {flow_num}
+        if not outputs and not prerequisites:
+            # Default: set all required outputs.
+            outputs = outputs or [TASK_OUTPUT_SUCCEEDED]
+
+        flow_nums = self._flow_cmd_helper(flow, flow_descr)
+        if flow_nums is None:
+            return
 
         n_warnings, task_items = self.match_taskdefs(items)
         for (_, point), taskdef in sorted(task_items.items()):
-            # This the parent task:
-            itask = TaskProxy(
-                self.tokens,
-                taskdef,
-                point,
-                flow_nums=flow_nums,
+
+            itask = self._get_spawned_or_merged_task(
+                point, taskdef.name, flow_nums
             )
-            # Spawn children of selected outputs.
-            for trig, out, _ in itask.state.outputs.get_all():
-                if trig in outputs:
-                    LOG.info(f"[{itask}] Forced spawning on {out}")
-                    self.spawn_on_output(itask, out, forced=True)
+            if itask is None:
+                # Not in pool but was spawned already in this flow.
+                return
+
+            if outputs:
+                # Spawn children of outputs, add them to the pool.
+                # (Don't add the target task to pool if we just spawned it)
+                for trig, out, _ in itask.state.outputs.get_all():
+                    if trig in outputs:
+                        LOG.info(f"[{itask}] Forced spawning on {out}")
+                        self.spawn_on_output(itask, out, forced=True)
+                self.workflow_db_mgr.put_update_task_outputs(itask)
+
+            if prerequisites:
+                for pre in prerequisites:
+                    m = REC_CLI_PREREQ.match(pre)
+                    if m is not None:
+                        itask.state.satisfy_me({m.groups()})
+                    else:
+                        # TODO warn here? (checked on CLI)
+                        continue
+
+                self.data_store_mgr.delta_task_prerequisite(itask)
+                self.add_to_pool(itask)  # move from hidden if necessary
+                if (
+                    self.runahead_limit_point is not None
+                    and itask.point <= self.runahead_limit_point
+                ):
+                    self.rh_release_and_queue(itask)
 
     def _get_active_flow_nums(self) -> Set[int]:
         """Return all active, or most recent previous, flow numbers.
@@ -1671,27 +1716,19 @@ class TaskPool:
             self.release_runahead_tasks()
         return len(bad_items)
 
-    def force_trigger_tasks(
-        self, items: Iterable[str],
-        flow: List[str],
-        flow_wait: bool = False,
-        flow_descr: Optional[str] = None
-    ) -> int:
-        """Manual task triggering.
-
-        Don't get a new flow number for existing n=0 tasks (e.g. incomplete
-        tasks). These can carry on in the original flow if retriggered.
-
-        Queue the task if not queued, otherwise release it to run.
-
-        """
+    def _flow_cmd_helper(
+            self,
+            flow: List[str],
+            flow_descr: Optional[str]
+    ) -> Optional[Set[int]]:
+        """TODO"""
         if set(flow).intersection({FLOW_ALL, FLOW_NEW, FLOW_NONE}):
             if len(flow) != 1:
                 LOG.warning(
                     f'The "flow" values {FLOW_ALL}, {FLOW_NEW} & {FLOW_NONE}'
                     ' cannot be used in combination with integer flow numbers.'
                 )
-                return 0
+                return None
             if flow[0] == FLOW_ALL:
                 flow_nums = self._get_active_flow_nums()
             elif flow[0] == FLOW_NEW:
@@ -1703,9 +1740,28 @@ class TaskPool:
                 flow_nums = {int(n) for n in flow}
             except ValueError:
                 LOG.warning(
-                    f"Trigger ignored, illegal flow values {flow}"
+                    f"Ignoring command: illegal flow values {flow}"
                 )
-                return 0
+                return None
+        return flow_nums
+
+    def force_trigger_tasks(
+        self, items: Iterable[str],
+        flow: List[str],
+        flow_wait: bool = False,
+        flow_descr: Optional[str] = None
+    ):
+        """Manual task triggering.
+
+        Don't get a new flow number for existing n=0 tasks (e.g. incomplete
+        tasks). These can carry on in the original flow if retriggered.
+
+        Queue the task if not queued, otherwise release it to run.
+
+        """
+        flow_nums = self._flow_cmd_helper(flow, flow_descr)
+        if flow_nums is None:
+            return
 
         # n_warnings, task_items = self.match_taskdefs(items)
         itasks, future_tasks, unmatched = self.filter_task_proxies(
@@ -1753,8 +1809,6 @@ class TaskPool:
             else:
                 # De-queue it to run now.
                 self.task_queue_mgr.force_release_task(itask)
-
-        return len(unmatched)
 
     def sim_time_check(self, message_queue: 'Queue[TaskMsg]') -> bool:
         """Simulation mode: simulate task run times and set states."""

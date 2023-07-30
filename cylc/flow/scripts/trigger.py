@@ -52,18 +52,20 @@ from cylc.flow.option_parsers import (
     CylcOptionParser as COP,
 )
 from cylc.flow.terminal import cli_function
-from cylc.flow.flow_mgr import FLOW_NONE, FLOW_NEW, FLOW_ALL
+from cylc.flow.flow_mgr import (
+    FLOW_NONE,
+    FLOW_NEW,
+    FLOW_ALL,
+    ERR_OPT_FLOW_VAL,
+    ERR_OPT_FLOW_INT,
+    ERR_OPT_FLOW_META,
+    ERR_OPT_FLOW_WAIT,
+    validate_flow_opts
+)
+
 
 if TYPE_CHECKING:
     from optparse import Values
-
-
-ERR_OPT_FLOW_VAL = "Flow values must be integer, 'all', 'new', or 'none'"
-ERR_OPT_FLOW_INT = "Multiple flow options must all be integer valued"
-ERR_OPT_FLOW_META = "Metadata is only for new flows"
-ERR_OPT_FLOW_WAIT = (
-    f"--wait is not compatible with --flow={FLOW_NEW} or --flow={FLOW_NONE}"
-)
 
 
 MUTATION = '''
@@ -118,26 +120,6 @@ def get_option_parser() -> COP:
     return parser
 
 
-def _validate(options):
-    """Check validity of flow-related options."""
-    for val in options.flow:
-        val = val.strip()
-        if val in [FLOW_NONE, FLOW_NEW, FLOW_ALL]:
-            if len(options.flow) != 1:
-                raise InputError(ERR_OPT_FLOW_INT)
-        else:
-            try:
-                int(val)
-            except ValueError:
-                raise InputError(ERR_OPT_FLOW_VAL.format(val))
-
-    if options.flow_descr and options.flow != [FLOW_NEW]:
-        raise InputError(ERR_OPT_FLOW_META)
-
-    if options.flow_wait and options.flow[0] in [FLOW_NEW, FLOW_NONE]:
-        raise InputError(ERR_OPT_FLOW_WAIT)
-
-
 async def run(options: 'Values', workflow_id: str, *tokens_list):
     pclient = get_client(workflow_id, timeout=options.comms_timeout)
 
@@ -154,7 +136,6 @@ async def run(options: 'Values', workflow_id: str, *tokens_list):
             'flowDescr': options.flow_descr,
         }
     }
-
     await pclient.async_request('graphql', mutation_kwargs)
 
 
@@ -164,7 +145,7 @@ def main(parser: COP, options: 'Values', *ids: str):
 
     if options.flow is None:
         options.flow = [FLOW_ALL]  # default to all active flows
-    _validate(options)
+    validate_flow_opts(options)
 
     call_multi(
         partial(run, options),

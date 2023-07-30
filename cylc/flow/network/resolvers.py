@@ -823,16 +823,20 @@ class Resolvers(BaseResolvers):
         self,
         tasks: Iterable[str],
         outputs: Optional[Iterable[str]] = None,
-        flow_num: Optional[int] = None
+        prerequisites: Optional[Iterable[str]] = None,
+        flow: Optional[Iterable[str]] = None,
+        flow_wait: bool = False,
+        flow_descr: Optional[str] = None,
     ) -> Tuple[bool, str]:
         """Spawn children of given task outputs.
 
-        User-facing method name: set_outputs.
+        User-facing method name: set_task.
 
         Args:
-            tasks: List of identifiers or task globs.
-            outputs: List of outputs to spawn on.
-            flow_num: Flow number to attribute the outputs.
+            tasks: Identifiers or task globs.
+            outputs: Outputs to set complete.
+            prerequisites: Prerequisites to set satisfied.
+            flow: Flows that spawned tasks should belong to.
         """
         self.schd.command_queue.put(
             (
@@ -840,7 +844,10 @@ class Resolvers(BaseResolvers):
                 (tasks,),
                 {
                     "outputs": outputs,
-                    "flow_num": flow_num
+                    "prerequisites": prerequisites,
+                    "flow": flow,
+                    "flow_wait": flow_wait,
+                    "flow_descr": flow_descr,
                 },
             )
         )

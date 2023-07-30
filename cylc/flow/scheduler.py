@@ -1686,6 +1686,7 @@ class Scheduler:
             tinit = time()
 
             # Useful for debugging core scheduler issues:
+            # import logging
             # self.pool.log_task_pool(logging.CRITICAL)
             if self.incomplete_ri_map:
                 self.manage_remote_init()
@@ -2132,13 +2133,16 @@ class Scheduler:
         return self.pool.force_trigger_tasks(
             items, flow, flow_wait, flow_descr)
 
-    def command_force_spawn_children(self, items, outputs, flow_num):
+    def command_force_spawn_children(
+        self, items, outputs, prerequisites, flow, flow_wait, flow_descr
+    ):
         """Force spawn task successors.
 
-        User-facing method name: set_outputs.
-
+        User-facing method name: set_task.
         """
-        return self.pool.force_spawn_children(items, outputs, flow_num)
+        return self.pool.force_spawn_children(
+            items, outputs, prerequisites, flow, flow_wait, flow_descr
+        )
 
     def _update_profile_info(self, category, amount, amount_format="%s"):
         """Update the 1, 5, 15 minute dt averages for a given category."""

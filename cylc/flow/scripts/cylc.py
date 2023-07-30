@@ -249,7 +249,9 @@ DEAD_ENDS = {
     'register':
         'cylc register has been removed; use cylc install or cylc play',
     'reset':
-        'cylc reset has been replaced by cylc set-outputs',
+        'cylc reset has been replaced by cylc set-task',
+    'set-outputs':
+        'cylc set-outputs has been replaced by cylc set-task',
     'restart':
         'cylc run & cylc restart have been replaced by cylc play',
     'review':

@@ -2084,27 +2084,34 @@ class Remove(Mutation, TaskMutation):
         resolver = partial(mutator, command='remove_tasks')
 
 
-class SetOutputs(Mutation, TaskMutation):
+class SetTask(Mutation, TaskMutation):
     class Meta:
-        description = sstrip('''
-            Artificially mark task outputs as completed.
+        description = sstrip("""
+            Set task prerequisites or outputs.
 
-            This allows you to manually intervene with Cylc's scheduling
-            algorithm by artificially satisfying outputs of tasks.
+            By default, set all required outputs for target task(s).
 
-            By default this makes tasks appear as if they succeeded.
+            Setting prerequisites contributes to the task's readiness to run.
 
-            Valid for: paused, running workflows.
-        ''')
+            Setting outputs contributes to the task's completion, and sets the
+            corresponding prerequisites of child tasks.
+
+            Setting an output also sets any implied outputs:
+             - started implies submitted
+             - succeeded and failed imply started
+             - custom outputs and expired do not imply any other outputs
+        """)
         resolver = partial(mutator, command='force_spawn_children')
 
-    class Arguments(TaskMutation.Arguments):
+    class Arguments(TaskMutation.Arguments, FlowMutationArguments):
         outputs = graphene.List(
             String,
-            default_value=[TASK_OUTPUT_SUCCEEDED],
-            description='List of task outputs to satisfy.'
+            description='List of task outputs to set complete.'
         )
-        flow_num = Int()
+        prerequisites = graphene.List(
+            String,
+            description='List of task prerequisites to set satisfied.'
+        )
 
 
 class Trigger(Mutation, TaskMutation):
@@ -2164,7 +2171,7 @@ class Mutations(ObjectType):
     poll = _mut_field(Poll)
     release = _mut_field(Release)
     remove = _mut_field(Remove)
-    set_outputs = _mut_field(SetOutputs)
+    set_task = _mut_field(SetTask)
     trigger = _mut_field(Trigger)
 
     # job actions
