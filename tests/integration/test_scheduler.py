@@ -212,7 +212,7 @@ async def test_no_poll_waiting_tasks(
     log: pytest.LogCaptureFixture
     async with start(one) as log:
         # Test assumes start up with a waiting task.
-        task = (one.pool.get_all_tasks())[0]
+        task = (one.pool.get_tasks())[0]
         assert task.state.status == TASK_STATUS_WAITING
 
         polled_tasks = capture_polling(one)
@@ -350,7 +350,7 @@ async def test_restart_timeout(
     # run the workflow to completion
     schd = scheduler(id_)
     async with start(schd):
-        for itask in schd.pool.get_all_tasks():
+        for itask in schd.pool.get_tasks():
             itask.state_reset(TASK_OUTPUT_SUCCEEDED)
             schd.pool.spawn_on_output(itask, TASK_OUTPUT_SUCCEEDED)
 

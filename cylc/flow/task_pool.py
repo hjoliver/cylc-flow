@@ -128,11 +128,8 @@ class TaskPool:
         self.runahead_limit_point: Optional['PointBase'] = None
 
         self.main_pool: Pool = {}
-        self.hidden_pool: Pool = {}
         self._main_pool_list: List[TaskProxy] = []
-        self._hidden_pool_list: List[TaskProxy] = []
         self.main_pool_changed = False
-        self.hidden_pool_changed = False
         self.tasks_removed = False
 
         self.hold_point: Optional['PointBase'] = None
@@ -176,10 +173,7 @@ class TaskPool:
 
     def _swap_out(self, itask):
         """Swap old task for new, during reload."""
-        if itask.identity in self.hidden_pool.get(itask.point, set()):
-            self.hidden_pool[itask.point][itask.identity] = itask
-            self.hidden_pool_changed = True
-        elif itask.identity in self.main_pool.get(itask.point, set()):
+        if itask.identity in self.main_pool.get(itask.point, set()):
             self.main_pool[itask.point][itask.identity] = itask
             self.main_pool_changed = True
 
@@ -218,34 +212,13 @@ class TaskPool:
         self.workflow_db_mgr.put_insert_task_outputs(itask)
 
     def add_to_pool(self, itask) -> None:
-        """Add a task to the hidden (if not satisfied) or main task pool.
+        """Add a task to the pool."""
+        self.main_pool.setdefault(itask.point, {})
+        self.main_pool[itask.point][itask.identity] = itask
+        self.main_pool_changed = True
+        LOG.debug(f"[{itask}] added to task pool")
 
-        If the task already exists in the hidden pool and is satisfied, move it
-        to the main pool.
-        """
-        if itask.is_task_prereqs_not_done() and not itask.is_manual_submit:
-            # Add to hidden pool if not satisfied.
-            self.hidden_pool.setdefault(itask.point, {})
-            self.hidden_pool[itask.point][itask.identity] = itask
-            self.hidden_pool_changed = True
-            LOG.debug(f"[{itask}] added to hidden task pool")
-        else:
-            # Add to main pool.
-            # First remove from hidden pool if necessary.
-            try:
-                del self.hidden_pool[itask.point][itask.identity]
-            except KeyError:
-                pass
-            else:
-                self.hidden_pool_changed = True
-                if not self.hidden_pool[itask.point]:
-                    del self.hidden_pool[itask.point]
-            self.main_pool.setdefault(itask.point, {})
-            self.main_pool[itask.point][itask.identity] = itask
-            self.main_pool_changed = True
-            LOG.debug(f"[{itask}] added to main task pool")
-
-            self.create_data_store_elements(itask)
+        self.create_data_store_elements(itask)
 
         if itask.tdef.max_future_prereq_offset is not None:
             # (Must do this once added to the pool).
@@ -465,7 +438,7 @@ class TaskPool:
 
     def update_flow_mgr(self):
         flow_nums_seen = set()
-        for itask in self.get_all_tasks():
+        for itask in self.get_tasks():
             flow_nums_seen.update(itask.flow_nums)
         self.flow_mgr.load_from_db(flow_nums_seen)
 
@@ -735,10 +708,7 @@ class TaskPool:
     ) -> Optional[TaskProxy]:
         """Return new or existing task point/name with merged flow_nums"""
         taskid = Tokens(cycle=str(point), task=name).relative_id
-        ntask = (
-            self._get_hidden_task_by_id(taskid)
-            or self._get_main_task_by_id(taskid)
-        )
+        ntask = self._get_main_task_by_id(taskid)
         if ntask is None:
             # ntask does not exist: spawn it in the flow.
             ntask = self.spawn_task(name, point, flow_nums)
@@ -781,19 +751,6 @@ class TaskPool:
             msg += f" ({reason})"
 
         try:
-            del self.hidden_pool[itask.point][itask.identity]
-        except KeyError:
-            pass
-        else:
-            # e.g. for suicide of partially satisfied task
-            self.hidden_pool_changed = True
-            if not self.hidden_pool[itask.point]:
-                del self.hidden_pool[itask.point]
-            LOG.debug(f"[{itask}] {msg}")
-            self.task_queue_mgr.remove_task(itask)
-            return
-
-        try:
             del self.main_pool[itask.point][itask.identity]
         except KeyError:
             pass
@@ -814,10 +771,6 @@ class TaskPool:
             LOG.debug(f"[{itask}] {msg}")
             del itask
 
-    def get_all_tasks(self) -> List[TaskProxy]:
-        """Return a list of all task proxies."""
-        return self.get_hidden_tasks() + self.get_tasks()
-
     def get_tasks(self) -> List[TaskProxy]:
         """Return a list of task proxies in the main pool."""
         # Cached list only for use internally in this method.
@@ -829,43 +782,19 @@ class TaskPool:
                     self._main_pool_list.append(itask)
         return self._main_pool_list
 
-    def get_hidden_tasks(self) -> List[TaskProxy]:
-        """Return a list of task proxies in the hidden pool."""
-        # Cached list only for use internally in this method.
-        if self.hidden_pool_changed:
-            self.hidden_pool_changed = False
-            self._hidden_pool_list = []
-            for itask_id_maps in self.hidden_pool.values():
-                self._hidden_pool_list.extend(list(itask_id_maps.values()))
-        return self._hidden_pool_list
-
     def get_tasks_by_point(self) -> 'Dict[PointBase, List[TaskProxy]]':
         """Return a map of task proxies by cycle point."""
         point_itasks = {}
         for point, itask_id_map in self.main_pool.items():
             point_itasks[point] = list(itask_id_map.values())
-        for point, itask_id_map in self.hidden_pool.items():
-            if point not in point_itasks:
-                point_itasks[point] = list(itask_id_map.values())
-            else:
-                point_itasks[point] += list(itask_id_map.values())
-
         return point_itasks
 
     def get_task(self, point, name):
         """Retrieve a task from the pool."""
         rel_id = f'{point}/{name}'
-        for pool in (self.main_pool, self.hidden_pool):
-            tasks = pool.get(point)
-            if tasks and rel_id in tasks:
-                return tasks[rel_id]
-
-    def _get_hidden_task_by_id(self, id_: str) -> Optional[TaskProxy]:
-        """Return runahead pool task by ID if it exists, or None."""
-        for itask_ids in list(self.hidden_pool.values()):
-            with suppress(KeyError):
-                return itask_ids[id_]
-        return None
+        tasks = self.main_pool.get(point)
+        if tasks and rel_id in tasks:
+            return tasks[rel_id]
 
     def _get_main_task_by_id(self, id_: str) -> Optional[TaskProxy]:
         """Return main pool task by ID if it exists, or None."""
@@ -985,7 +914,7 @@ class TaskPool:
         self.config.adopt_orphans(orphans)
 
         LOG.info("Reloading task definitions.")
-        tasks = self.get_all_tasks()
+        tasks = self.get_tasks()
         # Log tasks orphaned by a reload but not currently in the task pool.
         for name in orphans:
             if name not in (itask.tdef.name for itask in tasks):
@@ -1068,7 +997,7 @@ class TaskPool:
         ):
             self.runahead_limit_point = stop_point
             # Now handle existing waiting tasks (e.g. xtriggered).
-            for itask in self.get_all_tasks():
+            for itask in self.get_tasks():
                 if (
                     itask.point > stop_point
                     and itask.state(TASK_STATUS_WAITING)
@@ -1157,7 +1086,7 @@ class TaskPool:
         return False
 
     def log_unsatisfied_prereqs(self) -> bool:
-        """Log unsatisfied prerequisites in the hidden pool.
+        """Log unsatisfied prerequisites in the pool.
 
         Return True if any, ignoring:
             - prerequisites beyond the stop point
@@ -1165,7 +1094,7 @@ class TaskPool:
             (can be caused by future triggers)
         """
         unsat: Dict[str, List[str]] = {}
-        for itask in self.get_hidden_tasks():
+        for itask in self.get_tasks():
             task_point = itask.point
             if self.stop_point and task_point > self.stop_point:
                 continue
@@ -1202,6 +1131,8 @@ class TaskPool:
             ) or (
                 itask.state(TASK_STATUS_WAITING)
                 and not itask.state.is_runahead
+                # (avoid waiting pre-spawned absolute-triggered tasks:)
+                and not itask.is_task_prereqs_not_done()
             ) for itask in self.get_tasks()
         ):
             return False
@@ -1227,7 +1158,7 @@ class TaskPool:
     def set_hold_point(self, point: 'PointBase') -> None:
         """Set the point after which all tasks must be held."""
         self.hold_point = point
-        for itask in self.get_all_tasks():
+        for itask in self.get_tasks():
             if itask.point > point:
                 self.hold_active_task(itask)
         self.workflow_db_mgr.put_workflow_hold_cycle_point(point)
@@ -1271,7 +1202,7 @@ class TaskPool:
     def release_hold_point(self) -> None:
         """Unset the workflow hold point and release all held active tasks."""
         self.hold_point = None
-        for itask in self.get_all_tasks():
+        for itask in self.get_tasks():
             self.release_held_active_task(itask)
         self.tasks_to_hold.clear()
         self.workflow_db_mgr.put_tasks_to_hold(self.tasks_to_hold)
@@ -1330,10 +1261,7 @@ class TaskPool:
                 cycle=str(c_point),
                 task=c_name,
             ).relative_id
-            c_task = (
-                self._get_hidden_task_by_id(c_taskid)
-                or self._get_main_task_by_id(c_taskid)
-            )
+            c_task = self._get_main_task_by_id(c_taskid)
             if c_task is not None and c_task != itask:
                 # (Avoid self-suicide: A => !A)
                 self.merge_flows(c_task, itask.flow_nums)
@@ -1363,7 +1291,6 @@ class TaskPool:
                         (str(itask.point), itask.tdef.name, output)
                     })
                     self.data_store_mgr.delta_task_prerequisite(t)
-                    # Add it to the hidden pool or move it to the main pool.
                     self.add_to_pool(t)
 
                     if t.point <= self.runahead_limit_point:
@@ -1465,10 +1392,7 @@ class TaskPool:
                     cycle=str(c_point),
                     task=c_name,
                 ).relative_id
-                c_task = (
-                    self._get_hidden_task_by_id(c_taskid)
-                    or self._get_main_task_by_id(c_taskid)
-                )
+                c_task = self._get_main_task_by_id(c_taskid)
                 if c_task is not None:
                     # already spawned
                     continue
@@ -1686,7 +1610,7 @@ class TaskPool:
                         continue
 
                 self.data_store_mgr.delta_task_prerequisite(itask)
-                self.add_to_pool(itask)  # move from hidden if necessary
+                self.add_to_pool(itask)
                 if (
                     self.runahead_limit_point is not None
                     and itask.point <= self.runahead_limit_point
@@ -1701,7 +1625,7 @@ class TaskPool:
         the flow numbers of the most recent previous active task.
         """
         fnums = set()
-        for itask in self.get_all_tasks():
+        for itask in self.get_tasks():
             fnums.update(itask.flow_nums)
         if not fnums:
             fnums = self.workflow_db_mgr.pri_dao.select_latest_flow_nums()
@@ -1797,7 +1721,7 @@ class TaskPool:
                 # (could also be unhandled failed)
                 self.data_store_mgr.delta_task_state(itask)
             # (No need to set prerequisites satisfied here).
-            self.add_to_pool(itask)  # move from hidden if necessary.
+            self.add_to_pool(itask)
             if itask.state.is_runahead:
                 # Release from runahead, and queue it.
                 self.rh_release_and_queue(itask)
@@ -1902,7 +1826,7 @@ class TaskPool:
         Remove the flow number from every task in the pool, and remove any task
         with no remaining flow numbers if it is not already active.
         """
-        for itask in self.get_all_tasks():
+        for itask in self.get_tasks():
             try:
                 itask.flow_nums.remove(flow_num)
             except KeyError:
@@ -1916,22 +1840,16 @@ class TaskPool:
                     self.remove(itask, "flow stopped")
 
     def log_task_pool(self, log_lvl=logging.DEBUG):
-        """Log content of task and prerequisite pools in debug mode."""
-        for pool, name in [
-            (self.get_tasks(), "Main"),
-            (self.get_hidden_tasks(), "Hidden")
-        ]:
-            if pool:
-                LOG.log(
-                    log_lvl,
-                    f"{name} pool:\n"
-                    + "\n".join(
-                        f"* {itask} status={itask.state.status}"
-                        f" runahead={itask.state.is_runahead}"
-                        f" queued={itask.state.is_queued}"
-                        for itask in pool
-                    )
-                )
+        """Log content of task pool, for debugging."""
+        LOG.log(
+            log_lvl,
+            "\n".join(
+                f"* {itask} status={itask.state.status}"
+                f" runahead={itask.state.is_runahead}"
+                f" queued={itask.state.is_queued}"
+                for itask in self.get_tasks()
+            )
+        )
 
     def filter_task_proxies(
         self,
@@ -1960,7 +1878,7 @@ class TaskPool:
 
         """
         matched, unmatched = filter_ids(
-            [self.main_pool, self.hidden_pool],
+            self.main_pool,
             ids,
             warn=warn,
         )

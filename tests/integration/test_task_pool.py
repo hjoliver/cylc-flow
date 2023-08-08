@@ -14,7 +14,6 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-from copy import deepcopy
 import logging
 from typing import AsyncGenerator, Callable, Iterable, List, Tuple, Union
 
@@ -240,60 +239,6 @@ async def test_filter_task_proxies(
 
 
 @pytest.mark.parametrize(
-    'items, expected_task_ids, expected_bad_items, expected_warnings',
-    [
-        param(
-            ['*:waiting'],
-            ['1/waz', '1/foo', '1/bar', '2/foo', '2/bar', '2/pub', '3/foo',
-             '3/bar', '4/foo', '4/bar', '5/foo', '5/bar'], [], [],
-            id="Task state"
-        ),
-    ]
-)
-async def test_filter_task_proxies_hidden(
-    items: List[str],
-    expected_task_ids: List[str],
-    expected_bad_items: List[str],
-    expected_warnings: List[str],
-    mod_example_flow: Scheduler,
-    caplog: pytest.LogCaptureFixture
-) -> None:
-    """Test TaskPool.filter_task_proxies().
-
-    This is the same as test_filter_task_proxies except we artificially add a
-    new proxy "1/waz" to the hidden pool. Filtering should find a single copy
-    each of the hidden and main pool tasks.
-
-    See GitHub #4909: a bug in filtering was doubling up tasks in cycle points
-    that appeared in both pools.
-
-    The NOTE before EXAMPLE_FLOW_CFG above explains which tasks should be
-    expected for the tests here.
-
-    Params:
-        items: Arg passed to filter_task_proxies().
-        expected_task_ids: IDs of the TaskProxys that are expected to be
-            returned, of the form "{point}/{name}"/
-        expected_bad_items: Expected to be returned.
-        expected_warnings: Expected to be logged.
-    """
-    caplog.set_level(logging.WARNING, CYLC_LOG)
-    task_pool = mod_example_flow.pool
-
-    # Duplicate a task proxy, rename it, and add it to the hidden pool.
-    a_task = deepcopy(task_pool.get_tasks()[0])
-    a_task.identity = "1/waz"
-    task_pool.hidden_pool.setdefault(a_task.point, {})
-    task_pool.hidden_pool[a_task.point][a_task.identity] = a_task
-
-    itasks, _, bad_items = task_pool.filter_task_proxies(items)
-    task_ids = [itask.identity for itask in itasks]
-    assert sorted(task_ids) == sorted(expected_task_ids)
-    assert sorted(bad_items) == sorted(expected_bad_items)
-    assert_expected_log(caplog, expected_warnings)
-
-
-@pytest.mark.parametrize(
     'items, expected_task_ids, expected_warnings',
     [
         param(
@@ -424,7 +369,7 @@ async def test_hold_tasks(
     task_pool = example_flow.pool
     n_warnings = task_pool.hold_tasks(items)
 
-    for itask in task_pool.get_all_tasks():
+    for itask in task_pool.get_tasks():
         hold_expected = itask.identity in expected_tasks_to_hold_ids
         assert itask.state.is_held is hold_expected
 
@@ -453,7 +398,7 @@ async def test_release_held_tasks(
     task_pool = example_flow.pool
     expected_tasks_to_hold_ids = sorted(['1/foo', '1/bar', '3/asd'])
     task_pool.hold_tasks(expected_tasks_to_hold_ids)
-    for itask in task_pool.get_all_tasks():
+    for itask in task_pool.get_tasks():
         hold_expected = itask.identity in expected_tasks_to_hold_ids
         assert itask.state.is_held is hold_expected
     assert get_task_ids(task_pool.tasks_to_hold) == expected_tasks_to_hold_ids
@@ -462,7 +407,7 @@ async def test_release_held_tasks(
 
     # Test
     task_pool.release_held_tasks(['1/foo', '3/asd'])
-    for itask in task_pool.get_all_tasks():
+    for itask in task_pool.get_tasks():
         assert itask.state.is_held is (itask.identity == '1/bar')
 
     expected_tasks_to_hold_ids = sorted(['1/bar'])
@@ -496,7 +441,7 @@ async def test_hold_point(
     assert ('holdcp', str(hold_after_point)) in db_select(
         example_flow, True, 'workflow_params')
 
-    for itask in task_pool.get_all_tasks():
+    for itask in task_pool.get_tasks():
         hold_expected = itask.identity in expected_held_task_ids
         assert itask.state.is_held is hold_expected
 
@@ -511,7 +456,7 @@ async def test_hold_point(
         ('holdcp', None)
     ]
 
-    for itask in task_pool.get_all_tasks():
+    for itask in task_pool.get_tasks():
         assert itask.state.is_held is False
 
     assert task_pool.tasks_to_hold == set()
@@ -635,7 +580,7 @@ async def test_load_db_bad_platform(
 
 
 def list_tasks(schd):
-    """Return a list of task pool tasks (incl hidden pool tasks).
+    """Return a sorted list of task pool tasks.
 
     Returns a list in the format:
         [
@@ -645,7 +590,7 @@ def list_tasks(schd):
     """
     return sorted(
         (itask.tokens['cycle'], itask.tokens['task'], itask.state.status)
-        for itask in schd.pool.get_all_tasks()
+        for itask in schd.pool.get_tasks()
     )
 
 
@@ -736,8 +681,8 @@ async def test_restart_prereqs(
         assert list_tasks(schd) == expected_1
 
         # Mark 1/a as succeeded and spawn 1/z
-        schd.pool.get_all_tasks()[0].state_reset('succeeded')
-        schd.pool.spawn_on_output(schd.pool.get_all_tasks()[0], 'succeeded')
+        schd.pool.get_tasks()[0].state_reset('succeeded')
+        schd.pool.spawn_on_output(schd.pool.get_tasks()[0], 'succeeded')
         assert list_tasks(schd) == expected_2
 
         # Save our progress
@@ -760,7 +705,9 @@ async def test_restart_prereqs(
         schd.data_store_mgr.update_data_structure()
 
         # Check resulting dependencies of task z
-        task_z = schd.pool.get_all_tasks()[0]
+        task_z = [
+            t for t in schd.pool.get_tasks() if t.tdef.name == "z"
+        ][0]
         assert sorted(
             (
                 p.satisfied
@@ -857,8 +804,8 @@ async def test_reload_prereqs(
         assert list_tasks(schd) == expected_1
 
         # Mark 1/a as succeeded and spawn 1/z
-        schd.pool.get_all_tasks()[0].state_reset('succeeded')
-        schd.pool.spawn_on_output(schd.pool.get_all_tasks()[0], 'succeeded')
+        schd.pool.get_tasks()[0].state_reset('succeeded')
+        schd.pool.spawn_on_output(schd.pool.get_tasks()[0], 'succeeded')
         assert list_tasks(schd) == expected_2
 
         # Modify flow.cylc to add a new dependency on "z"
@@ -870,7 +817,9 @@ async def test_reload_prereqs(
         assert list_tasks(schd) == expected_3
 
         # Check resulting dependencies of task z
-        task_z = schd.pool.get_all_tasks()[0]
+        task_z = [
+            t for t in schd.pool.get_tasks() if t.tdef.name == "z"
+        ][0]
         assert sorted(
             (
                 p.satisfied
@@ -894,7 +843,7 @@ async def _test_restart_prereqs_sat():
     ]
 
     # Mark both as succeeded and spawn 1/c
-    for itask in schd.pool.get_all_tasks():
+    for itask in schd.pool.get_tasks():
         itask.state_reset('succeeded')
         schd.pool.spawn_on_output(itask, 'succeeded')
         schd.workflow_db_mgr.put_insert_task_outputs(itask)
@@ -912,7 +861,7 @@ async def _test_restart_prereqs_sat():
     ]
 
     # Check resulting dependencies of task z
-    task_c = schd.pool.get_all_tasks()[0]
+    task_c = schd.pool.get_tasks()[0]
     assert sorted(
         (*key, satisfied)
         for prereq in task_c.state.prerequisites
@@ -1008,7 +957,8 @@ async def test_runahead_limit_for_sequence_before_start_cycle(
 ):
     """It should obey the runahead limit.
 
-    Ensure the runahead limit is computed correctly for sequences before the start cycle
+    Ensure the runahead limit is computed correctly for sequences before the
+    start cycle
 
     See https://github.com/cylc/cylc-flow/issues/5603
     """
@@ -1147,39 +1097,29 @@ async def test_no_flow_tasks_dont_spawn(
             # ensure the pool is as expected
             assert [
                 (itask.identity, itask.flow_nums)
-                for pool in [
-                    schd.pool.get_tasks(),
-                    schd.pool.get_hidden_tasks(),
-                ]
-                for itask in pool
+                for itask in schd.pool.get_tasks()
             ] == pool
+
 
 async def test_task_proxy_remove_from_queues(
     flow, one_conf, scheduler, start,
 ):
     """TaskPool.remove should delete task proxies from queues.
-    
+
     See https://github.com/cylc/cylc-flow/pull/5573
     """
     # Set up a scheduler with a non-default queue:
     one_conf['scheduling'] = {
         'queues': {'queue_two': {'members': 'one, control'}},
-        'graph': {'R1': 'two & one & hidden & control & hidden_control'},
+        'graph': {'R1': 'two & one & control'},
     }
     schd = scheduler(flow(one_conf))
     async with start(schd):
         # Get a list of itasks:
         itasks = schd.pool.get_tasks()
-        point = itasks[0].point
 
         for itask in itasks:
             id_ = itask.identity
-
-            # Move some tasks to the hidden_pool to ensure that these are
-            # removed too:
-            if 'hidden' in itask.identity:
-                schd.pool.hidden_pool.setdefault(point, {id_: itask})
-                del schd.pool.main_pool[point][id_]
 
             # The meat of the test - remove itask from pool if it
             # doesn't have "control" in the name:
@@ -1191,7 +1131,6 @@ async def test_task_proxy_remove_from_queues(
             name: [itask.identity for itask in queue.deque]
             for name, queue in schd.pool.task_queue_mgr.queues.items()}
 
-        assert queues_after['default'] == ['1/hidden_control']
         assert queues_after['queue_two'] == ['1/control']
 
 

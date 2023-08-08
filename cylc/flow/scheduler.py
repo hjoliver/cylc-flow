@@ -509,7 +509,7 @@ class Scheduler:
                     timer.reset()
                 self.timers[event] = timer
 
-        if self.is_restart and not self.pool.get_all_tasks():
+        if self.is_restart and not self.pool.get_tasks():
             # This workflow completed before restart; wait for intervention.
             with suppress(KeyError):
                 self.timers[self.EVENT_RESTART_TIMEOUT].reset()
@@ -619,7 +619,7 @@ class Scheduler:
                 self.task_job_mgr.task_remote_mgr.is_restart = True
                 self.task_job_mgr.task_remote_mgr.rsync_includes = (
                     self.config.get_validated_rsync_includes())
-                if self.pool.get_all_tasks():
+                if self.pool.get_tasks():
                     # (If we're not restarting a finished workflow)
                     self.restart_remote_init()
                     self.command_poll_tasks(['*/*'])
