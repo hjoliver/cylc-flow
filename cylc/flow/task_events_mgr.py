@@ -616,7 +616,7 @@ class TaskEventsManager():
                 and not itask.state.outputs.is_completed(TASK_OUTPUT_STARTED)):
             self.setup_event_handlers(
                 itask, self.EVENT_STARTED, f'job {self.EVENT_STARTED}')
-            self.spawn_func(itask, TASK_OUTPUT_STARTED)
+            self.spawn_children(itask, TASK_OUTPUT_STARTED)
 
         if message == self.EVENT_STARTED:
             if (
@@ -630,14 +630,14 @@ class TaskEventsManager():
                 # accordingly. Note the submitted message is internal, whereas
                 # the started message comes in on the network.
                 self._process_message_submitted(itask, event_time)
-                self.spawn_func(itask, TASK_OUTPUT_SUBMITTED)
+                self.spawn_children(itask, TASK_OUTPUT_SUBMITTED)
 
             self._process_message_started(itask, event_time)
-            self.spawn_func(itask, TASK_OUTPUT_STARTED)
+            self.spawn_children(itask, TASK_OUTPUT_STARTED)
 
         elif message == self.EVENT_SUCCEEDED:
             self._process_message_succeeded(itask, event_time)
-            self.spawn_func(itask, TASK_OUTPUT_SUCCEEDED)
+            self.spawn_children(itask, TASK_OUTPUT_SUCCEEDED)
         elif message == self.EVENT_FAILED:
             if (
                     flag == self.FLAG_RECEIVED
@@ -646,7 +646,7 @@ class TaskEventsManager():
                 return True
             if self._process_message_failed(
                     itask, event_time, self.JOB_FAILED):
-                self.spawn_func(itask, TASK_OUTPUT_FAILED)
+                self.spawn_children(itask, TASK_OUTPUT_FAILED)
         elif message == self.EVENT_SUBMIT_FAILED:
             if (
                     flag == self.FLAG_RECEIVED
@@ -658,7 +658,7 @@ class TaskEventsManager():
                 event_time,
                 submit_num
             ):
-                self.spawn_func(itask, TASK_OUTPUT_SUBMIT_FAILED)
+                self.spawn_children(itask, TASK_OUTPUT_SUBMIT_FAILED)
         elif message == self.EVENT_SUBMITTED:
             if (
                     flag == self.FLAG_RECEIVED
@@ -673,7 +673,7 @@ class TaskEventsManager():
                 # job submission under the started event above...
                 # (sim mode does not have the job prep state)
                 self._process_message_submitted(itask, event_time)
-                self.spawn_func(itask, TASK_OUTPUT_SUBMITTED)
+                self.spawn_children(itask, TASK_OUTPUT_SUBMITTED)
 
             # ... but either way update the job ID in the job proxy (it only
             # comes in via the submission message).
@@ -697,7 +697,7 @@ class TaskEventsManager():
                 itask, {"run_signal": signal})
             if self._process_message_failed(
                     itask, event_time, self.JOB_FAILED):
-                self.spawn_func(itask, TASK_OUTPUT_FAILED)
+                self.spawn_children(itask, TASK_OUTPUT_FAILED)
         elif message.startswith(ABORT_MESSAGE_PREFIX):
             # Task aborted with message
             if (
@@ -710,7 +710,7 @@ class TaskEventsManager():
             self.workflow_db_mgr.put_update_task_jobs(
                 itask, {"run_signal": aborted_with})
             if self._process_message_failed(itask, event_time, aborted_with):
-                self.spawn_func(itask, TASK_OUTPUT_FAILED)
+                self.spawn_children(itask, TASK_OUTPUT_FAILED)
         elif message.startswith(VACATION_MESSAGE_PREFIX):
             # Task job pre-empted into a vacation state
             self._db_events_insert(itask, "vacated", message)
@@ -733,7 +733,7 @@ class TaskEventsManager():
             # Message of an as-yet unreported custom task output.
             # No state change.
             self.setup_event_handlers(itask, completed_trigger, message)
-            self.spawn_func(itask, msg0)
+            self.spawn_children(itask, msg0)
         else:
             # Unhandled messages. These include:
             #  * general non-output/progress messages
@@ -1712,3 +1712,9 @@ class TaskEventsManager():
                 f'{self.bad_hosts}'
             )
             self.bad_hosts.clear()
+
+    def spawn_children(self, itask, output):
+        # update DB task outputs
+        self.workflow_db_mgr.put_update_task_outputs(itask)
+        # spawn child-tasks
+        self.spawn_func(itask, output)

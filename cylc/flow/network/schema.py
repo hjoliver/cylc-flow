@@ -43,7 +43,6 @@ from cylc.flow.flow_mgr import FLOW_ALL, FLOW_NEW, FLOW_NONE
 from cylc.flow.id import Tokens
 from cylc.flow.task_outputs import SORT_ORDERS
 from cylc.flow.task_state import (
-    TASK_OUTPUT_SUCCEEDED,
     TASK_STATUSES_ORDERED,
     TASK_STATUS_DESC,
     TASK_STATUS_WAITING,
@@ -2084,7 +2083,7 @@ class Remove(Mutation, TaskMutation):
         resolver = partial(mutator, command='remove_tasks')
 
 
-class SetTask(Mutation, TaskMutation):
+class Reset(Mutation, TaskMutation):
     class Meta:
         description = sstrip("""
             Set task prerequisites or outputs.
@@ -2101,7 +2100,7 @@ class SetTask(Mutation, TaskMutation):
              - succeeded and failed imply started
              - custom outputs and expired do not imply any other outputs
         """)
-        resolver = partial(mutator, command='force_spawn_children')
+        resolver = partial(mutator, command='reset')
 
     class Arguments(TaskMutation.Arguments, FlowMutationArguments):
         outputs = graphene.List(
@@ -2171,7 +2170,7 @@ class Mutations(ObjectType):
     poll = _mut_field(Poll)
     release = _mut_field(Release)
     remove = _mut_field(Remove)
-    set_task = _mut_field(SetTask)
+    reset = _mut_field(Reset)
     trigger = _mut_field(Trigger)
 
     # job actions

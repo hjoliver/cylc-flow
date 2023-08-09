@@ -27,7 +27,7 @@
     [[spawner]]
         script = """
             # spawn wibble
-            cylc set-task $CYLC_WORKFLOW_ID 20100101T0800Z/foo
+            cylc reset $CYLC_WORKFLOW_ID 20100101T0800Z/foo
         """
     [[foo]]
         script = false

@@ -819,7 +819,7 @@ class Resolvers(BaseResolvers):
         else:
             return (False, 'Edge distance cannot be negative')
 
-    def force_spawn_children(
+    def reset(
         self,
         tasks: Iterable[str],
         outputs: Optional[Iterable[str]] = None,
@@ -828,9 +828,7 @@ class Resolvers(BaseResolvers):
         flow_wait: bool = False,
         flow_descr: Optional[str] = None,
     ) -> Tuple[bool, str]:
-        """Spawn children of given task outputs.
-
-        User-facing method name: set_task.
+        """Set task prequisites and outputs.
 
         Args:
             tasks: Identifiers or task globs.
@@ -840,7 +838,7 @@ class Resolvers(BaseResolvers):
         """
         self.schd.command_queue.put(
             (
-                "force_spawn_children",
+                "reset",
                 (tasks,),
                 {
                     "outputs": outputs,

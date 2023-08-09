@@ -44,7 +44,6 @@ Examples:
 from functools import partial
 from typing import TYPE_CHECKING
 
-from cylc.flow.exceptions import InputError
 from cylc.flow.network.client_factory import get_client
 from cylc.flow.network.multi import call_multi
 from cylc.flow.option_parsers import (
@@ -53,13 +52,7 @@ from cylc.flow.option_parsers import (
 )
 from cylc.flow.terminal import cli_function
 from cylc.flow.flow_mgr import (
-    FLOW_NONE,
-    FLOW_NEW,
-    FLOW_ALL,
-    ERR_OPT_FLOW_VAL,
-    ERR_OPT_FLOW_INT,
-    ERR_OPT_FLOW_META,
-    ERR_OPT_FLOW_WAIT,
+    add_flow_opts,
     validate_flow_opts
 )
 
@@ -97,26 +90,7 @@ def get_option_parser() -> COP:
         multiworkflow=True,
         argdoc=[FULL_ID_MULTI_ARG_DOC],
     )
-
-    parser.add_option(
-        "--flow", action="append", dest="flow", metavar="FLOW",
-        help=f"Assign the triggered task to all active flows ({FLOW_ALL});"
-             f" no flow ({FLOW_NONE}); a new flow ({FLOW_NEW});"
-             f" or a specific flow (e.g. 2). The default is {FLOW_ALL}."
-             " Reuse the option to assign multiple specific flows."
-    )
-
-    parser.add_option(
-        "--meta", metavar="DESCRIPTION", action="store",
-        dest="flow_descr", default=None,
-        help=f"description of triggered flow (with --flow={FLOW_NEW})."
-    )
-
-    parser.add_option(
-        "--wait", action="store_true", default=False, dest="flow_wait",
-        help="Wait for merge with current active flows before flowing on."
-    )
-
+    add_flow_opts(parser)
     return parser
 
 
@@ -142,11 +116,7 @@ async def run(options: 'Values', workflow_id: str, *tokens_list):
 @cli_function(get_option_parser)
 def main(parser: COP, options: 'Values', *ids: str):
     """CLI for "cylc trigger"."""
-
-    if options.flow is None:
-        options.flow = [FLOW_ALL]  # default to all active flows
     validate_flow_opts(options)
-
     call_multi(
         partial(run, options),
         *ids,

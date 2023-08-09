@@ -190,6 +190,14 @@ class TaskDef:
         message, _ = self.outputs[output]
         self.outputs[output] = (message, required)
 
+    def get_required_outputs(self):
+        """Return list of required outputs."""
+        res = []
+        for out, (_msg, req) in self.outputs.items():
+            if req:
+                res.append(out)
+        return res
+
     def tweak_outputs(self):
         """Output consistency checking and tweaking."""
 

@@ -2133,14 +2133,14 @@ class Scheduler:
         return self.pool.force_trigger_tasks(
             items, flow, flow_wait, flow_descr)
 
-    def command_force_spawn_children(
+    def command_reset(
         self, items, outputs, prerequisites, flow, flow_wait, flow_descr
     ):
         """Force spawn task successors.
 
-        User-facing method name: set_task.
+        User-facing method name: reset.
         """
-        return self.pool.force_spawn_children(
+        return self.pool.reset(
             items, outputs, prerequisites, flow, flow_wait, flow_descr
         )
 

@@ -127,9 +127,10 @@ class TaskPool:
         self._prev_runahead_sequence_points: Optional[Set['PointBase']] = None
         self.runahead_limit_point: Optional['PointBase'] = None
 
-        self.main_pool: Pool = {}
-        self._main_pool_list: List[TaskProxy] = []
-        self.main_pool_changed = False
+        # Tasks in the active window of the workflow.
+        self.active_tasks: Pool = {}
+        self._active_tasks_list: List[TaskProxy] = []
+        self.active_tasks_changed = False
         self.tasks_removed = False
 
         self.hold_point: Optional['PointBase'] = None
@@ -173,9 +174,9 @@ class TaskPool:
 
     def _swap_out(self, itask):
         """Swap old task for new, during reload."""
-        if itask.identity in self.main_pool.get(itask.point, set()):
-            self.main_pool[itask.point][itask.identity] = itask
-            self.main_pool_changed = True
+        if itask.identity in self.active_tasks.get(itask.point, set()):
+            self.active_tasks[itask.point][itask.identity] = itask
+            self.active_tasks_changed = True
 
     def load_from_point(self):
         """Load the task pool for the workflow start point.
@@ -213,9 +214,9 @@ class TaskPool:
 
     def add_to_pool(self, itask) -> None:
         """Add a task to the pool."""
-        self.main_pool.setdefault(itask.point, {})
-        self.main_pool[itask.point][itask.identity] = itask
-        self.main_pool_changed = True
+        self.active_tasks.setdefault(itask.point, {})
+        self.active_tasks[itask.point][itask.identity] = itask
+        self.active_tasks_changed = True
         LOG.debug(f"[{itask}] added to task pool")
 
         self.create_data_store_elements(itask)
@@ -247,7 +248,7 @@ class TaskPool:
         Return True if any tasks are released, else False.
         Call when RH limit changes.
         """
-        if not self.main_pool or not self.runahead_limit_point:
+        if not self.active_tasks or not self.runahead_limit_point:
             # (At start-up main pool might not exist yet)
             return False
 
@@ -257,7 +258,7 @@ class TaskPool:
         # tasks can cause the task pool to change size during iteration.
         release_me = [
             itask
-            for point, itask_id_map in self.main_pool.items()
+            for point, itask_id_map in self.active_tasks.items()
             for itask in itask_id_map.values()
             if point <= self.runahead_limit_point
             if itask.state.is_runahead
@@ -304,7 +305,7 @@ class TaskPool:
         base_point: 'PointBase'
         points: List['PointBase'] = []
 
-        if not self.main_pool:
+        if not self.active_tasks:
             # No tasks yet, just consider sequence points.
             if count_cycles:
                 # Get the first ilimit points in each sequence.
@@ -703,12 +704,19 @@ class TaskPool:
             # (otherwise waiting on xtriggers etc.)
             self.queue_task(itask)
 
-    def _get_spawned_or_merged_task(
-        self, point: 'PointBase', name: str, flow_nums: 'FlowNums'
+    def get_or_spawn_task(
+        self,
+        point: 'PointBase',
+        name: str,
+        flow_nums: 'FlowNums'
     ) -> Optional[TaskProxy]:
-        """Return new or existing task point/name with merged flow_nums"""
-        taskid = Tokens(cycle=str(point), task=name).relative_id
-        ntask = self._get_main_task_by_id(taskid)
+        """Return new or existing task point/name with merged flow_nums.
+
+        It does not add a spawned task proxy to the pool.
+        """
+        ntask = self._get_main_task_by_id(
+            Tokens(cycle=str(point), task=name).relative_id
+        )
         if ntask is None:
             # ntask does not exist: spawn it in the flow.
             ntask = self.spawn_task(name, point, flow_nums)
@@ -727,7 +735,7 @@ class TaskPool:
             self.compute_runahead()
         while point is not None and (point <= self.runahead_limit_point):
             if tdef.is_parentless(point):
-                ntask = self._get_spawned_or_merged_task(
+                ntask = self.get_or_spawn_task(
                     point, tdef.name, flow_nums
                 )
                 if ntask is not None:
@@ -737,7 +745,7 @@ class TaskPool:
 
         # Once more (for the rh-limited task: don't rh release it!)
         if point is not None and tdef.is_parentless(point):
-            ntask = self._get_spawned_or_merged_task(
+            ntask = self.get_or_spawn_task(
                 point, tdef.name, flow_nums
             )
             if ntask is not None:
@@ -751,13 +759,13 @@ class TaskPool:
             msg += f" ({reason})"
 
         try:
-            del self.main_pool[itask.point][itask.identity]
+            del self.active_tasks[itask.point][itask.identity]
         except KeyError:
             pass
         else:
-            self.main_pool_changed = True
-            if not self.main_pool[itask.point]:
-                del self.main_pool[itask.point]
+            self.active_tasks_changed = True
+            if not self.active_tasks[itask.point]:
+                del self.active_tasks[itask.point]
             self.task_queue_mgr.remove_task(itask)
             if itask.tdef.max_future_prereq_offset is not None:
                 self.set_max_future_offset()
@@ -774,31 +782,31 @@ class TaskPool:
     def get_tasks(self) -> List[TaskProxy]:
         """Return a list of task proxies in the main pool."""
         # Cached list only for use internally in this method.
-        if self.main_pool_changed:
-            self.main_pool_changed = False
-            self._main_pool_list = []
-            for _, itask_id_map in self.main_pool.items():
+        if self.active_tasks_changed:
+            self.active_tasks_changed = False
+            self._active_tasks_list = []
+            for _, itask_id_map in self.active_tasks.items():
                 for __, itask in itask_id_map.items():
-                    self._main_pool_list.append(itask)
-        return self._main_pool_list
+                    self._active_tasks_list.append(itask)
+        return self._active_tasks_list
 
     def get_tasks_by_point(self) -> 'Dict[PointBase, List[TaskProxy]]':
         """Return a map of task proxies by cycle point."""
         point_itasks = {}
-        for point, itask_id_map in self.main_pool.items():
+        for point, itask_id_map in self.active_tasks.items():
             point_itasks[point] = list(itask_id_map.values())
         return point_itasks
 
     def get_task(self, point, name):
         """Retrieve a task from the pool."""
         rel_id = f'{point}/{name}'
-        tasks = self.main_pool.get(point)
+        tasks = self.active_tasks.get(point)
         if tasks and rel_id in tasks:
             return tasks[rel_id]
 
     def _get_main_task_by_id(self, id_: str) -> Optional[TaskProxy]:
         """Return main pool task by ID if it exists, or None."""
-        for itask_ids in list(self.main_pool.values()):
+        for itask_ids in list(self.active_tasks.values()):
             with suppress(KeyError):
                 return itask_ids[id_]
         return None
@@ -865,7 +873,7 @@ class TaskPool:
 
     def get_min_point(self):
         """Return the minimum cycle point currently in the pool."""
-        cycles = list(self.main_pool)
+        cycles = list(self.active_tasks)
         minc = None
         if cycles:
             minc = min(cycles)
@@ -1216,26 +1224,30 @@ class TaskPool:
         return self.abort_task_failed
 
     def spawn_on_output(self, itask, output, forced=False):
-        """Spawn and update itask's children, remove itask if finished.
+        """Spawn child-tasks of given output, into the pool.
 
-        Also set a the abort-on-task-failed flag if necessary.
+        Remove the parent task from the pool if complete.
 
-        If not flowing on:
-            - update existing children but don't spawn new ones
-            - unless forced (manual command): spawn but with no flow number
+        Called by the task event manager on receiving output messages, or via
+        manual calls to set task outputs (in this case the parent task could be
+        transient, i.e. not in the pool).
+
+        Also set the abort-on-task-failed flag if necessary.
+
+        If not flowing on, update existing children but don't spawn new ones
+        (unless manually forced to spawn with no flow number).
 
         If an absolute output is completed update the store of completed abs
         outputs, and update the prerequisites of every instance of the child
-        in the pool. (And in self.spawn() use the store of completed abs
-        outputs to satisfy any tasks with abs prerequisites).
+        in the pool. (The self.spawn method uses the store of completed abs
+        outputs to satisfy any tasks with absolute prerequisites).
 
         Args:
-            tasks: List of identifiers or task globs.
-            output: Output to spawn on.
-            forced: If True this is a manual spawn command.
+            tasks: list of identifiers or task globs.
+            output: output to spawn on.
+            forced: True if called from manual set task command
 
         """
-        self.workflow_db_mgr.put_update_task_outputs(itask)
         if (
             output == TASK_OUTPUT_FAILED
             and self.expected_failed_tasks is not None
@@ -1320,10 +1332,11 @@ class TaskPool:
             TASK_OUTPUT_FAILED,
             TASK_OUTPUT_SUBMIT_FAILED,
         ]:
+            # Task finished.
             self.remove_if_complete(itask)
 
     def remove_if_complete(self, itask):
-        """Remove finished itask if required outputs are complete.
+        """Remove a finished task if required outputs are complete.
 
         Cylc 8:
             - if complete:
@@ -1339,25 +1352,32 @@ class TaskPool:
                   (C7 failed tasks don't count toward runahead limit)
         """
         if cylc.flow.flags.cylc7_back_compat:
+
             if not itask.state(TASK_STATUS_FAILED):
                 self.remove(itask, 'finished')
+
             if self.compute_runahead():
                 self.release_runahead_tasks()
-        else:
-            incomplete = itask.state.outputs.get_incomplete()
-            if incomplete:
-                # Retain as incomplete.
-                LOG.warning(
-                    f"[{itask}] did not complete required outputs:"
-                    f" {incomplete}"
-                )
-            else:
-                # Remove as completed.
-                self.remove(itask, 'finished')
-                if itask.identity == self.stop_task_id:
-                    self.stop_task_finished = True
-                if self.compute_runahead():
-                    self.release_runahead_tasks()
+
+            return
+
+        incomplete = itask.state.outputs.get_incomplete()
+        if incomplete:
+            # Retain as an incomplete task.
+            LOG.warning(
+                f"[{itask}] did not complete required outputs:"
+                f" {incomplete}"
+            )
+            return
+
+        # Complete, can remove it from the pool.
+        self.remove(itask, 'finished and complete')
+
+        if itask.identity == self.stop_task_id:
+            self.stop_task_finished = True
+
+        if self.compute_runahead():
+            self.release_runahead_tasks()
 
     def spawn_on_all_outputs(
         self, itask: TaskProxy, completed_only: bool = False
@@ -1413,12 +1433,13 @@ class TaskPool:
                 ):
                     self.rh_release_and_queue(c_task)
 
-    def can_spawn(self, name: str, point: 'PointBase') -> bool:
-        """Return True if the task with the given name & point is within
-        various workflow limits."""
+    def can_be_spawned(self, name: str, point: 'PointBase') -> bool:
+        """Return True if a requested task is spawnable, else False."""
+
         if name not in self.config.taskdefs:
             LOG.debug('No task definition %s', name)
             return False
+
         # Don't spawn outside of graph limits.
         # TODO: is it possible for initial_point to not be defined??
         # (see also the similar check + log message in scheduler.py)
@@ -1428,11 +1449,23 @@ class TaskPool:
             LOG.debug(
                 'Not spawning %s/%s: before initial cycle point', point, name)
             return False
-        elif self.config.final_point and point > self.config.final_point:
+
+        if self.config.final_point and point > self.config.final_point:
             # Only happens on manual trigger beyond FCP
             LOG.debug(
                 'Not spawning %s/%s: beyond final cycle point', point, name)
             return False
+
+        # Is it on-sequence and within recurrence bounds.
+        # TODO DUPLICATED BLOCK
+        if not self.config.get_taskdef(name).is_valid_point(point):
+            LOG.warning(
+                self.ERR_PREFIX_TASK_NOT_ON_SEQUENCE.format(
+                    name, point
+                )
+            )
+            return False
+
         return True
 
     def spawn_task(
@@ -1444,11 +1477,11 @@ class TaskPool:
         is_manual_submit: bool = False,
         flow_wait: bool = False,
     ) -> Optional[TaskProxy]:
-        """Spawn point/name. Return the spawned task, or None.
+        """Spawn and return task point/name, or None.
 
         Force arg used in manual triggering.
         """
-        if not self.can_spawn(name, point):
+        if not self.can_be_spawned(name, point):
             return None
 
         # Get submit number by flow_nums {flow_nums: submit_num, ...}
@@ -1477,12 +1510,13 @@ class TaskPool:
                 )
                 return None
 
-        # Spawn if on-sequence and within recurrence bounds.
+        # Is it on-sequence and within recurrence bounds.
+        # TODO DUPLICATED BLOCK
         taskdef = self.config.get_taskdef(name)
         if not taskdef.is_valid_point(point):
             LOG.warning(
                 self.ERR_PREFIX_TASK_NOT_ON_SEQUENCE.format(
-                    taskdef.name, point
+                    name, point
                 )
             )
             return None
@@ -1518,6 +1552,10 @@ class TaskPool:
                     f"[{itask}] won't run: depends on a task beyond "
                     f"the stop point ({self.stop_point})"
                 )
+                # TODO: future trigger overrun tasks were previously kept in
+                # the hidden task pool (for partially satisfied tasks) and
+                # ignored. But perhaps they should cause a stall?
+                return None
 
         # Satisfy any absolute triggers.
         if (
@@ -1543,8 +1581,7 @@ class TaskPool:
         self.db_add_new_flow_rows(itask)
         return itask
 
-    # TODO RENAME THIS METHOD
-    def force_spawn_children(
+    def reset(
         self,
         items: Iterable[str],
         outputs: List[str],
@@ -1553,69 +1590,109 @@ class TaskPool:
         flow_wait: bool = False,
         flow_descr: Optional[str] = None
     ):
-        """Force set prerequistes satisfied and outputs completed.
+        """Force (re)set prerequisites or outputs in target tasks.
 
         For prerequisites:
-            - spawn target task if necessary, and set the prerequisites
+            - get the target task if in the pool, or spawn it
+            - set the prerequisites, in the target task
 
         For outputs:
-            - spawn child tasks if necessary, and spawn/update prereqs of
-              children
-            - TODO: set outputs completed in the target task (DB, and task
-              proxy if already spawned - but don't spawn a new one)
+            - get target task if in the pool, and set its outputs
+            - (do not spawn it if it is not already in the pool)
+            - update the outputs in the DB
+            - get or spawn any children of the outputs
+
+        Default:
+            - set all required outputs of the target task
 
         Args:
-            items: Identifiers for matching task definitions
-            prerequisites: prerequisites to set and spawn children of
-            outputs: Outputs to set and spawn children of
-            flow: Flow numbers for spawned or updated tasks
+            items: identifiers for matching task definitions
+            prerequisites: prerequisites to set
+            outputs: outputs to set and spawn children of
+            flow: Flow numbers for spawned or merged tasks
             flow_wait: wait for flows to catch up before continuing
             flow_descr: description of new flow
 
         """
-        if not outputs and not prerequisites:
-            # Default: set all required outputs.
-            outputs = outputs or [TASK_OUTPUT_SUCCEEDED]
-
-        flow_nums = self._flow_cmd_helper(flow, flow_descr)
+        flow_nums = self._get_flow_nums(flow, flow_descr)
         if flow_nums is None:
+            # Illegal flow command opts
             return
 
-        n_warnings, task_items = self.match_taskdefs(items)
+        _, task_items = self.match_taskdefs(items)
+
         for (_, point), taskdef in sorted(task_items.items()):
-
-            itask = self._get_spawned_or_merged_task(
-                point, taskdef.name, flow_nums
-            )
-            if itask is None:
-                # Not in pool but was spawned already in this flow.
-                return
-
+            if not outputs and not prerequisites:
+                # Default: set required outputs.
+                outputs = taskdef.get_required_outputs()
             if outputs:
-                # Spawn children of outputs, add them to the pool.
-                # (Don't add the target task to pool if we just spawned it)
-                for trig, out, _ in itask.state.outputs.get_all():
-                    if trig in outputs:
-                        LOG.info(f"[{itask}] Forced spawning on {out}")
-                        self.spawn_on_output(itask, out, forced=True)
-                self.workflow_db_mgr.put_update_task_outputs(itask)
-
+                self.set_outputs(point, taskdef, outputs, flow_nums)
             if prerequisites:
-                for pre in prerequisites:
-                    m = REC_CLI_PREREQ.match(pre)
-                    if m is not None:
-                        itask.state.satisfy_me({m.groups()})
-                    else:
-                        # TODO warn here? (checked on CLI)
-                        continue
+                self.set_prereqs(point, taskdef, outputs, flow_nums)
 
-                self.data_store_mgr.delta_task_prerequisite(itask)
-                self.add_to_pool(itask)
-                if (
-                    self.runahead_limit_point is not None
-                    and itask.point <= self.runahead_limit_point
-                ):
-                    self.rh_release_and_queue(itask)
+    def set_outputs(self, point, taskdef, outputs, flow_nums):
+        """Set outputs and spawn children of a parent task."""
+
+        itask = self._get_main_task_by_id(
+            Tokens(
+                cycle=str(point),
+                task=taskdef.name
+            ).relative_id
+        )
+        if itask is not None:
+            # The parent task already exists in the pool.
+            self.merge_flows(itask, flow_nums)
+        else:
+            # The parent task is not in the pool; spawn a transient instance.
+            # No need for the correct submit number (it will never submit).
+            # No need to check if it was previously spawned in this flow (even
+            # if it was, its children might not have been).
+            itask = TaskProxy(
+                self.tokens,
+                taskdef,
+                point,
+                flow_nums,
+                submit_num=-1,
+                is_manual_submit=True,
+                flow_wait=False,
+            )
+
+        # DEBUG
+        LOG.warning(
+            f"setting outputs {outputs} for {point}/{taskdef.name}"
+        )
+
+        # Spawn children to the task pool.
+        for trig, out, _ in itask.state.outputs.get_all():
+            # (convert from output label to message).
+            if trig in outputs:
+                LOG.info(f"[{itask}] Forced spawning on {out}")
+                self.spawn_on_output(itask, out, forced=True)
+
+        # Update DB task outputs
+        self.workflow_db_mgr.put_update_task_outputs(itask)
+
+    def set_prereqs(self, point, taskdef, prereqs, flow_nums):
+        """Set prerequisites of a target task."""
+        itask = self.get_or_spawn_task(point, taskdef.name, flow_nums)
+        if itask is None:
+            # Can't spawn it, so can't set its prerequisites.
+            return
+
+        for pre in prereqs:
+            m = REC_CLI_PREREQ.match(pre)
+            if m is not None:
+                itask.state.satisfy_me({m.groups()})
+            else:
+                # TODO warn here? (checked on CLI)
+                continue
+        self.data_store_mgr.delta_task_prerequisite(itask)
+        self.add_to_pool(itask)
+        if (
+            self.runahead_limit_point is not None
+            and itask.point <= self.runahead_limit_point
+        ):
+            self.rh_release_and_queue(itask)
 
     def _get_active_flow_nums(self) -> Set[int]:
         """Return all active, or most recent previous, flow numbers.
@@ -1640,12 +1717,12 @@ class TaskPool:
             self.release_runahead_tasks()
         return len(bad_items)
 
-    def _flow_cmd_helper(
+    def _get_flow_nums(
             self,
             flow: List[str],
             flow_descr: Optional[str]
     ) -> Optional[Set[int]]:
-        """TODO"""
+        """Get correct flow numbers given user command options."""
         if set(flow).intersection({FLOW_ALL, FLOW_NEW, FLOW_NONE}):
             if len(flow) != 1:
                 LOG.warning(
@@ -1683,7 +1760,7 @@ class TaskPool:
         Queue the task if not queued, otherwise release it to run.
 
         """
-        flow_nums = self._flow_cmd_helper(flow, flow_descr)
+        flow_nums = self._get_flow_nums(flow, flow_descr)
         if flow_nums is None:
             return
 
@@ -1878,7 +1955,7 @@ class TaskPool:
 
         """
         matched, unmatched = filter_ids(
-            self.main_pool,
+            self.active_tasks,
             ids,
             warn=warn,
         )

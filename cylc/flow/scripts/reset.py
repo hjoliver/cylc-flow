@@ -16,9 +16,9 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-"""cylc set-task [OPTIONS] ARGS
+"""cylc reset [OPTIONS] ARGS
 
-Set task prerequisites or outputs.
+Manually set task prerequisites and outputs.
 
 By default, set all required outputs for target task(s).
 
@@ -39,6 +39,7 @@ Specify prerequisites in the form "point/task:message".
 from functools import partial
 from optparse import Values
 from json import dumps
+from typing import Dict
 
 from cylc.flow.exceptions import InputError
 from cylc.flow.network.client_factory import get_client
@@ -49,16 +50,9 @@ from cylc.flow.option_parsers import (
 )
 from cylc.flow.terminal import cli_function
 from cylc.flow.flow_mgr import (
-    FLOW_NONE,
-    FLOW_NEW,
-    FLOW_ALL,
-    ERR_OPT_FLOW_VAL,
-    ERR_OPT_FLOW_INT,
-    ERR_OPT_FLOW_META,
-    ERR_OPT_FLOW_WAIT,
+    add_flow_opts,
     validate_flow_opts
 )
-from cylc.flow.task_id import TaskID
 from cylc.flow.task_pool import REC_CLI_PREREQ
 from cylc.flow.scripts.show import prereqs_and_outputs_query
 
@@ -73,7 +67,7 @@ mutation (
   $flowWait: Boolean,
   $flowDescr: String,
 ) {
-  setTask (
+  reset (
     workflows: $wFlows,
     tasks: $tasks,
     prerequisites: $prerequisites,
@@ -102,7 +96,8 @@ def get_option_parser() -> COP:
         help=(
             "Set task outputs completed, along with any implied outputs."
             ' May be "all", to set all required outputs complete.'
-            " (Multiple use allowed, may be comma separated)."
+            " OUTPUT is the label (as used in the graph) not the associated"
+            " message. Multiple use allowed, may be comma separated."
         ),
         action="append", default=None, dest="outputs"
     )
@@ -112,34 +107,13 @@ def get_option_parser() -> COP:
         help=(
             "Set task prerequisites satisfied."
             ' May be "all", which is equivalent to "cylc trigger".'
-            " (Multiple use allowed, may be comma separated)."
             " Prerequisite format: 'point/task:message'."
+            " Multiple use allowed, may be comma separated."
         ),
         action="append", default=None, dest="prerequisites"
     )
 
-    parser.add_option(
-        "-f", "--flow", metavar="INT",
-        help=(
-            "Flow to attribute the outputs to. Default: all active flows."
-            " If the task is already spawned, use current flows and"
-            " merge new flow numbers if specified."
-        ),
-        action="store", default=None, dest="flow"
-    )
-
-    parser.add_option(
-        "-m", "--meta", metavar="STRING",
-        help="With --flow=new: Description of the new flow.",
-        action="store", default=None, dest="flow_descr"
-    )
-
-    parser.add_option(
-        "-w", "--wait",
-        help="Wait for merge with current active flows before continuing",
-        action="store_true", default=False, dest="flow_wait"
-    )
-
+    add_flow_opts(parser)
     return parser
 
 
@@ -153,12 +127,18 @@ def get_prerequisite_opts(options):
 
     Validation: format <point>/<name>:<qualifier>
     """
+    if options.prerequisites is None:
+        return []
+
     result = []
+
     for p in options.prerequisites:
         result += p.split(',')
+
     for p in result:
         if not REC_CLI_PREREQ.match(p):
             raise InputError(f"Bad prerequisite: {p}")
+
     return result
 
 
@@ -186,32 +166,26 @@ async def run(options: 'Values', workflow_id: str, *tokens_list) -> None:
     # Print `cylc show` info as feedback to user.
     # TODO: do this FIRST; the mutation may not (won't?) be done in time.
     opts = Values()
-    json_filter: 'Dict' = {}
+    json_filter: Dict = {}
     opts.json = False
     opts.list_prereqs = False
 
-    ret = await prereqs_and_outputs_query(
-            workflow_id,
-            tokens_list,
-            pclient,
-            opts,
-            json_filter,
-        )
+    result = await prereqs_and_outputs_query(
+        workflow_id,
+        tokens_list,
+        pclient,
+        opts,
+        json_filter,
+    )
     if opts.json:
         print(dumps(json_filter, indent=4))
     else:
-        print(ret)
-
+        print(result)
 
 
 @cli_function(get_option_parser)
 def main(parser: COP, options: 'Values', *ids) -> None:
-
-    if options.flow is None:
-        options.flow = [FLOW_ALL]  # default to all active flows
-
     validate_flow_opts(options)
-
     call_multi(
         partial(run, options),
         *ids,

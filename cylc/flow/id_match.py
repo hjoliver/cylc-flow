@@ -76,7 +76,7 @@ if TYPE_CHECKING:
 
 
 def filter_ids(
-    pool: 'List[Pool]',
+    pool: 'Pool',
     ids: 'Iterable[str]',
     *,
     warn: 'bool' = True,

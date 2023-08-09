@@ -248,10 +248,8 @@ DEAD_ENDS = {
         'cylc print has been removed; use `cylc scan --states=all`',
     'register':
         'cylc register has been removed; use cylc install or cylc play',
-    'reset':
-        'cylc reset has been replaced by cylc set-task',
     'set-outputs':
-        'cylc set-outputs has been replaced by cylc set-task',
+        'cylc set-outputs (cylc 8.0-8.2) has been replaced by cylc reset',
     'restart':
         'cylc run & cylc restart have been replaced by cylc play',
     'review':

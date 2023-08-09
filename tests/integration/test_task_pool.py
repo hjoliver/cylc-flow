@@ -682,6 +682,7 @@ async def test_restart_prereqs(
 
         # Mark 1/a as succeeded and spawn 1/z
         schd.pool.get_tasks()[0].state_reset('succeeded')
+
         schd.pool.spawn_on_output(schd.pool.get_tasks()[0], 'succeeded')
         assert list_tasks(schd) == expected_2
 
@@ -846,7 +847,7 @@ async def _test_restart_prereqs_sat():
     for itask in schd.pool.get_tasks():
         itask.state_reset('succeeded')
         schd.pool.spawn_on_output(itask, 'succeeded')
-        schd.workflow_db_mgr.put_insert_task_outputs(itask)
+        schd.workflow_db_mgr.put_update_task_outputs(itask)
         schd.pool.remove_if_complete(itask)
     schd.workflow_db_mgr.process_queued_ops()
     assert list_tasks(schd) == [
