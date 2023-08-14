@@ -18,14 +18,15 @@
 
 """cylc reset [OPTIONS] ARGS
 
-Manually set task prerequisites and outputs.
+Manually (re)set task prerequisites and outputs.
 
-By default, set all required outputs for target task(s).
+Setting (satisfying) prerequisites contributes to a task's readiness to run.
 
-Setting prerequisites contributes to the task's readiness to run.
-
-Setting outputs contributes to the task's completion, and sets the
+Setting (completing) outputs contributes to a task's completion, and sets the
 corresponding prerequisites of child tasks.
+
+Default: if no outputs or prerequisites are specified, set all required outputs
+(note: this won't set the `succeeded` output if success is optional).
 
 Setting an output also sets any implied outputs:
  - started implies submitted
