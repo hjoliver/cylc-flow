@@ -1628,7 +1628,7 @@ class TaskPool:
             if outputs:
                 self.set_outputs(point, taskdef, outputs, flow_nums)
             if prerequisites:
-                self.set_prereqs(point, taskdef, outputs, flow_nums)
+                self.set_prereqs(point, taskdef, prerequisites, flow_nums)
 
     def set_outputs(self, point, taskdef, outputs, flow_nums):
         """Set outputs and spawn children of a parent task."""
@@ -1643,19 +1643,17 @@ class TaskPool:
             # The parent task already exists in the pool.
             self.merge_flows(itask, flow_nums)
         else:
-            # The parent task is not in the pool; spawn a transient instance.
-            # No need for the correct submit number (it will never submit).
-            # No need to check if it was previously spawned in this flow (even
-            # if it was, its children might not have been).
-            itask = TaskProxy(
-                self.tokens,
-                taskdef,
+            # Spawn a transient instance of the parent.
+            itask = self.spawn_task(
+                taskdef.name,
                 point,
                 flow_nums,
-                submit_num=-1,
-                is_manual_submit=True,
-                flow_wait=False,
+                force=True,  # do it even if spawned already
             )
+            # NB even if parent was already spawned in this flow, its children
+            # might not have been. And in any case, it is transient and won't
+            # submit a job. This will log task activity (e.g. event handlers)
+            # in the prev-submit log directory.
 
         # DEBUG
         LOG.warning(
@@ -1667,10 +1665,9 @@ class TaskPool:
             # (convert from output label to message).
             if trig in outputs:
                 LOG.info(f"[{itask}] Forced spawning on {out}")
-                self.spawn_on_output(itask, out, forced=True)
-
-        # Update DB task outputs
-        self.workflow_db_mgr.put_update_task_outputs(itask)
+                # Process the output as if naturally completed: spawn children,
+                # complete the task if needed, and call event handlers.
+                self.task_events_mgr.process_message(itask, logging.INFO, out)
 
     def set_prereqs(self, point, taskdef, prereqs, flow_nums):
         """Set prerequisites of a target task."""
@@ -1682,10 +1679,11 @@ class TaskPool:
         for pre in prereqs:
             m = REC_CLI_PREREQ.match(pre)
             if m is not None:
-                itask.state.satisfy_me({m.groups()})
+                itask.satisfy_me({m.groups()})
             else:
                 # TODO warn here? (checked on CLI)
                 continue
+
         self.data_store_mgr.delta_task_prerequisite(itask)
         self.add_to_pool(itask)
         if (

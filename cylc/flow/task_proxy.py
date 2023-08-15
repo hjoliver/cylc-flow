@@ -470,3 +470,7 @@ class TaskProxy:
                 LOG.info(f"[{before}] => {self.state}")
             return True
         return False
+
+    def satisfy_me(self, prereqs):
+        for baddie in self.state.satisfy_me(prereqs):
+            LOG.warning(f"{self.identity} has no prerequisites {baddie}")

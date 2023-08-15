@@ -197,8 +197,10 @@ class TaskState:
             xtriggers as {trigger (str): satisfied (boolean), ...}.
         ._is_satisfied (boolean):
             Are prerequisites satisfied?
+            Reset None to force re-evaluation when a prereq gets satisfied.
         ._suicide_is_satisfied (boolean):
             Are prerequisites to trigger suicide satisfied?
+            Reset None to force re-evaluation when a prereq gets satisfied.
     """
 
     # Memory optimization - constrain possible attributes to this list.
@@ -310,11 +312,17 @@ class TaskState:
 
     def satisfy_me(self, all_task_outputs):
         """Attempt to get my prerequisites satisfied."""
+        goodies = set()
         for prereqs in [self.prerequisites, self.suicide_prerequisites]:
             for prereq in prereqs:
-                if prereq.satisfy_me(all_task_outputs):
+                satisfied = prereq.satisfy_me(all_task_outputs)
+                if satisfied:
                     self._is_satisfied = None
                     self._suicide_is_satisfied = None
+                for out in all_task_outputs:
+                    if out in prereq.satisfied:
+                        goodies.add(out)
+        return all_task_outputs - goodies
 
     def xtriggers_all_satisfied(self):
         """Return True if all xtriggers are satisfied."""
