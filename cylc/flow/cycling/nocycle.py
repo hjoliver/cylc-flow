@@ -99,6 +99,10 @@ class NocycleSequence(SequenceBase):
         """First point is the only point"""
         return self.point
 
+    def get_start_point(self, point):
+        """First point is the only point"""
+        return self.point
+
     def get_next_point(self, point):
         """There is no next point"""
         return None
