@@ -713,6 +713,7 @@ class Resolvers(BaseResolvers):
 
         self.schd.queue_command(
             command,
+            {},
             kwargs
         )
         return None
@@ -836,18 +837,16 @@ class Resolvers(BaseResolvers):
             prerequisites: Prerequisites to set satisfied.
             flow: Flows that spawned tasks should belong to.
         """
-        self.schd.command_queue.put(
-            (
-                "reset",
-                (tasks,),
-                {
-                    "outputs": outputs,
-                    "prerequisites": prerequisites,
-                    "flow": flow,
-                    "flow_wait": flow_wait,
-                    "flow_descr": flow_descr,
-                },
-            )
+        self.schd.queue_command(
+            "reset",
+            (tasks,),
+            {
+                "outputs": outputs,
+                "prerequisites": prerequisites,
+                "flow": flow,
+                "flow_wait": flow_wait,
+                "flow_descr": flow_descr,
+            },
         )
         return (True, 'Command queued')
 
@@ -874,17 +873,18 @@ class Resolvers(BaseResolvers):
             message: Information about outcome.
 
         """
-        self.schd.command_queue.put((
+        self.schd.queue_command(
             "stop",
             (),
-            filter_none({
-                'mode': mode,
-                'cycle_point': cycle_point,
-                'clock_time': clock_time,
-                'task': task,
-                'flow_num': flow_num,
-            }),
-        )
+            filter_none(
+                {
+                    'mode': mode,
+                    'cycle_point': cycle_point,
+                    'clock_time': clock_time,
+                    'task': task,
+                    'flow_num': flow_num,
+                }
+            )
         )
         return (True, 'Command queued')
 
@@ -915,15 +915,13 @@ class Resolvers(BaseResolvers):
                 Information about outcome.
 
         """
-        self.schd.command_queue.put(
-            (
-                "force_trigger_tasks",
-                (tasks or [],),
-                {
-                    "flow": flow,
-                    "flow_wait": flow_wait,
-                    "flow_descr": flow_descr
-                }
-            ),
+        self.schd.queue_command(
+            "force_trigger_tasks",
+            (tasks or [],),
+            {
+                "flow": flow,
+                "flow_wait": flow_wait,
+                "flow_descr": flow_descr
+            }
         )
         return (True, 'Command queued')

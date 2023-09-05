@@ -902,11 +902,20 @@ class Scheduler:
         """Return a command processing method or raise AttributeError."""
         return getattr(self, f'command_{command_name}')
 
-    def queue_command(self, command: str, kwargs: dict) -> None:
-        self.command_queue.put((
-            command,
-            tuple(kwargs.values()), {}
-        ))
+    def queue_command(
+        self,
+        name: str,
+        args: list,
+        kwargs: dict
+    ) -> None:
+        """Queue a command for action by the scheduler."""
+        self.command_queue.put(
+            (
+                name,
+                args,
+                kwargs
+            )
+        )
 
     async def process_command_queue(self) -> None:
         """Process queued commands."""
@@ -916,8 +925,7 @@ class Scheduler:
         LOG.debug(f"Processing {qsize} queued command(s)")
         while True:
             try:
-                command = self.command_queue.get(False)
-                name, args, kwargs = command
+                name, args, kwargs = self.command_queue.get(False)
             except Empty:
                 break
             args_string = ', '.join(str(a) for a in args)
@@ -1011,9 +1019,9 @@ class Scheduler:
         self.stop_mode = stop_mode
         self.update_data_store()
 
-    def command_release(self, task_globs: Iterable[str]) -> int:
+    def command_release(self, tasks: Iterable[str]) -> int:
         """Release held tasks."""
-        return self.pool.release_held_tasks(task_globs)
+        return self.pool.release_held_tasks(tasks)
 
     def command_release_hold_point(self) -> None:
         """Release all held tasks and unset workflow hold after cycle point,
@@ -1025,17 +1033,17 @@ class Scheduler:
         """Resume paused workflow."""
         self.resume_workflow()
 
-    def command_poll_tasks(self, items: List[str]) -> int:
+    def command_poll_tasks(self, tasks: List[str]) -> int:
         """Poll pollable tasks or a task or family if options are provided."""
         if self.config.run_mode('simulation'):
             return 0
-        itasks, _, bad_items = self.pool.filter_task_proxies(items)
+        itasks, _, bad_items = self.pool.filter_task_proxies(tasks)
         self.task_job_mgr.poll_task_jobs(self.workflow, itasks)
         return len(bad_items)
 
-    def command_kill_tasks(self, items: List[str]) -> int:
+    def command_kill_tasks(self, tasks: List[str]) -> int:
         """Kill all tasks or a task/family if options are provided."""
-        itasks, _, bad_items = self.pool.filter_task_proxies(items)
+        itasks, _, bad_items = self.pool.filter_task_proxies(tasks)
         if self.config.run_mode('simulation'):
             for itask in itasks:
                 if itask.state(*TASK_STATUSES_ACTIVE):
@@ -1045,9 +1053,9 @@ class Scheduler:
         self.task_job_mgr.kill_task_jobs(self.workflow, itasks)
         return len(bad_items)
 
-    def command_hold(self, task_globs: Iterable[str]) -> int:
+    def command_hold(self, tasks: Iterable[str]) -> int:
         """Hold specified tasks."""
-        return self.pool.hold_tasks(task_globs)
+        return self.pool.hold_tasks(tasks)
 
     def command_set_hold_point(self, point: str) -> None:
         """Hold all tasks after the specified cycle point."""
@@ -1073,9 +1081,9 @@ class Scheduler:
             raise CommandFailedError(exc)
         cylc.flow.flags.verbosity = log_level_to_verbosity(lvl)
 
-    def command_remove_tasks(self, items) -> int:
+    def command_remove_tasks(self, tasks) -> int:
         """Remove tasks."""
-        return self.pool.remove_tasks(items)
+        return self.pool.remove_tasks(tasks)
 
     async def command_reload_workflow(self) -> None:
         """Reload workflow configuration."""
@@ -2128,20 +2136,20 @@ class Scheduler:
         self.workflow_db_mgr.put_workflow_paused(False)
         self.update_data_store()
 
-    def command_force_trigger_tasks(self, items, flow, flow_wait, flow_descr):
+    def command_force_trigger_tasks(self, tasks, flow, flow_wait, flow_descr):
         """Manual task trigger."""
         return self.pool.force_trigger_tasks(
-            items, flow, flow_wait, flow_descr)
+            tasks, flow, flow_wait, flow_descr)
 
     def command_reset(
-        self, items, outputs, prerequisites, flow, flow_wait, flow_descr
+        self, tasks, outputs, prerequisites, flow, flow_wait, flow_descr
     ):
         """Force spawn task successors.
 
         User-facing method name: reset.
         """
         return self.pool.reset(
-            items, outputs, prerequisites, flow, flow_wait, flow_descr
+            tasks, outputs, prerequisites, flow, flow_wait, flow_descr
         )
 
     def _update_profile_info(self, category, amount, amount_format="%s"):
