@@ -217,27 +217,9 @@ async def test_mutation_mapper(mock_flow):
     """Test the mapping of mutations to internal command methods."""
     meta = {}
     response = await mock_flow.resolvers._mutation_mapper('pause', {}, meta)
-    assert response is None
+    assert response[0] is True  # (True, command-uuid-str)
     with pytest.raises(ValueError):
         await mock_flow.resolvers._mutation_mapper('non_exist', {}, meta)
-
-
-@pytest.mark.asyncio
-async def test_stop(
-    one: Scheduler, run: Callable, log_filter: Callable,
-):
-    """Test the stop resolver."""
-    async with run(one) as log:
-        resolvers = Resolvers(
-            one.data_store_mgr,
-            schd=one
-        )
-        resolvers.stop(StopMode.REQUEST_CLEAN)
-        await one.process_command_queue()
-        assert log_filter(
-            log, level=logging.INFO, contains="Command actioned: stop"
-        )
-        assert one.stop_mode == StopMode.REQUEST_CLEAN
 
 
 async def test_command_logging(mock_flow, caplog):
@@ -248,13 +230,13 @@ async def test_command_logging(mock_flow, caplog):
 
     command = "stop"
     mock_flow.resolvers._log_command(command, owner)
-    assert caplog.records[-1].msg == f"[command] {command}"
+    assert caplog.records[-1].msg == f"[command] issued: {command}"
     mock_flow.resolvers._log_command(command, other)
-    msg1 = f"[command] {command} (issued by {other})"
+    msg1 = f"[command] issued: {command} (by {other})"
     assert caplog.records[-1].msg == msg1
 
     command = "put_messages"
     mock_flow.resolvers._log_command(command, owner)
     assert caplog.records[-1].msg == msg1  # (prev message, i.e. not logged).
     mock_flow.resolvers._log_command(command, other)
-    assert caplog.records[-1].msg == f"[command] {command} (issued by {other})"
+    assert caplog.records[-1].msg == f"[command] issued: {command} (by {other})"

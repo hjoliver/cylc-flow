@@ -25,22 +25,22 @@ Setting (satisfying) prerequisites contributes to a task's readiness to run.
 Setting (completing) outputs contributes to a task's completion, and sets the
 corresponding prerequisites of child tasks.
 
-Default: if no outputs or prerequisites are specified, set all required outputs
-(note: this won't set the `succeeded` output if success is optional).
+Default (no outputs or prerequisites given): set all required outputs.
+(Note: this won't set the `succeeded` output if success is optional!).
 
 Setting an output also sets any implied outputs:
  - started implies submitted
  - succeeded and failed imply started
  - custom outputs and expired do not imply any other outputs
 
-Specify prerequisites in the form "point/task:message".
+Specify prerequisites in the form: "point/task:message".
+
+Specify outputs by the label in the graph, not the corresponding task message.
 
 """
 
 from functools import partial
 from optparse import Values
-from json import dumps
-from typing import Dict
 
 from cylc.flow.exceptions import InputError
 from cylc.flow.network.client_factory import get_client
@@ -55,7 +55,6 @@ from cylc.flow.flow_mgr import (
     validate_flow_opts
 )
 from cylc.flow.task_pool import REC_CLI_PREREQ
-from cylc.flow.scripts.show import prereqs_and_outputs_query
 
 
 MUTATION = '''
@@ -95,10 +94,9 @@ def get_option_parser() -> COP:
     parser.add_option(
         "-o", "--out", "--output", metavar="OUTPUT(s)",
         help=(
-            "Set task outputs completed, along with any implied outputs."
-            ' May be "all", to set all required outputs complete.'
+            "Set task outputs complete, along with any implied outputs."
             " OUTPUT is the label (as used in the graph) not the associated"
-            " message. Multiple use allowed, may be comma separated."
+            " message. Multiple use allowed, items may be comma separated."
         ),
         action="append", default=None, dest="outputs"
     )
@@ -107,9 +105,9 @@ def get_option_parser() -> COP:
         "-p", "--pre", "--prerequisite", metavar="PREREQUISITE(s)",
         help=(
             "Set task prerequisites satisfied."
-            ' May be "all", which is equivalent to "cylc trigger".'
-            " Prerequisite format: 'point/task:message'."
-            " Multiple use allowed, may be comma separated."
+            " PREREQUISITE format: 'point/task:message'."
+            " Multiple use allowed, items may be comma separated. See also"
+            " `cylc trigger` (equivalent to setting all prerequisites)."
         ),
         action="append", default=None, dest="prerequisites"
     )
@@ -163,25 +161,6 @@ async def run(options: 'Values', workflow_id: str, *tokens_list) -> None:
     }
 
     await pclient.async_request('graphql', mutation_kwargs)
-
-    # Print `cylc show` info as feedback to user.
-    # TODO: do this FIRST; the mutation may not (won't?) be done in time.
-    opts = Values()
-    json_filter: Dict = {}
-    opts.json = False
-    opts.list_prereqs = False
-
-    result = await prereqs_and_outputs_query(
-        workflow_id,
-        tokens_list,
-        pclient,
-        opts,
-        json_filter,
-    )
-    if opts.json:
-        print(dumps(json_filter, indent=4))
-    else:
-        print(result)
 
 
 @cli_function(get_option_parser)

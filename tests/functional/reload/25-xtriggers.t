@@ -60,11 +60,21 @@ workflow_run_ok "${TEST_NAME_BASE}-run" cylc play "${WORKFLOW_NAME}" --no-detach
 # 3. the retry xtrigger for "1/broken" becomes satisfied (after the reload)
 #    (thus proving that the xtrigger survived the reload)
 # 4. "1/broken" succeeds
+
 log_scan "${TEST_NAME_BASE}-scan" \
     "$(cylc cat-log -m p "${WORKFLOW_NAME}")" \
     1 1 \
-    '1/broken .* (received)failed/ERR' \
-    'Command actioned: reload_workflow()' \
+    '1/broken .* (received)failed/ERR'
+
+LOG_SCAN_GREP_OPTS="-E" \
+log_scan "${TEST_NAME_BASE}-scan" \
+    "$(cylc cat-log -m p "${WORKFLOW_NAME}")" \
+    1 1 \
+    '\[command] actioned.*reload_workflow' \
+
+log_scan "${TEST_NAME_BASE}-scan" \
+    "$(cylc cat-log -m p "${WORKFLOW_NAME}")" \
+    1 1 \
     'xtrigger satisfied: _cylc_retry_1/broken' \
     '\[1/broken .* => succeeded'
 

@@ -44,7 +44,7 @@ ERR_OPT_FLOW_WAIT = (
 def add_flow_opts(parser):
     parser.add_option(
         "--flow", action="append", dest="flow", metavar="FLOW",
-        help=f'Assign the triggered task to all active flows ("{FLOW_ALL}");'
+        help=f'Assign new tasks to all active flows ("{FLOW_ALL}");'
              f' no flow ("{FLOW_NONE}"); a new flow ("{FLOW_NEW}");'
              f' or a specific flow (e.g. "2"). The default is "{FLOW_ALL}".'
              ' Reuse the option to assign multiple specific flows.'
@@ -53,7 +53,7 @@ def add_flow_opts(parser):
     parser.add_option(
         "--meta", metavar="DESCRIPTION", action="store",
         dest="flow_descr", default=None,
-        help=f"description of triggered flow (with --flow={FLOW_NEW})."
+        help=f"description of new flow (with --flow={FLOW_NEW})."
     )
 
     parser.add_option(

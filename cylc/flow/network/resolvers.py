@@ -700,10 +700,7 @@ class Resolvers(BaseResolvers):
         )
         method = getattr(self, command, None)
         if method is not None:
-            return (
-                True,
-                method(**kwargs)
-            )
+            return method(**kwargs)
 
         try:
             self.schd.get_command_method(command)

@@ -919,7 +919,7 @@ class Scheduler:
         sep = ', ' if kwargs_string and args_string else ''
         uuid = str(uuid4())
         LOG.info(
-            f"[command] queued {uuid}:\n"
+            f"[command] queued: {uuid}:\n"
             f"{name}({args_string}{sep}{kwargs_string})"
         )
         self.command_queue.put(
@@ -947,7 +947,7 @@ class Scheduler:
                 uuid, name, args, kwargs = self.command_queue.get(False)
             except Empty:
                 break
-            msg = f"[command] actioned {uuid} ({name})"
+            msg = f"[command] actioned: {uuid} ({name})"
             try:
                 fcn = self.get_command_method(name)
                 n_warnings: Optional[int]
@@ -1085,10 +1085,10 @@ class Scheduler:
         self.pause_workflow()
 
     @staticmethod
-    def command_set_verbosity(lvl: Union[int, str]) -> None:
+    def command_set_verbosity(level: Union[int, str]) -> None:
         """Set workflow verbosity."""
         try:
-            lvl = int(lvl)
+            lvl = int(level)
             LOG.setLevel(lvl)
         except (TypeError, ValueError) as exc:
             raise CommandFailedError(exc)
