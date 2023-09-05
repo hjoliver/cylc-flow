@@ -202,7 +202,7 @@ class Prerequisite:
         """
         # In Cylc 8 SOD we don't need to filter for relevant prerequisites.
         # This only gets called for known prerequisites, except in bad or
-        # overly wide manual "cylc reset" calls.
+        # overly wide manual "cylc set" calls.
 
         satisfied = True
         for message in all_task_outputs:

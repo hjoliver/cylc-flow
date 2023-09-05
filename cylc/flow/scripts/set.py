@@ -16,26 +16,37 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-"""cylc reset [OPTIONS] ARGS
+"""cylc set [OPTIONS] ARGS
 
-Manually (re)set task prerequisites and outputs.
+Override task status in a running workflow.
 
-Setting (satisfying) prerequisites contributes to a task's readiness to run.
+By default (no options) this command sets all required outputs in target tasks.
+(Note this won't set the `succeeded` output if it is not a required output!)
 
-Setting (completing) outputs contributes to a task's completion, and sets the
-corresponding prerequisites of child tasks.
+With `--pre`, bring tasks into the active window with specified prequisites,
+if any, satisfied. This affects task readiness to run. It does not override
+clock triggers, xtriggers, or task hold.
 
-Default (no outputs or prerequisites given): set all required outputs.
-(Note: this won't set the `succeeded` output if success is optional!).
+With `--out`, complete specified outputs. This affects task completion.
+It also sets the prerequisites of downstream tasks that depend on those outputs,
+and any implied outputs (started implies submitted; succeeded and failed imply
+started; custom outputs and expired do not imply any other outputs).
 
-Setting an output also sets any implied outputs:
- - started implies submitted
- - succeeded and failed imply started
- - custom outputs and expired do not imply any other outputs
+Examples:
 
-Specify prerequisites in the form: "point/task:message".
+Satisfy all required outputs of `3/bar`:
+  cylc set my-workflow//3/bar
 
-Specify outputs by the label in the graph, not the corresponding task message.
+Satisfy the succeeded output of `3/bar`:
+  cylc set my-workflow//3/bar succeeded
+
+Bring `3/bar` to the active window with its dependence on `3/foo` satisfied:
+  cylc set --pre=3/foo:succeeded my-workflow//3/bar
+
+Bring `3/bar` to the active window with all prerequisites (if any satisfied)
+to start checking on clock and xtriggers, and task expiry:
+
+  cylc set --pre=all my-workflow//3/bar
 
 """
 

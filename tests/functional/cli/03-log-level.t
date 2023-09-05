@@ -15,13 +15,13 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #-------------------------------------------------------------------------------
-# Test "cylc set-verbosity"
+# Test "cylc log-level"
 . "$(dirname "$0")/test_header"
 set_test_number 6
 
 # Test illegal log level
 TEST_NAME="${TEST_NAME_BASE}-bad"
-run_fail "$TEST_NAME" cylc set-verbosity duck quack
+run_fail "$TEST_NAME" cylc log-level duck quack
 grep_ok 'InputError: Illegal logging level, duck' "${TEST_NAME}.stderr"
 
 # Test good log level
@@ -37,10 +37,10 @@ __FLOW__
 run_ok "${TEST_NAME}-validate" cylc validate "$WORKFLOW_NAME"
 workflow_run_ok "${TEST_NAME}-run" cylc play --pause "$WORKFLOW_NAME"
 
-run_ok "$TEST_NAME" cylc set-verbosity DEBUG "$WORKFLOW_NAME"
+run_ok "$TEST_NAME" cylc log-level DEBUG "$WORKFLOW_NAME"
 LOG_SCAN_GREP_OPTS="-E" \
   log_scan "${TEST_NAME}-grep" "${WORKFLOW_RUN_DIR}/log/scheduler/log" 5 1 \
-    '\[command] actioned.*set_verbosity'
+    '\[command] actioned.*set_log_level'
 
 cylc stop "$WORKFLOW_NAME"
 purge

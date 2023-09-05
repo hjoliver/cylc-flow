@@ -249,7 +249,7 @@ DEAD_ENDS = {
     'register':
         'cylc register has been removed; use cylc install or cylc play',
     'set-outputs':
-        'cylc set-outputs (cylc 8.0-8.2) has been replaced by cylc reset',
+        'cylc set-outputs (cylc 8.0-8.2) has been replaced by cylc set',
     'restart':
         'cylc run & cylc restart have been replaced by cylc play',
     'review':
@@ -267,6 +267,8 @@ DEAD_ENDS = {
         'cylc submit has been removed',
     'start':
         'cylc start & cylc restart have been replaced by cylc play',
+    'set-verbosity':
+        'cylc set-verbosity has been replaced by cylc log-level',
     'warranty':
         'cylc warranty has been replaced by cylc help license',
 }

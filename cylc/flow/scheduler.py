@@ -910,7 +910,7 @@ class Scheduler:
     ) -> str:
         """Queue a command for action by the scheduler.
 
-        Return a unique ID for the command.
+        Return a unique command ID for provenance tracking.
         """
         args_string = ', '.join(str(a) for a in args)
         kwargs_string = ', '.join(

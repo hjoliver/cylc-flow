@@ -145,9 +145,6 @@ def filter_ids(
             if tokens.get(lowest_token.value):
                 break
 
-        # This was a set to avoid getting two copies of matched tasks in cycle
-        # points that appeared in both the hidden and main pools.
-        # TODO: the hidden pool no longer exists.
         cycles = set()
         tasks = []
 
