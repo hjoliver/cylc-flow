@@ -907,15 +907,30 @@ class Scheduler:
         name: str,
         args: list,
         kwargs: dict
-    ) -> None:
-        """Queue a command for action by the scheduler."""
+    ) -> str:
+        """Queue a command for action by the scheduler.
+
+        Return a unique ID for the command.
+        """
+        args_string = ', '.join(str(a) for a in args)
+        kwargs_string = ', '.join(
+            f"{key}={value}" for key, value in kwargs.items()
+        )
+        sep = ', ' if kwargs_string and args_string else ''
+        uuid = uuid4()
+        LOG.info(
+            f"[command] queued {uuid}:\n"
+            f"{name}({args_string}{sep}{kwargs_string})"
+        )
         self.command_queue.put(
             (
+                uuid,
                 name,
                 args,
-                kwargs
+                kwargs,
             )
         )
+        return str(uuid)
 
     async def process_command_queue(self) -> None:
         """Process queued commands."""
@@ -925,15 +940,10 @@ class Scheduler:
         LOG.debug(f"Processing {qsize} queued command(s)")
         while True:
             try:
-                name, args, kwargs = self.command_queue.get(False)
+                uuid, name, args, kwargs = self.command_queue.get(False)
             except Empty:
                 break
-            args_string = ', '.join(str(a) for a in args)
-            kwargs_string = ', '.join(
-                f"{key}={value}" for key, value in kwargs.items()
-            )
-            sep = ', ' if kwargs_string and args_string else ''
-            cmdstr = f"{name}({args_string}{sep}{kwargs_string})"
+            msg = f"[command] actioned {uuid} ({name})"
             try:
                 fcn = self.get_command_method(name)
                 n_warnings: Optional[int]
@@ -948,15 +958,14 @@ class Scheduler:
                     not isinstance(exc, CommandFailedError)
                 ):
                     LOG.error(traceback.format_exc())
-                LOG.error(f"Command failed: {cmdstr}\n{exc}")
+                LOG.error(f"{msg} failed:\n{exc}")
             else:
                 if n_warnings:
                     LOG.info(
-                        f"Command actioned with {n_warnings} warning(s): "
-                        f"{cmdstr}"
+                        f"{msg} with {n_warnings} warnings"
                     )
                 else:
-                    LOG.info(f"Command actioned: {cmdstr}")
+                    LOG.info(f"{msg}")
                 self.is_updated = True
             self.command_queue.task_done()
 

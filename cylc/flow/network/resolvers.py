@@ -688,14 +688,14 @@ class Resolvers(BaseResolvers):
         if command == 'put_messages' and is_owner:
             # Logging put_messages is overkill.
             return
-        log_msg = f"[command] {command}"
+        log_msg = f"[command] received: {command}"
         if not is_owner:
             log_msg += (f" (issued by {user})")
         LOG.info(log_msg)
 
     async def _mutation_mapper(
         self, command: str, kwargs: Dict[str, Any], meta: Dict[str, Any]
-    ) -> Optional[Tuple[bool, str]]:
+    ) -> Tuple[bool, str]:
         """Map between GraphQL resolvers and internal command interface."""
 
         self._log_command(
@@ -704,19 +704,24 @@ class Resolvers(BaseResolvers):
         )
         method = getattr(self, command, None)
         if method is not None:
-            return method(**kwargs)
+            return (
+                method(**kwargs),
+                "Command queued"
+            )
 
         try:
             self.schd.get_command_method(command)
         except AttributeError:
             raise ValueError(f"Command '{command}' not found")
 
-        self.schd.queue_command(
-            command,
-            {},
-            kwargs
+        return (
+            self.schd.queue_command(
+                command,
+                {},
+                kwargs
+            ),
+            "Command queued"
         )
-        return None
 
     def broadcast(
         self,
@@ -837,18 +842,20 @@ class Resolvers(BaseResolvers):
             prerequisites: Prerequisites to set satisfied.
             flow: Flows that spawned tasks should belong to.
         """
-        self.schd.queue_command(
-            "reset",
-            (tasks,),
-            {
-                "outputs": outputs,
-                "prerequisites": prerequisites,
-                "flow": flow,
-                "flow_wait": flow_wait,
-                "flow_descr": flow_descr,
-            },
+        return (
+            self.schd.queue_command(
+                "reset",
+                (tasks,),
+                {
+                    "outputs": outputs,
+                    "prerequisites": prerequisites,
+                    "flow": flow,
+                    "flow_wait": flow_wait,
+                    "flow_descr": flow_descr,
+                }
+            ),
+            "Command queued"
         )
-        return (True, 'Command queued')
 
     def stop(
         self,
@@ -873,20 +880,22 @@ class Resolvers(BaseResolvers):
             message: Information about outcome.
 
         """
-        self.schd.queue_command(
-            "stop",
-            (),
-            filter_none(
-                {
-                    'mode': mode,
-                    'cycle_point': cycle_point,
-                    'clock_time': clock_time,
-                    'task': task,
-                    'flow_num': flow_num,
-                }
-            )
+        return (
+            self.schd.queue_command(
+                "stop",
+                (),
+                filter_none(
+                    {
+                        'mode': mode,
+                        'cycle_point': cycle_point,
+                        'clock_time': clock_time,
+                        'task': task,
+                        'flow_num': flow_num,
+                    }
+                )
+            ),
+            "Command queued"
         )
-        return (True, 'Command queued')
 
     def force_trigger_tasks(
         self,
@@ -915,13 +924,16 @@ class Resolvers(BaseResolvers):
                 Information about outcome.
 
         """
-        self.schd.queue_command(
-            "force_trigger_tasks",
-            (tasks or [],),
-            {
-                "flow": flow,
-                "flow_wait": flow_wait,
-                "flow_descr": flow_descr
-            }
+        return (
+            self.schd.queue_command(
+                "force_trigger_tasks",
+                (tasks or [],),
+                {
+                    "flow": flow,
+                    "flow_wait": flow_wait,
+                    "flow_descr": flow_descr
+                }
+            ),
+            "Command queued"
         )
         return (True, 'Command queued')
