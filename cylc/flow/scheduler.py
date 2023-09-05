@@ -222,7 +222,7 @@ class Scheduler:
     flow_mgr: FlowMgr
 
     # queues
-    command_queue: 'Queue[Tuple[str, tuple, dict]]'
+    command_queue: 'Queue[Tuple[str, str, list, dict]]'
     message_queue: 'Queue[TaskMsg]'
     ext_trigger_queue: Queue
 
@@ -917,7 +917,7 @@ class Scheduler:
             f"{key}={value}" for key, value in kwargs.items()
         )
         sep = ', ' if kwargs_string and args_string else ''
-        uuid = uuid4()
+        uuid = str(uuid4())
         LOG.info(
             f"[command] queued {uuid}:\n"
             f"{name}({args_string}{sep}{kwargs_string})"
@@ -930,7 +930,7 @@ class Scheduler:
                 kwargs,
             )
         )
-        return str(uuid)
+        return uuid
 
     async def process_command_queue(self) -> None:
         """Process queued commands."""
@@ -939,6 +939,10 @@ class Scheduler:
             return
         LOG.debug(f"Processing {qsize} queued command(s)")
         while True:
+            uuid: str
+            name: str
+            args: list
+            kwargs: dict
             try:
                 uuid, name, args, kwargs = self.command_queue.get(False)
             except Empty:
@@ -1042,7 +1046,7 @@ class Scheduler:
         """Resume paused workflow."""
         self.resume_workflow()
 
-    def command_poll_tasks(self, tasks: List[str]) -> int:
+    def command_poll_tasks(self, tasks: Iterable[str]) -> int:
         """Poll pollable tasks or a task or family if options are provided."""
         if self.config.run_mode('simulation'):
             return 0
@@ -1050,7 +1054,7 @@ class Scheduler:
         self.task_job_mgr.poll_task_jobs(self.workflow, itasks)
         return len(bad_items)
 
-    def command_kill_tasks(self, tasks: List[str]) -> int:
+    def command_kill_tasks(self, tasks: Iterable[str]) -> int:
         """Kill all tasks or a task/family if options are provided."""
         itasks, _, bad_items = self.pool.filter_task_proxies(tasks)
         if self.config.run_mode('simulation'):
@@ -1090,7 +1094,7 @@ class Scheduler:
             raise CommandFailedError(exc)
         cylc.flow.flags.verbosity = log_level_to_verbosity(lvl)
 
-    def command_remove_tasks(self, tasks) -> int:
+    def command_remove_tasks(self, tasks: Iterable[str]) -> int:
         """Remove tasks."""
         return self.pool.remove_tasks(tasks)
 
@@ -2145,13 +2149,25 @@ class Scheduler:
         self.workflow_db_mgr.put_workflow_paused(False)
         self.update_data_store()
 
-    def command_force_trigger_tasks(self, tasks, flow, flow_wait, flow_descr):
+    def command_force_trigger_tasks(
+        self,
+        tasks: Iterable[str],
+        flow: List[str],
+        flow_wait: bool = False,
+        flow_descr: Optional[str] = None
+    ):
         """Manual task trigger."""
         return self.pool.force_trigger_tasks(
             tasks, flow, flow_wait, flow_descr)
 
     def command_reset(
-        self, tasks, outputs, prerequisites, flow, flow_wait, flow_descr
+        self,
+        tasks: List[str],
+        flow: List[str],
+        outputs: Optional[List[str]] = None,
+        prerequisites: Optional[List[str]] = None,
+        flow_wait: bool = False,
+        flow_descr: Optional[str] = None
     ):
         """Force spawn task successors.
 

@@ -1584,8 +1584,8 @@ class TaskPool:
     def reset(
         self,
         items: Iterable[str],
-        outputs: List[str],
-        prerequisites: List[str],
+        outputs: Optional[List[str]],
+        prerequisites: Optional[List[str]],
         flow: List[str],
         flow_wait: bool = False,
         flow_descr: Optional[str] = None
