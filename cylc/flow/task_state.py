@@ -332,6 +332,12 @@ class TaskState:
         """Return True if all external triggers are satisfied."""
         return all(self.external_triggers.values())
 
+    def set_all_satisfied(self):
+        """Set all my prerequisites satisfied."""
+        for p in self.prerequisites:
+            p.set_satisfied()
+        self._is_satisfied = True
+
     def prerequisites_all_satisfied(self):
         """Return True if (non-suicide) prerequisites are fully satisfied."""
         if self._is_satisfied is None:

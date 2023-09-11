@@ -1676,13 +1676,14 @@ class TaskPool:
             # Can't spawn it, so can't set its prerequisites.
             return
 
-        for pre in prereqs:
-            m = REC_CLI_PREREQ.match(pre)
-            if m is not None:
-                itask.satisfy_me({m.groups()})
-            else:
-                # TODO warn here? (checked on CLI)
-                continue
+        if prereqs == ["all"]:
+            itask.state.set_all_satisfied()
+        else:
+            for pre in prereqs:
+                m = REC_CLI_PREREQ.match(pre)
+                if m is not None:
+                    itask.satisfy_me({m.groups()})
+                # (regex already checked in the CLI)
 
         self.data_store_mgr.delta_task_prerequisite(itask)
         self.add_to_pool(itask)

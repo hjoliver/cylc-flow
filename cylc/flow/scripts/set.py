@@ -18,35 +18,34 @@
 
 """cylc set [OPTIONS] ARGS
 
-Override task status in a running workflow.
+Override task status in a running workflow by setting outputs (`--out=...`), or
+setting prerequisites and promoting tasks to the active window (`--pre=...`).
 
-By default (no options) this command sets all required outputs in target tasks.
-(Note this won't set the `succeeded` output if it is not a required output!)
+By default, it sets all required outputs. (Note this won't set the `succeeded`
+output unless succeeded is a required output!)
 
-With `--pre`, bring tasks into the active window with specified prequisites,
-if any, satisfied. This affects task readiness to run. It does not override
-clock triggers, xtriggers, or task hold.
+Setting prerequisites contributes to a task's readiness to run. It does not
+override clock triggers, xtriggers, or task hold (in fact these will be
+activated by promoting the task to the scheduler's active window).
 
-With `--out`, complete specified outputs. This affects task completion.
-It also sets the prerequisites of downstream tasks that depend on those outputs,
-and any implied outputs (started implies submitted; succeeded and failed imply
-started; custom outputs and expired do not imply any other outputs).
+Setting outputs affects task completion, and it sets the prerequisites of
+downstream tasks that depend on those outputs. It also sets implied outputs:
+started implies submitted; succeeded and failed imply started; custom outputs
+and expired do not imply other outputs.
 
 Examples:
 
-Satisfy all required outputs of `3/bar`:
-  cylc set my-workflow//3/bar
+  # satisfy all required outputs of `3/bar`:
+  $ cylc set my-workflow//3/bar
 
-Satisfy the succeeded output of `3/bar`:
-  cylc set my-workflow//3/bar succeeded
+  $ satisfy the succeeded output of `3/bar`:
+  # cylc set my-workflow//3/bar succeeded
 
-Bring `3/bar` to the active window with its dependence on `3/foo` satisfied:
-  cylc set --pre=3/foo:succeeded my-workflow//3/bar
+  # bring `3/bar` to the active window with dependence on `3/foo` satisfied:
+  $ cylc set --pre=3/foo:succeeded my-workflow//3/bar
 
-Bring `3/bar` to the active window with all prerequisites (if any satisfied)
-to start checking on clock and xtriggers, and task expiry:
-
-  cylc set --pre=all my-workflow//3/bar
+  # bring `3/bar` to the active window with any/all prerequisites satisfied:
+  $ cylc set --pre=all my-workflow//3/bar
 
 """
 
@@ -117,8 +116,8 @@ def get_option_parser() -> COP:
         help=(
             "Set task prerequisites satisfied."
             " PREREQUISITE format: 'point/task:message'."
-            " Multiple use allowed, items may be comma separated. See also"
-            " `cylc trigger` (equivalent to setting all prerequisites)."
+            " Multiple use allowed, items may be comma separated."
+            " Use 'all' to satisfy any and all prerequisites."
         ),
         action="append", default=None, dest="prerequisites"
     )
@@ -145,8 +144,13 @@ def get_prerequisite_opts(options):
     for p in options.prerequisites:
         result += p.split(',')
 
+    if "all" in result:
+        if len(result) != 1:
+            raise InputError("--pre=all must be used alone")
+        return result
+
     for p in result:
-        if not REC_CLI_PREREQ.match(p):
+        if REC_CLI_PREREQ.match(p):
             raise InputError(f"Bad prerequisite: {p}")
 
     return result

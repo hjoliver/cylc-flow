@@ -47,7 +47,7 @@ def add_flow_opts(parser):
         help=f'Assign new tasks to all active flows ("{FLOW_ALL}");'
              f' no flow ("{FLOW_NONE}"); a new flow ("{FLOW_NEW}");'
              f' or a specific flow (e.g. "2"). The default is "{FLOW_ALL}".'
-             ' Reuse the option to assign multiple specific flows.'
+             ' Reuse the option to assign multiple flow numbers.'
     )
 
     parser.add_option(
