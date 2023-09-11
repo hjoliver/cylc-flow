@@ -16,7 +16,6 @@
 
 """Wrangle task proxies to manage the workflow."""
 
-import re
 from contextlib import suppress
 from collections import Counter
 import json
@@ -74,6 +73,7 @@ from cylc.flow.task_queues.independent import IndepQueueManager
 
 from cylc.flow.flow_mgr import FLOW_ALL, FLOW_NONE, FLOW_NEW
 
+
 if TYPE_CHECKING:
     from queue import Queue
     from cylc.flow.config import WorkflowConfig
@@ -84,16 +84,8 @@ if TYPE_CHECKING:
     from cylc.flow.workflow_db_mgr import WorkflowDatabaseManager
     from cylc.flow.flow_mgr import FlowMgr, FlowNums
 
+
 Pool = Dict['PointBase', Dict[str, TaskProxy]]
-
-
-# CLI prerequisite pattern: point/name:label
-REC_CLI_PREREQ = re.compile(
-    rf"({TaskID.POINT_RE})" +
-    rf"{TaskID.DELIM2}" +
-    rf"({TaskID.NAME_RE})" +
-    r':' + r'(\w+)'  # TODO: formally define qualifier RE?
-)
 
 
 class TaskPool:
@@ -1679,11 +1671,16 @@ class TaskPool:
         if prereqs == ["all"]:
             itask.state.set_all_satisfied()
         else:
-            for pre in prereqs:
-                m = REC_CLI_PREREQ.match(pre)
-                if m is not None:
-                    itask.satisfy_me({m.groups()})
-                # (regex already checked in the CLI)
+            # Pass individual prerequisites to itask.
+            itask.satisfy_me(
+                {
+                    (t['cycle'], t['task'], t['task_sel'])
+                    for t in [
+                        Tokens(p, relative=True)
+                        for p in prereqs
+                    ]
+                }
+            )
 
         self.data_store_mgr.delta_task_prerequisite(itask)
         self.add_to_pool(itask)

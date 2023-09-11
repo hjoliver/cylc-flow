@@ -268,7 +268,7 @@ DEAD_ENDS = {
     'start':
         'cylc start & cylc restart have been replaced by cylc play',
     'set-verbosity':
-        'cylc set-verbosity has been replaced by cylc log-level',
+        'cylc set-verbosity has been replaced by cylc verbosity',
     'warranty':
         'cylc warranty has been replaced by cylc help license',
 }

@@ -16,9 +16,9 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-"""cylc log-level [OPTIONS] ARGS
+"""cylc verbosity [OPTIONS] ARGS
 
-Set the Python logging level of a running scheduler.
+Set the logging severity level of a running scheduler.
 
 Messages at or above the chosen level are logged. If you choose
 WARNING (say) only WARNING and CRITICAL messages will be logged.

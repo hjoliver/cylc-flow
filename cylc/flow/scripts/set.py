@@ -59,12 +59,12 @@ from cylc.flow.option_parsers import (
     FULL_ID_MULTI_ARG_DOC,
     CylcOptionParser as COP,
 )
+from cylc.flow.id import Tokens
 from cylc.flow.terminal import cli_function
 from cylc.flow.flow_mgr import (
     add_flow_opts,
     validate_flow_opts
 )
-from cylc.flow.task_pool import REC_CLI_PREREQ
 
 
 MUTATION = '''
@@ -126,6 +126,29 @@ def get_option_parser() -> COP:
     return parser
 
 
+def validate_prereq(prereq: str) -> bool:
+    """Return True prereq string is valid, else False.
+
+    Examples:
+        Good prerequisite:
+        >>> validate_prereq('1/foo:succeeded')
+        True
+
+        Bad prerequisite:
+        >>> validate_prereq('1/foo::succeeded')
+        False
+
+        (That's sufficient, Tokens is fully tested elsewhere).
+
+    """
+    try:
+        Tokens(prereq)
+    except ValueError:
+        return False
+    else:
+        return True
+
+
 def get_prerequisite_opts(options):
     """Convert prerequisite inputs to a single list, and validate.
 
@@ -149,9 +172,14 @@ def get_prerequisite_opts(options):
             raise InputError("--pre=all must be used alone")
         return result
 
-    for p in result:
-        if REC_CLI_PREREQ.match(p):
-            raise InputError(f"Bad prerequisite: {p}")
+    msg = '\n'.join(
+        [
+            p for p in result
+            if not validate_prereq(p)
+        ]
+    )
+    if msg:
+        raise InputError(f"Invalid prerequisite(s):\n{msg}")
 
     return result
 
