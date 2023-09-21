@@ -184,6 +184,7 @@ class TaskPool:
             tdef = self.config.get_taskdef(name)
             point = tdef.first_point(self.config.start_point)
             self.spawn_to_rh_limit(tdef, point, {flow_num})
+        self.release_runahead_tasks()
 
     def db_add_new_flow_rows(self, itask: TaskProxy) -> None:
         """Add new rows to DB task tables that record flow_nums.
@@ -263,8 +264,11 @@ class TaskPool:
         Return True if any tasks are released, else False.
         Call when RH limit changes.
         """
-        if not self.main_pool or not self.runahead_limit_point:
-            # (At start-up main pool might not exist yet)
+        if not self.main_pool:
+            # at start-up
+            return False
+
+        if not self.runahead_limit_point and not self.compute_runahead():
             return False
 
         released = False
@@ -281,11 +285,6 @@ class TaskPool:
 
         for itask in release_me:
             self.rh_release_and_queue(itask)
-            self.spawn_to_rh_limit(
-                itask.tdef,
-                itask.tdef.next_point(itask.point),
-                itask.flow_nums
-            )
             released = True
 
         return released
@@ -613,7 +612,7 @@ class TaskPool:
                 )
                 or itask.is_manual_submit
             ):
-                self.rh_release_and_queue(itask)
+                self.rh_release_and_queue(itask, force=True)
 
             self.compute_runahead()
             self.release_runahead_tasks()
@@ -707,14 +706,29 @@ class TaskPool:
             self.workflow_db_mgr.pri_dao.select_tasks_to_hold()
         )
 
-    def rh_release_and_queue(self, itask) -> None:
-        """Release a task from runahead limiting, and queue it if ready.
+    def rh_release_and_queue(self, itask, force=False) -> None:
+        """Release itask if under the runahead limit, queue it if ready."""
+        if (
+            (
+                self.runahead_limit_point is not None
+                and itask.point > self.runahead_limit_point
+            )
+            and not force
+        ):
+            return
 
-        Check the task against the RH limit before calling this method (in
-        forced triggering we need to release even if beyond the limit).
-        """
-        if itask.state_reset(is_runahead=False):
-            self.data_store_mgr.delta_task_runahead(itask)
+        if not itask.state_reset(is_runahead=False):
+            # already released
+            return
+
+        self.data_store_mgr.delta_task_runahead(itask)
+
+        self.spawn_to_rh_limit(
+            itask.tdef,
+            itask.tdef.next_point(itask.point),
+            itask.flow_nums
+        )
+
         if all(itask.is_ready_to_run()):
             # (otherwise waiting on xtriggers etc.)
             self.queue_task(itask)
@@ -751,7 +765,7 @@ class TaskPool:
                 )
                 if ntask is not None:
                     self.add_to_pool(ntask)
-                    self.rh_release_and_queue(ntask)
+                    # self.rh_release_and_queue(ntask)
             point = tdef.next_point(point)
 
         # Once more (for the rh-limited task: don't rh release it!)
@@ -1355,8 +1369,7 @@ class TaskPool:
                     # Add it to the hidden pool or move it to the main pool.
                     self.add_to_pool(t)
 
-                    if t.point <= self.runahead_limit_point:
-                        self.rh_release_and_queue(t)
+                    self.rh_release_and_queue(t)
 
                     # Event-driven suicide.
                     if (
@@ -1470,11 +1483,7 @@ class TaskPool:
                     })
                     self.data_store_mgr.delta_task_prerequisite(c_task)
                 self.add_to_pool(c_task)
-                if (
-                    self.runahead_limit_point is not None
-                    and c_task.point <= self.runahead_limit_point
-                ):
-                    self.rh_release_and_queue(c_task)
+                self.rh_release_and_queue(c_task)
 
     def can_spawn(self, name: str, point: 'PointBase') -> bool:
         """Return True if the task with the given name & point is within
@@ -1741,12 +1750,7 @@ class TaskPool:
             self.add_to_pool(itask)  # move from hidden if necessary.
             if itask.state.is_runahead:
                 # Release from runahead, and queue it.
-                self.rh_release_and_queue(itask)
-                self.spawn_to_rh_limit(
-                    itask.tdef,
-                    itask.tdef.next_point(itask.point),
-                    itask.flow_nums
-                )
+                self.rh_release_and_queue(itask, force=True)
             else:
                 # De-queue it to run now.
                 self.task_queue_mgr.force_release_task(itask)
@@ -2091,5 +2095,3 @@ class TaskPool:
             LOG.info(f"[{itask}] spawning on pre-merge outputs")
             itask.flow_wait = False
             self.spawn_on_all_outputs(itask, completed_only=True)
-            self.spawn_to_rh_limit(
-                itask.tdef, itask.next_point(), itask.flow_nums)
