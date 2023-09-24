@@ -1611,6 +1611,7 @@ class TaskPool:
             # Illegal flow command opts
             return
 
+        # Note this filters out invalid cycle point for target task.
         _, task_items = self.match_taskdefs(items)
 
         for (_, point), taskdef in sorted(task_items.items()):
@@ -1618,11 +1619,11 @@ class TaskPool:
                 # Default: set required outputs.
                 outputs = taskdef.get_required_outputs()
             if outputs:
-                self.set_outputs(point, taskdef, outputs, flow_nums)
+                self._set_outputs(point, taskdef, outputs, flow_nums)
             if prerequisites:
-                self.set_prereqs(point, taskdef, prerequisites, flow_nums)
+                self._set_prereqs(point, taskdef, prerequisites, flow_nums)
 
-    def set_outputs(self, point, taskdef, outputs, flow_nums):
+    def _set_outputs(self, point, taskdef, outputs, flow_nums):
         """Set outputs and spawn children of a parent task."""
 
         itask = self._get_main_task_by_id(
@@ -1661,26 +1662,47 @@ class TaskPool:
                 # complete the task if needed, and call event handlers.
                 self.task_events_mgr.process_message(itask, logging.INFO, out)
 
-    def set_prereqs(self, point, taskdef, prereqs, flow_nums):
+    def _set_prereqs(self, point, taskdef, prereqs, flow_nums):
         """Set prerequisites of a target task."""
-        itask = self.get_or_spawn_task(point, taskdef.name, flow_nums)
-        if itask is None:
-            # Can't spawn it, so can't set its prerequisites.
-            return
 
+        # Valid cycle point for target task checked in caller.
         if prereqs == ["all"]:
+            itask = self.get_or_spawn_task(point, taskdef.name, flow_nums)
+            if itask is None:
+                # E.g. already spawned flow.
+                return
             itask.state.set_all_satisfied()
         else:
-            # Pass individual prerequisites to itask.
-            itask.satisfy_me(
-                {
-                    (t['cycle'], t['task'], t['task_sel'])
-                    for t in [
-                        Tokens(p, relative=True)
-                        for p in prereqs
-                    ]
-                }
-            )
+            # Check if the prerequisites are valid for the target task.
+            pres_actual = set()
+            for p in TaskProxy(  # transient task
+                self.tokens, taskdef, point
+            ).state.prerequisites:
+                for pp in p.satisfied.keys():
+                    pres_actual.add(pp)
+
+            pres_set = set()
+            for p in prereqs:
+                t = Tokens(p, relative=True)
+                pres_set.add((t['cycle'], t['task'], t['task_sel']))
+
+            good = pres_actual & pres_set
+            bad = pres_set - pres_actual
+            if bad:
+                for b in bad:
+                    LOG.warning(
+                        f"{point}/{taskdef.name} does not"
+                        f" depend on {b[0]}/{b[1]}:{b[2]}"
+                    )
+            if not good:
+                return
+
+            # Now spawn for real with submit num recorded.
+            itask = self.get_or_spawn_task(point, taskdef.name, flow_nums)
+            if itask is None:
+                # E.g. already spawned in flow.
+                return
+            itask.satisfy_me(good)
 
         self.data_store_mgr.delta_task_prerequisite(itask)
         self.add_to_pool(itask)

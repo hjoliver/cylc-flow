@@ -471,6 +471,12 @@ class TaskProxy:
             return True
         return False
 
-    def satisfy_me(self, prereqs):
-        for baddie in self.state.satisfy_me(prereqs):
-            LOG.warning(f"{self.identity} has no prerequisites {baddie}")
+    def satisfy_me(self, prereqs) -> bool:
+        """Attempt to satisfy the given prerequisites.
+
+        return True if all are valid, else False.
+        """
+        bad = self.state.satisfy_me(prereqs)
+        for err in bad:
+            LOG.warning(f"{self.identity} has no prerequisites {err}")
+        return len(bad) == 0
