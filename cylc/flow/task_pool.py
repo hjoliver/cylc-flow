@@ -1643,27 +1643,13 @@ class TaskPool:
             # in the previous-submit log directory.
 
         # convert labels to messages, to send to task events manager.
-        good = set()
         for out in outputs:
             msg = itask.state.outputs.get_msg(out)
             if msg is None:
                 LOG.warning(f"{point}/{taskdef.name} has no output {out}")
             else:
-                good.add(msg)
-        if not good:
-            # No valid outputs requested.
-            return
-
-        # Try to spawn children of the outputs.
-        for msg in good:
-            if msg == TASK_OUTPUT_EXPIRED:
-                # not caused by task messages
-                self._expire_task(itask)
-                self.spawn_on_output(itask, expired)  ## TODO CONTINUE FROM pr 5412
-            else: 
+                # Try to spawn children of this output.
                 self.task_events_mgr.process_message(itask, logging.INFO, msg)
-            # TODO remove this - just log the actual spawning events
-            LOG.info(f"[{itask}] Forced spawning on {msg}")
 
     def _set_prereqs(self, point, taskdef, prereqs, flow_nums, flow_wait):
         """Set given prerequisites of a target task.
@@ -1880,48 +1866,13 @@ class TaskPool:
                 sim_task_state_changed = True
         return sim_task_state_changed
 
-    def set_expired_tasks(self):
-        res = False
+    def clock_expire_tasks(self):
+        """Expire any tasks past their clock-expiry time."""
         for itask in self.get_tasks():
-            if self._set_expired_task(itask):
-                res = True
-        return res
-
-    def _set_expired_task(self, itask):
-        """Check if task has expired. Set state and event handler if so.
-
-        Return True if task has expired.
-        """
-        if (
-                not itask.state(
-                    TASK_STATUS_WAITING,
-                    is_held=False
-                )
-                or itask.tdef.expiration_offset is None
-        ):
-            return False
-
-        if itask.expire_time is None:
-            itask.expire_time = (
-                itask.get_point_as_seconds() +
-                itask.get_offset_as_seconds(itask.tdef.expiration_offset))
-
-        if (
-            time() > itask.expire_time
-            and itask.state_reset(TASK_STATUS_EXPIRED)
-        ):
-            self._expire_task(itask)
-            return True
-
-        return False
-
-    def _expire_task(self, itask):
-        msg = 'Task expired: will not submit job.'
-        LOG.warning(f"[{itask}] {msg}")
-        self.task_events_mgr.setup_event_handlers(itask, "expired", msg)
-        self.data_store_mgr.delta_task_state(itask)
-        self.data_store_mgr.delta_task_held(itask)
-        self.spawn_on_output(itask, 'expired')
+            if not itask.clock_expire():
+                continue
+            self.task_events_mgr.process_message(
+                itask, logging.WARNING, TASK_OUTPUT_EXPIRED)
 
     def task_succeeded(self, id_):
         """Return True if task with id_ is in the succeeded state."""

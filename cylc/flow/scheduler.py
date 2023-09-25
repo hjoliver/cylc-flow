@@ -1759,7 +1759,7 @@ class Scheduler:
                 # (Could do this periodically?)
                 self.xtrigger_mgr.housekeep(self.pool.get_tasks())
 
-            self.pool.set_expired_tasks()
+            self.pool.clock_expire_tasks()
             self.release_queued_tasks()
 
             if self.pool.sim_time_check(self.message_queue):

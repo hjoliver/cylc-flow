@@ -71,8 +71,13 @@ from cylc.flow.task_state import (
     TASK_STATUS_WAITING
 )
 from cylc.flow.task_outputs import (
-    TASK_OUTPUT_SUBMITTED, TASK_OUTPUT_STARTED, TASK_OUTPUT_SUCCEEDED,
-    TASK_OUTPUT_FAILED, TASK_OUTPUT_SUBMIT_FAILED)
+    TASK_OUTPUT_EXPIRED,
+    TASK_OUTPUT_SUBMITTED,
+    TASK_OUTPUT_STARTED,
+    TASK_OUTPUT_SUCCEEDED,
+    TASK_OUTPUT_FAILED,
+    TASK_OUTPUT_SUBMIT_FAILED
+)
 from cylc.flow.wallclock import (
     get_current_time_string,
     get_seconds_as_interval_string as intvl_as_str
@@ -116,11 +121,15 @@ def log_task_job_activity(ctx, workflow, point, name, submit_num=None):
     try:
         with open(os.path.expandvars(job_activity_log), "ab") as handle:
             handle.write((ctx_str + '\n').encode())
-    except IOError as exc:
-        # This happens when there is no job directory, e.g. if job host
-        # selection command causes an submission failure, there will be no job
-        # directory. In this case, just send the information to the log.
-        LOG.exception(exc)
+    except IOError:
+        # This happens when there is no job directory. E.g., if a job host
+        # selection command causes a submission failure, or if a waiting task
+        # expires before a job log directory is otherwise needed.
+        # (Don't log the exception content, it looks like a bug).
+        LOG.warning(
+            f"There is no log directory for {point}/{name} job:{submit_num}"
+            " so I'll just log the following activity."
+        )
         LOG.info(ctx_str)
     if ctx.cmd and ctx.ret_code:
         LOG.error(ctx_str)
@@ -337,6 +346,7 @@ class TaskEventsManager():
     EVENT_RETRY = "retry"
     EVENT_STARTED = TASK_OUTPUT_STARTED
     EVENT_SUBMITTED = TASK_OUTPUT_SUBMITTED
+    EVENT_EXPIRED = TASK_OUTPUT_EXPIRED
     EVENT_SUBMIT_FAILED = "submission failed"
     EVENT_SUBMIT_RETRY = "submission retry"
     EVENT_SUCCEEDED = TASK_OUTPUT_SUCCEEDED
@@ -638,6 +648,11 @@ class TaskEventsManager():
         elif message == self.EVENT_SUCCEEDED:
             self._process_message_succeeded(itask, event_time)
             self.spawn_children(itask, TASK_OUTPUT_SUCCEEDED)
+
+        elif message == self.EVENT_EXPIRED:
+            self._process_message_expired(itask, event_time)
+            self.spawn_children(itask, TASK_OUTPUT_EXPIRED)
+
         elif message == self.EVENT_FAILED:
             if (
                     flag == self.FLAG_RECEIVED
@@ -647,6 +662,7 @@ class TaskEventsManager():
             if self._process_message_failed(
                     itask, event_time, self.JOB_FAILED):
                 self.spawn_children(itask, TASK_OUTPUT_FAILED)
+
         elif message == self.EVENT_SUBMIT_FAILED:
             if (
                     flag == self.FLAG_RECEIVED
@@ -659,6 +675,7 @@ class TaskEventsManager():
                 submit_num
             ):
                 self.spawn_children(itask, TASK_OUTPUT_SUBMIT_FAILED)
+
         elif message == self.EVENT_SUBMITTED:
             if (
                     flag == self.FLAG_RECEIVED
@@ -1158,6 +1175,15 @@ class TaskEventsManager():
         # submission was successful so reset submission try number
         if TimerFlags.SUBMISSION_RETRY in itask.try_timers:
             itask.try_timers[TimerFlags.SUBMISSION_RETRY].num = 0
+
+    def _process_message_expired(self, itask, event_time):
+        """Helper for process_message, handle task expiry."""
+        # state reset already done for expired
+        msg = 'Task expired: will not submit job.'
+        self.setup_event_handlers(itask, self.EVENT_EXPIRED, msg)
+        self.data_store_mgr.delta_task_state(itask)
+        # self.data_store_mgr.delta_task_held(itask)  # ??
+        self._reset_job_timers(itask)
 
     def _process_message_succeeded(self, itask, event_time):
         """Helper for process_message, handle a succeeded message."""

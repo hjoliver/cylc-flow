@@ -43,6 +43,7 @@ def task_pool(set_cycling_type: Callable):
         hier.append('root')
         tdef = create_autospec(TaskDef, namespace_hierarchy=hier)
         tdef.name = tokens['task']
+        tdef.expiration_offset = None
         return TaskProxy(
             Tokens('~user/workflow'),
             tdef,

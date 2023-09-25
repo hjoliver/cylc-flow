@@ -23,6 +23,7 @@ import cylc.flow.flags
 from cylc.flow.exceptions import TaskDefError
 from cylc.flow.task_id import TaskID
 from cylc.flow.task_state import (
+    TASK_OUTPUT_EXPIRED,
     TASK_OUTPUT_SUBMITTED,
     TASK_OUTPUT_SUBMIT_FAILED,
     TASK_OUTPUT_SUCCEEDED,
@@ -211,6 +212,9 @@ class TaskDef:
             and self.outputs[TASK_OUTPUT_SUBMIT_FAILED][1] is not False
         ):
             self.set_required_output(TASK_OUTPUT_SUCCEEDED, True)
+
+        # Expired must be optional
+        self.set_required_output(TASK_OUTPUT_EXPIRED, False)
 
         # In Cylc 7 back compat mode, make all success outputs required.
         if cylc.flow.flags.cylc7_back_compat:
