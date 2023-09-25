@@ -849,8 +849,8 @@ class TaskPool:
 
         for itask in released:
             itask.state_reset(is_queued=False)
-            itask.waiting_on_job_prep = True
             self.data_store_mgr.delta_task_queued(itask)
+            itask.waiting_on_job_prep = True
 
             if cylc.flow.flags.cylc7_back_compat:
                 # Cylc 7 Back Compat: spawn downstream to cause Cylc 7 style
@@ -1026,8 +1026,7 @@ class TaskPool:
                 and itask.state(*TASK_STATUSES_ACTIVE)
                 and not itask.state.kill_failed
             )
-            # we don't need to check for preparing tasks because they will be
-            # reset to waiting on restart
+            # preparing tasks get reset to waiting on restart
             for itask in self.get_tasks()
         )
 
@@ -1346,7 +1345,7 @@ class TaskPool:
         if cylc.flow.flags.cylc7_back_compat:
 
             if not itask.state(TASK_STATUS_FAILED):
-                self.remove(itask, 'finished')
+                self.remove(itask, 'completed')
 
             if self.compute_runahead():
                 self.release_runahead_tasks()
@@ -1363,7 +1362,7 @@ class TaskPool:
             return
 
         # Complete, can remove it from the pool.
-        self.remove(itask, 'finished and complete')
+        self.remove(itask, 'complete')
 
         if itask.identity == self.stop_task_id:
             self.stop_task_finished = True
@@ -1901,23 +1900,28 @@ class TaskPool:
                 or itask.tdef.expiration_offset is None
         ):
             return False
+
         if itask.expire_time is None:
             itask.expire_time = (
                 itask.get_point_as_seconds() +
                 itask.get_offset_as_seconds(itask.tdef.expiration_offset))
-        if time() > itask.expire_time:
+
+        if (
+            time() > itask.expire_time
+            and itask.state_reset(TASK_STATUS_EXPIRED)
+        ):
             self._expire_task(itask)
             return True
+
         return False
 
     def _expire_task(self, itask):
-        msg = 'Task expired (skipping job).'
+        msg = 'Task expired: will not submit job.'
         LOG.warning(f"[{itask}] {msg}")
         self.task_events_mgr.setup_event_handlers(itask, "expired", msg)
-        if itask.state_reset(TASK_STATUS_EXPIRED, is_held=False):
-            self.data_store_mgr.delta_task_state(itask)
-            self.data_store_mgr.delta_task_held(itask)
-        self.remove(itask, 'expired')
+        self.data_store_mgr.delta_task_state(itask)
+        self.data_store_mgr.delta_task_held(itask)
+        self.spawn_on_output(itask, 'expired')
 
     def task_succeeded(self, id_):
         """Return True if task with id_ is in the succeeded state."""
