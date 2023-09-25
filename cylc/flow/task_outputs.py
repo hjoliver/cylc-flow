@@ -114,8 +114,20 @@ class TaskOutputs:
             return False
 
     def get_all(self):
-        """Return an iterator for all outputs."""
+        """Return an iterator for all output messages."""
         return sorted(self._by_message.values(), key=self.msg_sort_key)
+
+    def get_msg(self, out):
+        """Translate a message or label into message, or None if not valid."""
+        if out in self._by_message:
+            # It's already a valid message.
+            return out
+        elif out in self._by_trigger:
+            # It's a valid trigger label, return the message.
+            return (self._by_trigger[out])[1]
+        else:
+            # Not a valid message or trigger label.
+            return None
 
     def get_completed(self):
         """Return all completed output messages."""

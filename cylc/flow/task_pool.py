@@ -1582,20 +1582,9 @@ class TaskPool:
         flow_wait: bool = False,
         flow_descr: Optional[str] = None
     ):
-        """Force (re)set prerequisites or outputs in target tasks.
+        """Force set prerequisites or outputs of target tasks.
 
-        For prerequisites:
-            - get the target task if in the pool, or spawn it
-            - set the prerequisites, in the target task
-
-        For outputs:
-            - get target task if in the pool, and set its outputs
-            - (do not spawn it if it is not already in the pool)
-            - update the outputs in the DB
-            - get or spawn any children of the outputs
-
-        Default:
-            - set all required outputs of the target task
+        By default, set all required outputs.
 
         Args:
             items: identifiers for matching task definitions
@@ -1624,8 +1613,11 @@ class TaskPool:
                 self._set_prereqs(point, taskdef, prerequisites, flow_nums)
 
     def _set_outputs(self, point, taskdef, outputs, flow_nums):
-        """Set outputs and spawn children of a parent task."""
+        """Set given outputs of a task, and spawn associated children.
 
+           Do not spawn the target task if it is not already in the pool, but
+           update the DB to reflect the set outputs, and spawn the children.
+        """
         itask = self._get_main_task_by_id(
             Tokens(
                 cycle=str(point),
@@ -1636,58 +1628,64 @@ class TaskPool:
             # The parent task already exists in the pool.
             self.merge_flows(itask, flow_nums)
         else:
-            # Spawn a transient instance of the parent.
+            # Spawn a transient task instance to use.
             itask = self.spawn_task(
                 taskdef.name,
                 point,
                 flow_nums,
-                force=True,  # do it even if spawned already
+                force=True,  # Do it even if previously spawned ...
             )
-            # NB even if parent was already spawned in this flow, its children
+            # ... even if parent was already spawned in this flow, its children
             # might not have been. And in any case, it is transient and won't
             # submit a job. This will log task activity (e.g. event handlers)
-            # in the prev-submit log directory.
+            # in the previous-submit log directory.
 
-        # DEBUG
-        LOG.warning(
-            f"setting outputs {outputs} for {point}/{taskdef.name}"
-        )
+        # convert labels to messages, to send to task events manager.
+        good = set()
+        for out in outputs:
+            msg = itask.state.outputs.get_msg(out)
+            if msg is None:
+                LOG.warning(f"{point}/{taskdef.name} has no output {out}")
+            else:
+                good.add(msg)
+        if not good:
+            # No valid outputs requested.
+            return
 
-        # Spawn children to the task pool.
-        for trig, out, _ in itask.state.outputs.get_all():
-            # (convert from output label to message).
-            if trig in outputs:
-                LOG.info(f"[{itask}] Forced spawning on {out}")
-                # Process the output as if naturally completed: spawn children,
-                # complete the task if needed, and call event handlers.
-                self.task_events_mgr.process_message(itask, logging.INFO, out)
+        # Try to spawn children of the outputs.
+        for msg in good:
+            LOG.info(f"[{itask}] Forced spawning on {msg}")
+            self.task_events_mgr.process_message(itask, logging.INFO, msg)
 
     def _set_prereqs(self, point, taskdef, prereqs, flow_nums):
-        """Set prerequisites of a target task."""
+        """Set given prerequisites of a target task.
 
-        # Valid cycle point for target task checked in caller.
+           Spawn the task first, if it's not already in the task pool.
+        """
         if prereqs == ["all"]:
             itask = self.get_or_spawn_task(point, taskdef.name, flow_nums)
             if itask is None:
-                # E.g. already spawned flow.
+                # E.g. already spawned in flow.
                 return
             itask.state.set_all_satisfied()
         else:
-            # Check if the prerequisites are valid for the target task.
-            pres_actual = set()
+            # Check if the given prerequisites are valid for the task.
+            # Spawn a transient task proxy to get the available prerequisites
+            # without incrementing submit number or checking the flow.
+            available = set()
             for p in TaskProxy(  # transient task
                 self.tokens, taskdef, point
             ).state.prerequisites:
                 for pp in p.satisfied.keys():
-                    pres_actual.add(pp)
+                    available.add(pp)
 
-            pres_set = set()
+            requested = set()
             for p in prereqs:
                 t = Tokens(p, relative=True)
-                pres_set.add((t['cycle'], t['task'], t['task_sel']))
+                requested.add((t['cycle'], t['task'], t['task_sel']))
 
-            good = pres_actual & pres_set
-            bad = pres_set - pres_actual
+            good = available & requested
+            bad = requested - available
             if bad:
                 for b in bad:
                     LOG.warning(
@@ -1695,9 +1693,10 @@ class TaskPool:
                         f" depend on {b[0]}/{b[1]}:{b[2]}"
                     )
             if not good:
+                # No valid prerequisites requested.
                 return
 
-            # Now spawn for real with submit num recorded.
+            # Now spawn that sucker for real.
             itask = self.get_or_spawn_task(point, taskdef.name, flow_nums)
             if itask is None:
                 # E.g. already spawned in flow.

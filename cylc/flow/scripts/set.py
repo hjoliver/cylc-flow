@@ -18,34 +18,44 @@
 
 """cylc set [OPTIONS] ARGS
 
-Override task status in a running workflow by setting outputs (`--out=...`), or
-setting prerequisites and promoting tasks to the active window (`--pre=...`).
+Manually set task prerequisites and outputs in a running workflow.
 
-By default, it sets all required outputs. (Note this won't set the `succeeded`
-output unless succeeded is a required output!)
+By default, set all required outputs complete (note this won't set
+`succeeded` unless that is a required output).
 
-Setting prerequisites contributes to a task's readiness to run. It does not
-override clock triggers, xtriggers, or task hold (in fact these will be
-activated by promoting the task to the scheduler's active window).
+Setting prerequisites contributes to a task's readiness to run and promotes it
+to the active window where any clock and xtriggers will become active.
 
-Setting outputs affects task completion, and it sets the prerequisites of
-downstream tasks that depend on those outputs. It also sets implied outputs:
-started implies submitted; succeeded and failed imply started; custom outputs
-and expired do not imply other outputs.
+Setting outputs affects task completion and spawns downstream tasks that depend
+on those outputs.
+
+Implied outputs are set automatically: started implies submitted; succeeded and
+failed imply started; custom outputs and expired do not imply other outputs.
 
 Examples:
 
-  # satisfy all required outputs of `3/bar`:
+  # complete all required outputs of 3/bar:
   $ cylc set my-workflow//3/bar
 
-  $ satisfy the succeeded output of `3/bar`:
-  # cylc set my-workflow//3/bar succeeded
+  # complete the succeeded output of 3/bar:
+  $ cylc set --out=succeeded my-workflow//3/bar
 
-  # bring `3/bar` to the active window with dependence on `3/foo` satisfied:
+  # satisfy the `3/foo:succeeded` prerequisite of 3/bar:
   $ cylc set --pre=3/foo:succeeded my-workflow//3/bar
 
-  # bring `3/bar` to the active window with any/all prerequisites satisfied:
+  # satisfy all prerequisites of 3/bar and start checking its xtriggers:
   $ cylc set --pre=all my-workflow//3/bar
+
+  # complete the ":file1" custom output of 3/bar:
+  $ cylc set --out=file1 my-workflow//3/bar
+  # or via the associated message from the task definition:
+  $ cylc set --out="file 1 ready" my-workflow//3/bar
+
+  # set multiple outputs at once:
+  $ cylc set --out=a --out=b,c my-workflow//3/bar
+
+  # set multiple prerequisites at once:
+  $ cylc set --pre=3/foo:x --pre=3/foo:y,3/foo:z my-workflow//3/bar
 
 """
 
@@ -105,8 +115,8 @@ def get_option_parser() -> COP:
         "-o", "--out", "--output", metavar="OUTPUT(s)",
         help=(
             "Set task outputs complete, along with any implied outputs."
-            " OUTPUT is the label (as used in the graph) not the associated"
-            " message. Multiple use allowed, items may be comma separated."
+            " Specify OUTPUT labels (as used in the graph) or associated"
+            " messages. Multiple use allowed, items may be comma separated."
         ),
         action="append", default=None, dest="outputs"
     )
@@ -149,39 +159,49 @@ def validate_prereq(prereq: str) -> bool:
         return True
 
 
-def get_prerequisite_opts(options):
-    """Convert prerequisite inputs to a single list, and validate.
+def split_opts(options):
+    """Return list from multi-use and comma-separated single-use options.
 
-    This:
-       --pre=a -pre=b,c
-    is equivalent to this:
-       --pre=a,b,c
+    Example: for "--xxx=a" and "-xxx=b,c", return [a, b, c].
+    """
+    if options is None:
+        return []
+    splat = []  # (past tense of split)
+    for p in options:
+        splat += p.split(',')
+    return splat
+
+
+def get_prerequisite_opts(prereq_options):
+    """Convert prerequisite inputs to a single list, and validate.
 
     Validation: format <point>/<name>:<qualifier>
     """
-    if options.prerequisites is None:
+    prereqs = split_opts(prereq_options)
+    if not prereqs:
         return []
 
-    result = []
-
-    for p in options.prerequisites:
-        result += p.split(',')
-
-    if "all" in result:
-        if len(result) != 1:
+    if "all" in prereqs:
+        if len(prereqs) != 1:
             raise InputError("--pre=all must be used alone")
-        return result
+        return prereqs
 
     msg = '\n'.join(
         [
-            p for p in result
+            p for p in prereqs
             if not validate_prereq(p)
         ]
     )
     if msg:
         raise InputError(f"Invalid prerequisite(s):\n{msg}")
 
-    return result
+    return prereqs
+
+
+def get_output_opts(output_options):
+    """Convert outputs options to a single list, and validate."""
+    # (No current validation)
+    return split_opts(output_options)
 
 
 async def run(options: 'Values', workflow_id: str, *tokens_list) -> None:
@@ -195,8 +215,8 @@ async def run(options: 'Values', workflow_id: str, *tokens_list) -> None:
                 tokens.relative_id_with_selectors
                 for tokens in tokens_list
             ],
-            'outputs': options.outputs,
-            'prerequisites': get_prerequisite_opts(options),
+            'outputs': get_output_opts(options.outputs),
+            'prerequisites': get_prerequisite_opts(options.prerequisites),
             'flow': options.flow,
             'flowWait': options.flow_wait,
             'flowDescr': options.flow_descr
