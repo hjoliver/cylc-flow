@@ -1608,11 +1608,13 @@ class TaskPool:
                 # Default: set required outputs.
                 outputs = taskdef.get_required_outputs()
             if outputs:
-                self._set_outputs(point, taskdef, outputs, flow_nums)
+                self._set_outputs(
+                    point, taskdef, outputs, flow_nums, flow_wait)
             if prerequisites:
-                self._set_prereqs(point, taskdef, prerequisites, flow_nums)
+                self._set_prereqs(
+                    point, taskdef, prerequisites, flow_nums, flow_wait)
 
-    def _set_outputs(self, point, taskdef, outputs, flow_nums):
+    def _set_outputs(self, point, taskdef, outputs, flow_nums, flow_wait):
         """Set given outputs of a task, and spawn associated children.
 
            Do not spawn the target task if it is not already in the pool, but
@@ -1633,6 +1635,7 @@ class TaskPool:
                 taskdef.name,
                 point,
                 flow_nums,
+                flow_wait=flow_wait,
                 force=True,  # Do it even if previously spawned ...
             )
             # ... even if parent was already spawned in this flow, its children
@@ -1657,7 +1660,7 @@ class TaskPool:
             LOG.info(f"[{itask}] Forced spawning on {msg}")
             self.task_events_mgr.process_message(itask, logging.INFO, msg)
 
-    def _set_prereqs(self, point, taskdef, prereqs, flow_nums):
+    def _set_prereqs(self, point, taskdef, prereqs, flow_nums, flow_wait):
         """Set given prerequisites of a target task.
 
            Spawn the task first, if it's not already in the task pool.
@@ -1697,7 +1700,12 @@ class TaskPool:
                 return
 
             # Now spawn that sucker for real.
-            itask = self.get_or_spawn_task(point, taskdef.name, flow_nums)
+            itask = self.get_or_spawn_task(
+                point,
+                taskdef.name,
+                flow_nums,
+                flow_wait=flow_wait
+            )
             if itask is None:
                 # E.g. already spawned in flow.
                 return
