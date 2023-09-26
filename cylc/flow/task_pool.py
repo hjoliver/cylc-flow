@@ -69,6 +69,7 @@ from cylc.flow.util import (
 )
 from cylc.flow.wallclock import get_current_time_string
 from cylc.flow.platforms import get_platform
+from cylc.flow.task_outputs import add_implied_outputs
 from cylc.flow.task_queues.independent import IndepQueueManager
 
 from cylc.flow.flow_mgr import FLOW_ALL, FLOW_NONE, FLOW_NEW
@@ -1362,7 +1363,7 @@ class TaskPool:
             return
 
         # Complete, can remove it from the pool.
-        self.remove(itask, 'complete')
+        self.remove(itask, 'completed')
 
         if itask.identity == self.stop_task_id:
             self.stop_task_finished = True
@@ -1629,27 +1630,45 @@ class TaskPool:
             # The parent task already exists in the pool.
             self.merge_flows(itask, flow_nums)
         else:
-            # Spawn a transient task instance to use.
+            # Spawn a transient task instance to use for spawning children.
             itask = self.spawn_task(
                 taskdef.name,
                 point,
                 flow_nums,
                 flow_wait=flow_wait,
-                force=True,  # Do it even if previously spawned ...
+                force=True
             )
-            # ... even if parent was already spawned in this flow, its children
-            # might not have been. And in any case, it is transient and won't
-            # submit a job. This will log task activity (e.g. event handlers)
-            # in the previous-submit log directory.
+            # force=True: spawn it even if previously spawned in this flow,
+            # because even if it was, its children might not have been. It
+            # is transient and won't be added to the pool, but its outputs
+            # will be updated in the DB, and any event handler activity
+            # will be recorded in the previous-submit log directory.
 
-        # convert labels to messages, to send to task events manager.
-        for out in outputs:
-            msg = itask.state.outputs.get_msg(out)
+            for outputs_str, fnums in (
+                self.workflow_db_mgr.pri_dao.select_task_outputs(
+                    itask.tdef.name, str(itask.point))
+            ).items():
+                if flow_nums.intersection(fnums):
+                    for msg in json.loads(outputs_str):
+                        itask.state.outputs.set_completed_by_msg(msg)
+                    break
+
+        for output in outputs:
+            msg = itask.state.outputs.get_msg(output)
             if msg is None:
-                LOG.warning(f"{point}/{taskdef.name} has no output {out}")
-            else:
-                # Try to spawn children of this output.
-                self.task_events_mgr.process_message(itask, logging.INFO, msg)
+                LOG.warning(
+                    f'Not found: {point}/{taskdef.name}:"{output}"')
+                continue
+            for out in add_implied_outputs(msg):
+                if itask.state.outputs.is_completed(out):
+                    LOG.warning(
+                        'Already completed: {point}/{taskdef.name}:"{out}"')
+                    continue
+                # Handle the output as if completed naturally.
+                LOG.warning(
+                    f'Setting completed: {point}/{taskdef.name}:"{out}"')
+                self.task_events_mgr.process_message(
+                    itask, logging.WARNING, out)
 
     def _set_prereqs(self, point, taskdef, prereqs, flow_nums, flow_wait):
         """Set given prerequisites of a target task.

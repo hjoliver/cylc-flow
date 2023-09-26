@@ -19,10 +19,7 @@
 
 from typing import List
 from cylc.flow.prerequisite import Prerequisite
-from cylc.flow.task_outputs import (
-    TaskOutputs,
-    TASK_OUTPUT_EXPIRED, TASK_OUTPUT_SUBMITTED, TASK_OUTPUT_SUBMIT_FAILED,
-    TASK_OUTPUT_STARTED, TASK_OUTPUT_SUCCEEDED, TASK_OUTPUT_FAILED)
+from cylc.flow.task_outputs import TaskOutputs
 from cylc.flow.wallclock import get_current_time_string
 
 
@@ -395,11 +392,7 @@ class TaskState:
 
     def reset(
             self, status=None, is_held=None, is_queued=None, is_runahead=None):
-        """Change status, and manipulate outputs and prerequisites accordingly.
-
-        Outputs are manipulated on manual state reset to reflect the new task
-        status. Since spawn-on-demand implementation, state reset is only used
-        for internal state changes.
+        """Change status.
 
         Args:
             status (str):
@@ -409,7 +402,7 @@ class TaskState:
                 unchanged.
 
         Returns:
-            returns: whether state change or not (bool)
+            returns: whether state changed or not (bool)
 
         """
         current_status = (
@@ -435,32 +428,13 @@ class TaskState:
 
         self.time_updated = get_current_time_string()
         self.is_updated = True
-
-        if is_held:
-            # only reset task outputs if not setting task to held
-            # https://github.com/cylc/cylc-flow/pull/2116
-            return True
-
         self.kill_failed = False
 
         # Set standard outputs in accordance with task state.
+
         if status is None:
             # NOTE: status is None if the task is being released
             status = self.status
-        if status_leq(status, TASK_STATUS_SUBMITTED):
-            self.outputs.set_all_incomplete()
-        self.outputs.set_completion(
-            TASK_OUTPUT_EXPIRED, status == TASK_STATUS_EXPIRED)
-        self.outputs.set_completion(
-            TASK_OUTPUT_SUBMITTED, status_geq(status, TASK_STATUS_SUBMITTED))
-        self.outputs.set_completion(
-            TASK_OUTPUT_STARTED, status_geq(status, TASK_STATUS_RUNNING))
-        self.outputs.set_completion(
-            TASK_OUTPUT_SUBMIT_FAILED, status == TASK_STATUS_SUBMIT_FAILED)
-        self.outputs.set_completion(
-            TASK_OUTPUT_SUCCEEDED, status == TASK_STATUS_SUCCEEDED)
-        self.outputs.set_completion(
-            TASK_OUTPUT_FAILED, status == TASK_STATUS_FAILED)
 
         return True
 

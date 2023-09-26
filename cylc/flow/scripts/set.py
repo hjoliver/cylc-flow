@@ -29,8 +29,10 @@ to the active window where any clock and xtriggers will become active.
 Setting outputs affects task completion and spawns downstream tasks that depend
 on those outputs.
 
-Implied outputs are set automatically: started implies submitted; succeeded and
-failed imply started; custom outputs and expired do not imply other outputs.
+Implied outputs are set automatically:
+  - succeeded and failed imply started
+  - started implies submitted
+  - custom outputs and expired do not imply other outputs
 
 Examples:
 
@@ -48,7 +50,7 @@ Examples:
 
   # complete the ":file1" custom output of 3/bar:
   $ cylc set --out=file1 my-workflow//3/bar
-  # or via the associated message from the task definition:
+  # or use the associated output message from the task definition:
   $ cylc set --out="file 1 ready" my-workflow//3/bar
 
   # set multiple outputs at once:
