@@ -681,9 +681,8 @@ async def test_restart_prereqs(
         assert list_tasks(schd) == expected_1
 
         # Mark 1/a as succeeded and spawn 1/z
-        schd.pool.get_tasks()[0].state_reset('succeeded')
-
-        schd.pool.spawn_on_output(schd.pool.get_tasks()[0], 'succeeded')
+        task_a = schd.pool.get_tasks()[0]
+        schd.pool.task_events_mgr.process_message(task_a, 1, 'succeeded')
         assert list_tasks(schd) == expected_2
 
         # Save our progress
@@ -805,8 +804,8 @@ async def test_reload_prereqs(
         assert list_tasks(schd) == expected_1
 
         # Mark 1/a as succeeded and spawn 1/z
-        schd.pool.get_tasks()[0].state_reset('succeeded')
-        schd.pool.spawn_on_output(schd.pool.get_tasks()[0], 'succeeded')
+        task_a = schd.pool.get_tasks()[0]
+        schd.pool.task_events_mgr.process_message(task_a, 1, 'succeeded')
         assert list_tasks(schd) == expected_2
 
         # Modify flow.cylc to add a new dependency on "z"
@@ -845,8 +844,7 @@ async def _test_restart_prereqs_sat():
 
     # Mark both as succeeded and spawn 1/c
     for itask in schd.pool.get_tasks():
-        itask.state_reset('succeeded')
-        schd.pool.spawn_on_output(itask, 'succeeded')
+        schd.pool.task_events_mgr.process_message(itask, 1, 'succeeded')
         schd.workflow_db_mgr.put_update_task_outputs(itask)
         schd.pool.remove_if_complete(itask)
     schd.workflow_db_mgr.process_queued_ops()
@@ -1020,7 +1018,7 @@ async def test_db_update_on_removal(
         task_a = schd.pool.get_tasks()[0]
 
         # set the task to running
-        task_a.state_reset('running')
+        schd.pool.task_events_mgr.process_message(task_a, 1, 'started')
 
         # update the db
         await schd.update_data_structure()
@@ -1032,7 +1030,7 @@ async def test_db_update_on_removal(
         ]
 
         # mark the task as succeeded and allow it to be removed from the pool
-        task_a.state_reset('succeeded')
+        schd.pool.task_events_mgr.process_message(task_a, 1, 'succeeded')
         schd.pool.remove_if_complete(task_a)
 
         # update the DB, note no new tasks have been added to the pool
@@ -1070,7 +1068,10 @@ async def test_no_flow_tasks_dont_spawn(
     async with start(schd):
         # mark task 1/a as succeeded
         task_a = schd.pool.get_tasks()[0]
-        task_a.state_reset(TASK_OUTPUT_SUCCEEDED)
+        # TODO: actually for convenience state reset should set outputs?
+        # now state and outputs are divorced, unless use process_message.
+        task_a.state_reset('succeeded')
+        task_a.state.outputs.set_completion('succeeded', True)
 
         for flow_nums, force, pool in (
             # outputs yielded from a no-flow task should not spawn downstreams
@@ -1093,6 +1094,7 @@ async def test_no_flow_tasks_dont_spawn(
                 TASK_OUTPUT_SUCCEEDED,
                 forced=force,
             )
+
             schd.pool.spawn_on_all_outputs(task_a)
 
             # ensure the pool is as expected

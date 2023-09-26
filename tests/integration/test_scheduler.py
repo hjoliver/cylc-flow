@@ -351,8 +351,8 @@ async def test_restart_timeout(
     schd = scheduler(id_)
     async with start(schd):
         for itask in schd.pool.get_tasks():
-            itask.state_reset(TASK_OUTPUT_SUCCEEDED)
-            schd.pool.spawn_on_output(itask, TASK_OUTPUT_SUCCEEDED)
+            schd.pool.task_events_mgr.process_message(
+                itask, 1, TASK_OUTPUT_SUCCEEDED)
 
     # restart the completed workflow
     schd = scheduler(id_)
