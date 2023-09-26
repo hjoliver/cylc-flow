@@ -46,6 +46,13 @@ Opts = Options(get_option_parser())
         ),
         (
             Opts(
+                flow=None,
+                flow_wait=False
+            ),
+            None
+        ),
+        (
+            Opts(
                 flow=[FLOW_NEW],
                 flow_wait=False,
                 flow_descr="Denial is a deep river"

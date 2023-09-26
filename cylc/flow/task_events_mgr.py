@@ -127,10 +127,6 @@ def log_task_job_activity(ctx, workflow, point, name, submit_num=None):
         # selection command causes a submission failure, or if a waiting task
         # expires before a job log directory is otherwise needed.
         # (Don't log the exception content, it looks like a bug).
-        LOG.warning(
-            f"There is no log directory for {point}/{name} job:{submit_num}"
-            " so I'll just log the following activity."
-        )
         LOG.info(ctx_str)
     if ctx.cmd and ctx.ret_code:
         LOG.error(ctx_str)
