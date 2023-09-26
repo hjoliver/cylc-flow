@@ -6,6 +6,9 @@
       # Expire: foo1, foo2, bar1, x
       # Run: y, bar2, baz, qux
       R1 = """
+         x?
+         FOO?
+         BAR?
          x:expire? => y
          FOO:expire-all? => baz
          BAR:expire-any? => qux
