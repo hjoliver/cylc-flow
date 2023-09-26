@@ -204,7 +204,7 @@ class Prerequisite:
         # This only gets called for known prerequisites, except in bad or
         # overly wide manual "cylc set" calls.
 
-        satisfied = True
+        satisfied = False
         for message in all_task_outputs:
             if message in self.satisfied:
                 self.satisfied[message] = self.DEP_STATE_SATISFIED
