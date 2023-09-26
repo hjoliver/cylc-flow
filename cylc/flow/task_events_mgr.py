@@ -67,6 +67,7 @@ from cylc.flow.task_state import (
     TASK_STATUS_SUBMIT_FAILED,
     TASK_STATUS_RUNNING,
     TASK_STATUS_FAILED,
+    TASK_STATUS_EXPIRED,
     TASK_STATUS_SUCCEEDED,
     TASK_STATUS_WAITING
 )
@@ -1178,12 +1179,11 @@ class TaskEventsManager():
 
     def _process_message_expired(self, itask, event_time):
         """Helper for process_message, handle task expiry."""
-        # state reset already done for expired
+        if not itask.state_reset(TASK_STATUS_EXPIRED):
+            return
+        self.data_store_mgr.delta_task_state(itask)
         msg = 'Task expired: will not submit job.'
         self.setup_event_handlers(itask, self.EVENT_EXPIRED, msg)
-        self.data_store_mgr.delta_task_state(itask)
-        # self.data_store_mgr.delta_task_held(itask)  # ??
-        self._reset_job_timers(itask)
 
     def _process_message_succeeded(self, itask, event_time):
         """Helper for process_message, handle a succeeded message."""

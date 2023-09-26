@@ -1474,7 +1474,8 @@ class TaskPool:
     ) -> Optional[TaskProxy]:
         """Spawn and return task point/name, or None.
 
-        Force arg used in manual triggering.
+        Don't spawn if the task was previously spawned in this flow
+        (which includes, effectively, manually set of outputs).
         """
         if not self.can_be_spawned(name, point):
             return None
@@ -1499,9 +1500,10 @@ class TaskPool:
                 if f_wait:
                     flow_wait_done = f_wait
                     break
-                # To avoid "conditional reflow" with (e.g.) "foo | bar => baz".
+                # Already spawned, or has manually set outputs.
                 LOG.warning(
-                    f"Task {point}/{name} already spawned in {flow_nums}"
+                    f"{point}/{name} (flow {flow_nums}) can't be spawned."
+                    " It already has outputs"
                 )
                 return None
 
@@ -1568,7 +1570,7 @@ class TaskPool:
                     for msg in json.loads(outputs_str):
                         itask.state.outputs.set_completed_by_msg(msg)
                     break
-            LOG.info(f"{itask} spawning on outputs after flow wait")
+            LOG.info(f"{itask} spawning after flow wait")
             self.spawn_on_all_outputs(itask, completed_only=True)
             return None
 
@@ -1631,9 +1633,11 @@ class TaskPool:
         )
         if itask is not None:
             # The parent task already exists in the pool.
+            in_pool = True
             self.merge_flows(itask, flow_nums)
         else:
             # Spawn a transient task instance to use for spawning children.
+            in_pool = False
             itask = self.spawn_task(
                 taskdef.name,
                 point,
@@ -1672,6 +1676,9 @@ class TaskPool:
                     f'Setting completed: {point}/{taskdef.name}:"{out}"')
                 self.task_events_mgr.process_message(
                     itask, logging.WARNING, out)
+            if not in_pool:
+                # tasks states table gets updated from the task pool
+                self.workflow_db_mgr.put_update_task_state(itask)
 
     def _set_prereqs(self, point, taskdef, prereqs, flow_nums, flow_wait):
         """Set given prerequisites of a target task.

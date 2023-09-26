@@ -494,14 +494,11 @@ class TaskProxy:
         return len(bad) == 0
 
     def clock_expire(self) -> bool:
-        """Check for, and do, clock expiry. Return True if expired."""
-
+        """Return True if clock expire time is up, else False."""
         if (
             self.expire_time is None  # expiry not configured
             or self.state(TASK_STATUS_EXPIRED)  # already expired
             or time() < self.expire_time  # not time yet
         ):
             return False
-
-        self.state.reset(TASK_STATUS_EXPIRED)
         return True
