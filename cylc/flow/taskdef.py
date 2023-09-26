@@ -22,14 +22,14 @@ from typing import TYPE_CHECKING
 import cylc.flow.flags
 from cylc.flow.exceptions import TaskDefError
 from cylc.flow.task_id import TaskID
-from cylc.flow.task_state import (
+from cylc.flow.task_outputs import (
     TASK_OUTPUT_EXPIRED,
     TASK_OUTPUT_SUBMITTED,
     TASK_OUTPUT_SUBMIT_FAILED,
     TASK_OUTPUT_SUCCEEDED,
-    TASK_OUTPUT_FAILED
+    TASK_OUTPUT_FAILED,
+    SORT_ORDERS
 )
-from cylc.flow.task_outputs import SORT_ORDERS
 
 if TYPE_CHECKING:
     from cylc.flow.cycling import PointBase

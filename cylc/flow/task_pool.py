@@ -57,11 +57,7 @@ from cylc.flow.task_state import (
     TASK_STATUS_SUBMITTED,
     TASK_STATUS_RUNNING,
     TASK_STATUS_SUCCEEDED,
-    TASK_STATUS_FAILED,
-    TASK_OUTPUT_EXPIRED,
-    TASK_OUTPUT_FAILED,
-    TASK_OUTPUT_SUCCEEDED,
-    TASK_OUTPUT_SUBMIT_FAILED,
+    TASK_STATUS_FAILED
 )
 from cylc.flow.util import (
     serialise,
@@ -69,7 +65,13 @@ from cylc.flow.util import (
 )
 from cylc.flow.wallclock import get_current_time_string
 from cylc.flow.platforms import get_platform
-from cylc.flow.task_outputs import add_implied_outputs
+from cylc.flow.task_outputs import (
+    TASK_OUTPUT_EXPIRED,
+    TASK_OUTPUT_FAILED,
+    TASK_OUTPUT_SUCCEEDED,
+    TASK_OUTPUT_SUBMIT_FAILED,
+    add_implied_outputs
+)
 from cylc.flow.task_queues.independent import IndepQueueManager
 
 from cylc.flow.flow_mgr import FLOW_ALL, FLOW_NONE, FLOW_NEW
@@ -701,7 +703,8 @@ class TaskPool:
         self,
         point: 'PointBase',
         name: str,
-        flow_nums: 'FlowNums'
+        flow_nums: 'FlowNums',
+        flow_wait: bool = False
     ) -> Optional[TaskProxy]:
         """Return new or existing task point/name with merged flow_nums.
 
@@ -712,7 +715,7 @@ class TaskPool:
         )
         if ntask is None:
             # ntask does not exist: spawn it in the flow.
-            ntask = self.spawn_task(name, point, flow_nums)
+            ntask = self.spawn_task(name, point, flow_nums, flow_wait)
         else:
             # ntask already exists (n=0): merge flows.
             self.merge_flows(ntask, flow_nums)
@@ -1662,7 +1665,7 @@ class TaskPool:
             for out in add_implied_outputs(msg):
                 if itask.state.outputs.is_completed(out):
                     LOG.warning(
-                        'Already completed: {point}/{taskdef.name}:"{out}"')
+                        f'Already completed: {point}/{taskdef.name}:"{out}"')
                     continue
                 # Handle the output as if completed naturally.
                 LOG.warning(
@@ -1694,7 +1697,7 @@ class TaskPool:
 
             requested = set()
             for p in prereqs:
-                t = Tokens(p, relative=True)
+                t = Tokens(p)
                 requested.add((t['cycle'], t['task'], t['task_sel']))
 
             good = available & requested
