@@ -615,8 +615,11 @@ class TaskEventsManager():
         # Satisfy my output, if possible, and spawn children.
         # (first remove signal: failed/EXIT -> failed)
 
+        # Complete the corresponding task output, if there is one.
         msg0 = message.split('/')[0]
-        completed_trigger = itask.state.outputs.set_msg_trg_completion(
+        if message.startswith(ABORT_MESSAGE_PREFIX):
+            msg0 = TASK_OUTPUT_FAILED
+        completed_output = itask.state.outputs.set_msg_trg_completion(
             message=msg0, is_completed=True)
         self.data_store_mgr.delta_task_output(itask, msg0)
 
@@ -716,6 +719,7 @@ class TaskEventsManager():
             if self._process_message_failed(
                     itask, event_time, self.JOB_FAILED):
                 self.spawn_children(itask, TASK_OUTPUT_FAILED)
+
         elif message.startswith(ABORT_MESSAGE_PREFIX):
             # Task aborted with message
             if (
@@ -729,6 +733,7 @@ class TaskEventsManager():
                 itask, {"run_signal": aborted_with})
             if self._process_message_failed(itask, event_time, aborted_with):
                 self.spawn_children(itask, TASK_OUTPUT_FAILED)
+
         elif message.startswith(VACATION_MESSAGE_PREFIX):
             # Task job pre-empted into a vacation state
             self._db_events_insert(itask, "vacated", message)
@@ -747,11 +752,13 @@ class TaskEventsManager():
             # system, we should probably aim to remove support for job vacation
             # instead. Otherwise, we should have:
             # self.setup_event_handlers(itask, 'vacated', message)
-        elif completed_trigger:
-            # Message of an as-yet unreported custom task output.
+
+        elif completed_output:
+            # Message of a custom task output.
             # No state change.
-            self.setup_event_handlers(itask, completed_trigger, message)
+            self.setup_event_handlers(itask, completed_output, message)
             self.spawn_children(itask, msg0)
+
         else:
             # Unhandled messages. These include:
             #  * general non-output/progress messages
@@ -761,6 +768,7 @@ class TaskEventsManager():
             LOG.debug(f"[{itask}] unhandled: {message}")
             self._db_events_insert(
                 itask, (f"message {lseverity}"), message)
+
         if lseverity in self.NON_UNIQUE_EVENTS:
             itask.non_unique_events.update({lseverity: 1})
             self.setup_event_handlers(itask, lseverity, message)
