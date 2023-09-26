@@ -244,7 +244,7 @@ class TaskPool:
         Call when RH limit changes.
         """
         if not self.active_tasks or not self.runahead_limit_point:
-            # (At start-up main pool might not exist yet)
+            # (At start-up task pool might not exist yet)
             return False
 
         released = False
@@ -631,14 +631,14 @@ class TaskPool:
             return
         LOG.info("+ %s/%s %s" % (cycle, name, ctx_key))
         if ctx_key == "poll_timer":
-            itask = self._get_main_task_by_id(id_)
+            itask = self._get_task_by_id(id_)
             if itask is None:
                 LOG.warning("%(id)s: task not found, skip" % {"id": id_})
                 return
             itask.poll_timer = TaskActionTimer(
                 ctx, delays, num, delay, timeout)
         elif ctx_key[0] == "try_timers":
-            itask = self._get_main_task_by_id(id_)
+            itask = self._get_task_by_id(id_)
             if itask is None:
                 LOG.warning("%(id)s: task not found, skip" % {"id": id_})
                 return
@@ -710,7 +710,7 @@ class TaskPool:
 
         It does not add a spawned task proxy to the pool.
         """
-        ntask = self._get_main_task_by_id(
+        ntask = self._get_task_by_id(
             Tokens(cycle=str(point), task=name).relative_id
         )
         if ntask is None:
@@ -776,7 +776,7 @@ class TaskPool:
             del itask
 
     def get_tasks(self) -> List[TaskProxy]:
-        """Return a list of task proxies in the main pool."""
+        """Return a list of task proxies in the task pool."""
         # Cached list only for use internally in this method.
         if self.active_tasks_changed:
             self.active_tasks_changed = False
@@ -800,8 +800,8 @@ class TaskPool:
         if tasks and rel_id in tasks:
             return tasks[rel_id]
 
-    def _get_main_task_by_id(self, id_: str) -> Optional[TaskProxy]:
-        """Return main pool task by ID if it exists, or None."""
+    def _get_task_by_id(self, id_: str) -> Optional[TaskProxy]:
+        """Return pool task by ID if it exists, or None."""
         for itask_ids in list(self.active_tasks.values()):
             with suppress(KeyError):
                 return itask_ids[id_]
@@ -974,7 +974,7 @@ class TaskPool:
 
         # Now queue all tasks that are ready to run
         for itask in self.get_tasks():
-            # Recreate data store elements from main pool.
+            # Recreate data store elements from task pool.
             self.create_data_store_elements(itask)
             if itask.state.is_queued:
                 # Already queued
@@ -1268,7 +1268,7 @@ class TaskPool:
                 cycle=str(c_point),
                 task=c_name,
             ).relative_id
-            c_task = self._get_main_task_by_id(c_taskid)
+            c_task = self._get_task_by_id(c_taskid)
             if c_task is not None and c_task != itask:
                 # (Avoid self-suicide: A => !A)
                 self.merge_flows(c_task, itask.flow_nums)
@@ -1407,7 +1407,7 @@ class TaskPool:
                     cycle=str(c_point),
                     task=c_name,
                 ).relative_id
-                c_task = self._get_main_task_by_id(c_taskid)
+                c_task = self._get_task_by_id(c_taskid)
                 if c_task is not None:
                     # already spawned
                     continue
@@ -1625,7 +1625,7 @@ class TaskPool:
            Do not spawn the target task if it is not already in the pool, but
            update the DB to reflect the set outputs, and spawn the children.
         """
-        itask = self._get_main_task_by_id(
+        itask = self._get_task_by_id(
             Tokens(
                 cycle=str(point),
                 task=taskdef.name
