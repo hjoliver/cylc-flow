@@ -1960,17 +1960,19 @@ class TaskPool:
 
             point_str = tokens['cycle']
             name_str = tokens['task']
+            members = []
             if name_str not in self.config.taskdefs:
                 if self.config.find_taskdefs(name_str):
-                    # It's a family name; was not matched by active tasks
-                    LOG.warning(
-                        f"No active tasks in the family {name_str}"
-                        f' matching: {id_}'
-                    )
+                    # It's a family name; replace with members.
+                    members = self.config.get_fam_members(name_str)
+                    # LOG.warning(
+                    #    f"No active tasks in the family {name_str}"
+                    #    f' matching: {id_}'
+                    #)
                 else:
                     LOG.warning(self.ERR_TMPL_NO_TASKID_MATCH.format(name_str))
-                unmatched_tasks.append(id_)
-                continue
+                    unmatched_tasks.append(id_)
+                    continue
             try:
                 point_str = standardise_point_string(point_str)
             except PointParsingError as exc:
@@ -1979,17 +1981,21 @@ class TaskPool:
                 unmatched_tasks.append(id_)
                 continue
             point = get_point(point_str)
-            taskdef = self.config.taskdefs[name_str]
-            if taskdef.is_valid_point(point):
-                matched_tasks.add((taskdef.name, point))
+            if members:
+                taskdefs = [self.config.taskdefs[mem] for mem in members]
             else:
-                LOG.warning(
-                    self.ERR_PREFIX_TASK_NOT_ON_SEQUENCE.format(
-                        taskdef.name, point
+                taskdefs = [self.config.taskdefs[name_str]]
+            for taskdef in taskdefs:
+                if taskdef.is_valid_point(point):
+                    matched_tasks.add((taskdef.name, point))
+                else:
+                    LOG.warning(
+                        self.ERR_PREFIX_TASK_NOT_ON_SEQUENCE.format(
+                            taskdef.name, point
+                        )
                     )
-                )
-                unmatched_tasks.append(id_)
-                continue
+                    unmatched_tasks.append(id_)
+                    continue
         return matched_tasks, unmatched_tasks
 
     def match_taskdefs(

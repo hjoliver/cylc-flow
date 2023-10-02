@@ -2491,3 +2491,19 @@ class WorkflowConfig:
             taskdef = self.get_taskdef(task_name)
             for seq in taskdef.sequences:
                 taskdef.add_xtrig_label(label, seq)
+
+    # TODO USE THIS IN task_queues/__init__.py?
+    def get_fam_members(self, name):
+        all_task_names = self.get_task_name_list()
+        members = set()
+        if name in self.runtime["descendants"]:
+            # Family name.
+            for fmem in self.runtime["descendants"][name]:
+                if (fmem not in self.runtime["descendants"]
+                        and fmem in all_task_names):
+                    # Task name.
+                    members.add(fmem)
+        elif fmem in all_task_names:
+            # Task name.
+            members.add(fmem)
+        return members
