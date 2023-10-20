@@ -37,27 +37,27 @@ Implied outputs are set automatically:
 Examples:
 
   # complete all required outputs of 3/bar:
-  $ cylc set my-workflow//3/bar
+  $ cylc set my_workflow//3/bar
 
   # complete the succeeded output of 3/bar:
-  $ cylc set --out=succeeded my-workflow//3/bar
+  $ cylc set --out=succeeded my_workflow//3/bar
 
   # satisfy the `3/foo:succeeded` prerequisite of 3/bar:
-  $ cylc set --pre=3/foo:succeeded my-workflow//3/bar
+  $ cylc set --pre=3/foo:succeeded my_workflow//3/bar
 
   # satisfy all prerequisites of 3/bar and start checking its xtriggers:
-  $ cylc set --pre=all my-workflow//3/bar
+  $ cylc set --pre=all my_workflow//3/bar
 
   # complete the ":file1" custom output of 3/bar:
-  $ cylc set --out=file1 my-workflow//3/bar
+  $ cylc set --out=file1 my_workflow//3/bar
   # or use the associated output message from the task definition:
-  $ cylc set --out="file 1 ready" my-workflow//3/bar
+  $ cylc set --out="file 1 ready" my_workflow//3/bar
 
   # set multiple outputs at once:
-  $ cylc set --out=a --out=b,c my-workflow//3/bar
+  $ cylc set --out=a --out=b,c my_workflow//3/bar
 
   # set multiple prerequisites at once:
-  $ cylc set --pre=3/foo:x --pre=3/foo:y,3/foo:z my-workflow//3/bar
+  $ cylc set --pre=3/foo:x --pre=3/foo:y,3/foo:z my_workflow//3/bar
 
 """
 
