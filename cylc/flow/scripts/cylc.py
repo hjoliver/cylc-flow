@@ -199,6 +199,8 @@ ALIASES = {
     'get-cylc-version': 'get-workflow-version',
     'log': 'cat-log',
     'ls': 'list',
+    'reset': 'set',
+    'set-outputs': 'set',
     'shutdown': 'stop',
     'task-message': 'message',
     'unhold': 'release',
@@ -248,7 +250,9 @@ DEAD_ENDS = {
         'cylc print has been removed; use `cylc scan --states=all`',
     'register':
         'cylc register has been removed; use cylc install or cylc play',
-    'set-outputs':
+    'reset':
+        'cylc reset has been replaced by cylc set',
+     'set-outputs':
         'cylc set-outputs (cylc 8.0-8.2) has been replaced by cylc set',
     'restart':
         'cylc run & cylc restart have been replaced by cylc play',
