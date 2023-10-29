@@ -84,12 +84,12 @@ mutation (
   $wFlows: [WorkflowID]!,
   $tasks: [NamespaceIDGlob]!,
   $prerequisites: [String],
-  $outputs: [String],
+  $outputs: [OutputLabel],
   $flow: [Flow!],
   $flowWait: Boolean,
   $flowDescr: String,
 ) {
-  reset (
+  set (
     workflows: $wFlows,
     tasks: $tasks,
     prerequisites: $prerequisites,

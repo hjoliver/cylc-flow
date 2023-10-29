@@ -2160,7 +2160,7 @@ class Scheduler:
         return self.pool.force_trigger_tasks(
             tasks, flow, flow_wait, flow_descr)
 
-    def command_reset(
+    def command_set(
         self,
         tasks: List[str],
         flow: List[str],
@@ -2173,7 +2173,7 @@ class Scheduler:
 
         User-facing method name: reset.
         """
-        return self.pool.reset(
+        return self.pool.set(
             tasks, outputs, prerequisites, flow, flow_wait, flow_descr
         )
 

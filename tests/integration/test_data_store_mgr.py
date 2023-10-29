@@ -288,7 +288,7 @@ async def test_update_data_structure(harness):
 def test_delta_task_prerequisite(harness):
     """Test delta_task_prerequisites."""
     schd, data = harness
-    schd.pool.reset(
+    schd.pool.set(
         [t.identity for t in schd.pool.get_tasks()],
         [(TASK_STATUS_SUCCEEDED,)],
         [],

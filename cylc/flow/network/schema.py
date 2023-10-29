@@ -1002,6 +1002,12 @@ class Output(ObjectType):
     time = Float()
 
 
+class OutputLabel(String):
+    class Meta:
+        description = """Task output label, as used in the graph."""
+    label = String()
+
+
 class XTrigger(ObjectType):
     class Meta:
         description = """Task trigger"""
@@ -2083,7 +2089,7 @@ class Remove(Mutation, TaskMutation):
         resolver = partial(mutator, command='remove_tasks')
 
 
-class Reset(Mutation, TaskMutation):
+class Set(Mutation, TaskMutation):
     class Meta:
         description = sstrip("""
             Set task prerequisites or outputs.
@@ -2092,19 +2098,18 @@ class Reset(Mutation, TaskMutation):
 
             Setting prerequisites contributes to the task's readiness to run.
 
-            Setting outputs contributes to the task's completion, and sets the
-            corresponding prerequisites of child tasks.
-
-            Setting an output also sets any implied outputs:
+            Setting outputs contributes to the task's completion, sets the
+            corresponding prerequisites of child tasks, and sets any implied
+            outputs:
              - started implies submitted
              - succeeded and failed imply started
              - custom outputs and expired do not imply any other outputs
         """)
-        resolver = partial(mutator, command='reset')
+        resolver = partial(mutator, command='set')
 
     class Arguments(TaskMutation.Arguments, FlowMutationArguments):
         outputs = graphene.List(
-            String,
+            OutputLabel,
             description='List of task outputs to set complete.'
         )
         prerequisites = graphene.List(
@@ -2170,7 +2175,7 @@ class Mutations(ObjectType):
     poll = _mut_field(Poll)
     release = _mut_field(Release)
     remove = _mut_field(Remove)
-    reset = _mut_field(Reset)
+    set = _mut_field(Set)
     trigger = _mut_field(Trigger)
 
     # job actions

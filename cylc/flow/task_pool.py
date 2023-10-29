@@ -1578,7 +1578,7 @@ class TaskPool:
         self.db_add_new_flow_rows(itask)
         return itask
 
-    def reset(
+    def set(
         self,
         items: Iterable[str],
         outputs: Optional[List[str]],
@@ -1587,7 +1587,7 @@ class TaskPool:
         flow_wait: bool = False,
         flow_descr: Optional[str] = None
     ):
-        """Force set prerequisites or outputs of target tasks.
+        """Set prerequisites or outputs of target tasks.
 
         By default, set all required outputs.
 
