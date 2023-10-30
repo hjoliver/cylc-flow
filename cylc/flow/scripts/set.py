@@ -62,7 +62,7 @@ Examples:
 """
 
 from functools import partial
-from optparse import Values
+from typing import TYPE_CHECKING
 
 from cylc.flow.exceptions import InputError
 from cylc.flow.network.client_factory import get_client
@@ -77,6 +77,10 @@ from cylc.flow.flow_mgr import (
     add_flow_opts,
     validate_flow_opts
 )
+
+
+if TYPE_CHECKING:
+    from optparse import Values
 
 
 MUTATION = '''

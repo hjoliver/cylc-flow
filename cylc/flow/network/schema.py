@@ -2175,7 +2175,7 @@ class Mutations(ObjectType):
     poll = _mut_field(Poll)
     release = _mut_field(Release)
     remove = _mut_field(Remove)
-    set = _mut_field(Set)
+    set = _mut_field(Set)  # noqa: A003
     trigger = _mut_field(Trigger)
 
     # job actions

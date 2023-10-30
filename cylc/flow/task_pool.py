@@ -1578,7 +1578,7 @@ class TaskPool:
         self.db_add_new_flow_rows(itask)
         return itask
 
-    def set(
+    def set(  # noqa: A003
         self,
         items: Iterable[str],
         outputs: Optional[List[str]],
