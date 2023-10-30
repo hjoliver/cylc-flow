@@ -63,7 +63,9 @@ import json
 from time import time
 from typing import (
     Any,
+    Dict,
     Optional,
+    Set,
     TYPE_CHECKING,
     Tuple,
     Union,
@@ -481,7 +483,7 @@ class DataStoreMgr:
             state: deque(maxlen=LATEST_STATE_TASKS_QUEUE_SIZE)
             for state in TASK_STATUSES_ORDERED
         }
-        self.xtrigger_tasks = {}
+        self.xtrigger_tasks: Dict[str, Set[Tuple[str, str]]] = {}
         # Managed data types
         self.data = {
             self.workflow_id: deepcopy(DATA_TEMPLATE)
@@ -531,21 +533,23 @@ class DataStoreMgr:
         self.generate_definition_elements()
 
         # Update workflow statuses and totals (assume needed)
-        self.update_workflow()
+        self.update_workflow(True)
 
         # Apply current deltas
         self.batch_deltas()
         self.apply_delta_batch()
+        # Clear deltas after application
+        self.clear_delta_store()
+        self.clear_delta_batch()
 
-        if not reloaded:
-            # Gather this batch of deltas for publish
-            self.apply_delta_checksum()
-            self.publish_deltas = self.get_publish_deltas()
+        # Gather the store as batch of deltas for publishing
+        self.batch_deltas(True)
+        self.apply_delta_checksum()
+        self.publish_deltas = self.get_publish_deltas()
 
         self.updates_pending = False
 
-        # Clear deltas after application and publishing
-        self.clear_delta_store()
+        # Clear second batch after publishing
         self.clear_delta_batch()
 
     def generate_definition_elements(self):
@@ -563,6 +567,8 @@ class DataStoreMgr:
         workflow.id = self.workflow_id
         workflow.last_updated = update_time
         workflow.stamp = f'{workflow.id}@{workflow.last_updated}'
+        # Treat play/restart as hard reload of definition.
+        workflow.reloaded = True
 
         graph = workflow.edges
         graph.leaves[:] = config.leaves
@@ -1311,7 +1317,7 @@ class DataStoreMgr:
             xtrig.id = sig
             xtrig.label = label
             xtrig.satisfied = satisfied
-            self.xtrigger_tasks.setdefault(sig, set()).add(tproxy.id)
+            self.xtrigger_tasks.setdefault(sig, set()).add((tproxy.id, label))
 
         if tproxy.state in self.latest_state_tasks:
             tp_ref = itask.identity
@@ -1493,7 +1499,7 @@ class DataStoreMgr:
             tp_delta.jobs.append(j_id)
             self.updates_pending = True
 
-    def update_data_structure(self, reloaded=False):
+    def update_data_structure(self):
         """Workflow batch updates in the data structure."""
         # load database history for flagged nodes
         self.apply_task_proxy_db_history()
@@ -1520,11 +1526,7 @@ class DataStoreMgr:
             # Apply all deltas
             self.apply_delta_batch()
 
-        if reloaded:
-            self.clear_delta_batch()
-            self.batch_deltas(reloaded=True)
-
-        if self.updates_pending or reloaded:
+        if self.updates_pending:
             self.apply_delta_checksum()
             # Gather this batch of deltas for publish
             self.publish_deltas = self.get_publish_deltas()
@@ -1534,6 +1536,18 @@ class DataStoreMgr:
         # Clear deltas
         self.clear_delta_batch()
         self.clear_delta_store()
+
+    def update_workflow_states(self):
+        """Batch workflow state updates."""
+
+        # update the workflow state in the data store
+        self.update_workflow()
+
+        # push out update deltas
+        self.batch_deltas()
+        self.apply_delta_batch()
+        self.apply_delta_checksum()
+        self.publish_deltas = self.get_publish_deltas()
 
     def prune_data_store(self):
         """Remove flagged nodes and edges not in the set of active paths."""
@@ -1579,7 +1593,9 @@ class DataStoreMgr:
                 node_ids.remove(tp_id)
                 continue
             for sig in node.xtriggers:
-                self.xtrigger_tasks[sig].remove(tp_id)
+                self.xtrigger_tasks[sig].remove(
+                    (tp_id, node.xtriggers[sig].label)
+                )
                 if not self.xtrigger_tasks[sig]:
                     del self.xtrigger_tasks[sig]
 
@@ -1807,7 +1823,7 @@ class DataStoreMgr:
         self.next_n_edge_distance = n_edge_distance
         self.updates_pending = True
 
-    def update_workflow(self):
+    def update_workflow(self, reloaded=False):
         """Update workflow element status and state totals."""
         # Create new message and copy existing message content
         data = self.data[self.workflow_id]
@@ -1863,8 +1879,12 @@ class DataStoreMgr:
             w_delta.status_msg = status_msg
             delta_set = True
 
+        if reloaded is not w_data.reloaded:
+            w_delta.reloaded = reloaded
+
         if self.schd.pool.active_tasks:
             pool_points = set(self.schd.pool.active_tasks)
+
             oldest_point = str(min(pool_points))
             if w_data.oldest_active_cycle_point != oldest_point:
                 w_delta.oldest_active_cycle_point = oldest_point
@@ -2160,6 +2180,7 @@ class DataStoreMgr:
             tp_id, PbTaskProxy(id=tp_id))
         tp_delta.stamp = f'{tp_id}@{update_time}'
         ext_trigger = tp_delta.external_triggers[trig]
+        ext_trigger.id = tproxy.external_triggers[trig].id
         ext_trigger.message = message
         ext_trigger.satisfied = satisfied
         ext_trigger.time = update_time
@@ -2177,12 +2198,14 @@ class DataStoreMgr:
 
         """
         update_time = time()
-        for tp_id in self.xtrigger_tasks.get(sig, set()):
+        for tp_id, label in self.xtrigger_tasks.get(sig, set()):
             # update task instance
             tp_delta = self.updated[TASK_PROXIES].setdefault(
                 tp_id, PbTaskProxy(id=tp_id))
             tp_delta.stamp = f'{tp_id}@{update_time}'
             xtrigger = tp_delta.xtriggers[sig]
+            xtrigger.id = sig
+            xtrigger.label = label
             xtrigger.satisfied = satisfied
             xtrigger.time = update_time
             self.updates_pending = True

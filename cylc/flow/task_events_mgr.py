@@ -582,6 +582,7 @@ class TaskEventsManager():
             True: if polling is required to confirm a reversal of status.
 
         """
+
         # Log messages
         if event_time is None:
             event_time = get_current_time_string()
@@ -626,6 +627,7 @@ class TaskEventsManager():
                 and not itask.state.outputs.is_completed(TASK_OUTPUT_STARTED)):
             self.setup_event_handlers(
                 itask, self.EVENT_STARTED, f'job {self.EVENT_STARTED}')
+
             self.spawn_children(itask, TASK_OUTPUT_STARTED)
 
         if message == self.EVENT_STARTED:
@@ -799,24 +801,23 @@ class TaskEventsManager():
             return False
 
         if (
-                itask.state(TASK_STATUS_WAITING)
-                and
+            itask.state(TASK_STATUS_WAITING)
+            and itask.tdef.run_mode == 'live'   # Polling in live mode only.
+            and (
                 (
-                    (
-                        # task has a submit-retry lined up
-                        TimerFlags.SUBMISSION_RETRY in itask.try_timers
-                        and itask.try_timers[
-                            TimerFlags.SUBMISSION_RETRY].num > 0
-                    )
-                    or
-                    (
-                        # task has an execution-retry lined up
-                        TimerFlags.EXECUTION_RETRY in itask.try_timers
-                        and itask.try_timers[
-                            TimerFlags.EXECUTION_RETRY].num > 0
-                    )
+                    # task has a submit-retry lined up
+                    TimerFlags.SUBMISSION_RETRY in itask.try_timers
+                    and itask.try_timers[
+                        TimerFlags.SUBMISSION_RETRY].num > 0
                 )
-
+                or
+                (
+                    # task has an execution-retry lined up
+                    TimerFlags.EXECUTION_RETRY in itask.try_timers
+                    and itask.try_timers[
+                        TimerFlags.EXECUTION_RETRY].num > 0
+                )
+            )
         ):
             # Ignore messages if task has a retry lined up
             # (caused by polling overlapping with task failure)

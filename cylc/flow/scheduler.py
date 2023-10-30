@@ -113,6 +113,7 @@ from cylc.flow.platforms import (
 )
 from cylc.flow.profiler import Profiler
 from cylc.flow.resources import get_resources
+from cylc.flow.simulation import sim_time_check
 from cylc.flow.subprocpool import SubProcPool
 from cylc.flow.templatevars import eval_var
 from cylc.flow.workflow_db_mgr import WorkflowDatabaseManager
@@ -1181,7 +1182,7 @@ class Scheduler:
             self._update_workflow_state()
 
             # Re-initialise data model on reload
-            self.data_store_mgr.initiate_data_model(reloaded=True)
+            self.data_store_mgr.initiate_data_model(self.is_reloaded)
 
             # Reset the remote init map to trigger fresh file installation
             self.task_job_mgr.task_remote_mgr.remote_init_map.clear()
@@ -1569,7 +1570,7 @@ class Scheduler:
 
         # Is the workflow ready to shut down now?
         if self.pool.can_stop(self.stop_mode):
-            await self.update_data_structure(self.is_reloaded)
+            await self.update_data_structure()
             self.proc_pool.close()
             if self.stop_mode != StopMode.REQUEST_NOW_NOW:
                 # Wait for process pool to complete,
@@ -1762,7 +1763,11 @@ class Scheduler:
             self.pool.clock_expire_tasks()
             self.release_queued_tasks()
 
-            if self.pool.sim_time_check(self.message_queue):
+            if (
+                self.pool.config.run_mode('simulation')
+                and sim_time_check(
+                    self.message_queue, self.pool.get_tasks())
+            ):
                 # A simulated task state change occurred.
                 self.reset_inactivity_timer()
 
@@ -1789,7 +1794,7 @@ class Scheduler:
 
             if has_updated or self.data_store_mgr.updates_pending:
                 # Update the datastore.
-                await self.update_data_structure(self.is_reloaded)
+                await self.update_data_structure()
 
             if has_updated:
                 if not self.is_reloaded:
@@ -1860,28 +1865,24 @@ class Scheduler:
         A cut-down version of update_data_structure which only considers
         workflow state changes e.g. status, status message, state totals, etc.
         """
+        # Publish any existing before potentially creating more
+        self._publish_deltas()
         # update the workflow state in the data store
-        self.data_store_mgr.update_workflow()
-
-        # push out update deltas
-        self.data_store_mgr.batch_deltas()
-        self.data_store_mgr.apply_delta_batch()
-        self.data_store_mgr.apply_delta_checksum()
-        self.data_store_mgr.publish_deltas = (
-            self.data_store_mgr.get_publish_deltas()
-        )
-        self.server.publish_queue.put(
-            self.data_store_mgr.publish_deltas)
-
-        # Non-async sleep - yield to other threads rather
-        # than event loop
-        sleep(0)
+        self.data_store_mgr.update_workflow_states()
+        self._publish_deltas()
 
     async def update_data_structure(self, reloaded: bool = False):
         """Update DB, UIS, Summary data elements"""
+        # Publish any existing before potentially creating more
+        self._publish_deltas()
         # Collect/apply data store updates/deltas
-        self.data_store_mgr.update_data_structure(reloaded=reloaded)
-        # Publish updates:
+        self.data_store_mgr.update_data_structure()
+        self._publish_deltas()
+        # Database update
+        self.workflow_db_mgr.put_task_pool(self.pool)
+
+    def _publish_deltas(self):
+        """Publish pending deltas."""
         if self.data_store_mgr.publish_pending:
             self.data_store_mgr.publish_pending = False
             self.server.publish_queue.put(
@@ -1889,8 +1890,6 @@ class Scheduler:
             # Non-async sleep - yield to other threads rather
             # than event loop
             sleep(0)
-        # Database update
-        self.workflow_db_mgr.put_task_pool(self.pool)
 
     def check_workflow_timers(self):
         """Check timers, and abort or run event handlers as configured."""

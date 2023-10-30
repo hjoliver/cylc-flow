@@ -40,7 +40,6 @@ from cylc.flow.exceptions import (
 from cylc.flow.id import Tokens, detokenise
 from cylc.flow.id_cli import contains_fnmatch
 from cylc.flow.id_match import filter_ids
-from cylc.flow.network.resolvers import TaskMsg
 from cylc.flow.workflow_status import StopMode
 from cylc.flow.task_action_timer import TaskActionTimer, TimerFlags
 from cylc.flow.task_events_mgr import (
@@ -78,7 +77,6 @@ from cylc.flow.flow_mgr import FLOW_ALL, FLOW_NONE, FLOW_NEW
 
 
 if TYPE_CHECKING:
-    from queue import Queue
     from cylc.flow.config import WorkflowConfig
     from cylc.flow.cycling import IntervalBase, PointBase
     from cylc.flow.data_store_mgr import DataStoreMgr
@@ -1348,8 +1346,11 @@ class TaskPool:
         """
         if cylc.flow.flags.cylc7_back_compat:
 
-            if not itask.state(TASK_STATUS_FAILED):
+            if not itask.state(TASK_STATUS_FAILED, TASK_OUTPUT_SUBMIT_FAILED):
                 self.remove(itask, 'completed')
+
+            if not itask.state(TASK_STATUS_FAILED, TASK_OUTPUT_SUBMIT_FAILED):
+                self.remove(itask, 'finished')
 
             if self.compute_runahead():
                 self.release_runahead_tasks()
@@ -1897,6 +1898,7 @@ class TaskPool:
 
     def clock_expire_tasks(self):
         """Expire any tasks past their clock-expiry time."""
+
         for itask in self.get_tasks():
             if not itask.clock_expire():
                 continue
