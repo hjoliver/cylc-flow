@@ -15,19 +15,29 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 import logging
-from typing import AsyncGenerator, Callable, Iterable, List, Tuple, Union
+from typing import (
+    TYPE_CHECKING,
+    AsyncGenerator,
+    Callable,
+    Iterable,
+    List,
+    Tuple,
+    Union
+)
 
 import pytest
 from pytest import param
 
 from cylc.flow import CYLC_LOG
-from cylc.flow.cycling import PointBase
 from cylc.flow.cycling.integer import IntegerPoint
 from cylc.flow.cycling.iso8601 import ISO8601Point
 from cylc.flow.data_store_mgr import TASK_PROXIES
-from cylc.flow.task_outputs import TASK_OUTPUT_SUCCEEDED
-from cylc.flow.scheduler import Scheduler
-from cylc.flow.flow_mgr import FLOW_ALL
+from cylc.flow.task_outputs import (
+    TASK_OUTPUT_STARTED,
+    TASK_OUTPUT_SUCCEEDED
+)
+
+from cylc.flow.flow_mgr import FLOW_ALL, FLOW_NONE
 from cylc.flow.task_state import (
     TASK_STATUS_WAITING,
     TASK_STATUS_PREPARING,
@@ -38,6 +48,10 @@ from cylc.flow.task_state import (
     TASK_STATUS_EXPIRED,
     TASK_STATUS_SUBMIT_FAILED,
 )
+
+if TYPE_CHECKING:
+    from cylc.flow.cycling import PointBase
+    from cylc.flow.scheduler import Scheduler
 
 # NOTE: foo and bar have no parents so at start-up (even with the workflow
 # paused) they get spawned out to the runahead limit. 2/pub spawns
@@ -82,7 +96,7 @@ EXAMPLE_FLOW_2_CFG = {
 
 
 def get_task_ids(
-    name_point_list: Iterable[Tuple[str, Union[PointBase, str, int]]]
+    name_point_list: Iterable[Tuple[str, Union['PointBase', str, int]]]
 ) -> List[str]:
     """Helper function to return sorted task identities
     from a list of  (name, point) tuples."""
@@ -114,14 +128,14 @@ def assert_expected_log(
 @pytest.fixture(scope='module')
 async def mod_example_flow(
     mod_flow: Callable, mod_scheduler: Callable, mod_run: Callable
-) -> Scheduler:
+) -> 'Scheduler':
     """Return a scheduler for interrogating its task pool.
 
     This is module-scoped so faster than example_flow, but should only be used
     where the test does not mutate the state of the scheduler or task pool.
     """
     id_ = mod_flow(EXAMPLE_FLOW_CFG)
-    schd: Scheduler = mod_scheduler(id_, paused_start=True)
+    schd: 'Scheduler' = mod_scheduler(id_, paused_start=True)
     async with mod_run(schd):
         pass
     return schd
@@ -133,7 +147,7 @@ async def example_flow(
     scheduler: Callable,
     start,
     caplog: pytest.LogCaptureFixture,
-) -> AsyncGenerator[Scheduler, None]:
+) -> AsyncGenerator['Scheduler', None]:
     """Return a scheduler for interrogating its task pool.
 
     This is function-scoped so slower than mod_example_flow; only use this
@@ -143,7 +157,7 @@ async def example_flow(
     # set up caplog and do schd.install()/.initialise()/.configure() instead
     caplog.set_level(logging.INFO, CYLC_LOG)
     id_ = flow(EXAMPLE_FLOW_CFG)
-    schd: Scheduler = scheduler(id_)
+    schd: 'Scheduler' = scheduler(id_)
     async with start(schd):
         yield schd
 
@@ -151,14 +165,14 @@ async def example_flow(
 @pytest.fixture(scope='module')
 async def mod_example_flow_2(
     mod_flow: Callable, mod_scheduler: Callable, mod_run: Callable
-) -> Scheduler:
+) -> 'Scheduler':
     """Return a scheduler for interrogating its task pool.
 
     This is module-scoped so faster than example_flow, but should only be used
     where the test does not mutate the state of the scheduler or task pool.
     """
     id_ = mod_flow(EXAMPLE_FLOW_2_CFG)
-    schd: Scheduler = mod_scheduler(id_, paused_start=True)
+    schd: 'Scheduler' = mod_scheduler(id_, paused_start=True)
     async with mod_run(schd):
         pass
     return schd
@@ -214,7 +228,7 @@ async def test_filter_task_proxies(
     expected_task_ids: List[str],
     expected_bad_items: List[str],
     expected_warnings: List[str],
-    mod_example_flow: Scheduler,
+    mod_example_flow: 'Scheduler',
     caplog: pytest.LogCaptureFixture
 ) -> None:
     """Test TaskPool.filter_task_proxies().
@@ -288,7 +302,7 @@ async def test_match_taskdefs(
     items: List[str],
     expected_task_ids: List[str],
     expected_warnings: List[str],
-    mod_example_flow: Scheduler,
+    mod_example_flow: 'Scheduler',
     caplog: pytest.LogCaptureFixture
 ) -> None:
     """Test TaskPool.match_taskdefs().
@@ -350,7 +364,7 @@ async def test_hold_tasks(
     items: List[str],
     expected_tasks_to_hold_ids: List[str],
     expected_warnings: List[str],
-    example_flow: Scheduler, caplog: pytest.LogCaptureFixture,
+    example_flow: 'Scheduler', caplog: pytest.LogCaptureFixture,
     db_select: Callable
 ) -> None:
     """Test TaskPool.hold_tasks().
@@ -383,7 +397,7 @@ async def test_hold_tasks(
 
 
 async def test_release_held_tasks(
-    example_flow: Scheduler, db_select: Callable
+    example_flow: 'Scheduler', db_select: Callable
 ) -> None:
     """Test TaskPool.release_held_tasks().
 
@@ -429,7 +443,7 @@ async def test_release_held_tasks(
 async def test_hold_point(
     hold_after_point: int,
     expected_held_task_ids: List[str],
-    example_flow: Scheduler, db_select: Callable
+    example_flow: 'Scheduler', db_select: Callable
 ) -> None:
     """Test TaskPool.set_hold_point() and .release_hold_point()"""
     expected_held_task_ids = sorted(expected_held_task_ids)
@@ -539,7 +553,7 @@ async def test_reload_stopcp(
             }
         }
     }
-    schd: Scheduler = scheduler(flow(cfg))
+    schd: 'Scheduler' = scheduler(flow(cfg))
     async with start(schd):
         assert str(schd.pool.stop_point) == '2020'
         await schd.command_reload_workflow()
@@ -547,7 +561,7 @@ async def test_reload_stopcp(
 
 
 async def test_runahead_after_remove(
-    example_flow: Scheduler
+    example_flow: 'Scheduler'
 ) -> None:
     """The runahead limit should be recomputed after tasks are removed.
 
@@ -569,7 +583,7 @@ async def test_load_db_bad_platform(
 ):
     """Test that loading an unavailable platform from the database doesn't
     cause calamitous failure."""
-    schd: Scheduler = scheduler(flow(one_conf))
+    schd: 'Scheduler' = scheduler(flow(one_conf))
 
     async with start(schd):
         result = schd.pool.load_db_task_pool_for_restart(0, (
@@ -1016,6 +1030,12 @@ async def test_db_update_on_removal(
     schd = scheduler(id_)
     async with start(schd):
         task_a = schd.pool.get_tasks()[0]
+        # (needed for job config in sim mode:)
+        schd.task_job_mgr.submit_task_jobs(
+            schd.workflow, [task_a], None, None)
+        # set it to running (and submitted implied)
+        schd.pool.set(
+            [task_a.identity], [TASK_OUTPUT_STARTED], None, ['all'])
 
         # set the task to running
         schd.pool.task_events_mgr.process_message(task_a, 1, 'started')
@@ -1048,8 +1068,7 @@ async def test_no_flow_tasks_dont_spawn(
 ):
     """Ensure no-flow tasks don't spawn downstreams.
 
-    No-flow tasks (i.e `--flow=none`) are one-offs which are not attached to
-    any "flow".
+    No-flow tasks (i.e `--flow=none`) are not attached to any "flow".
 
     See https://github.com/cylc/cylc-flow/issues/5613
     """
@@ -1066,12 +1085,17 @@ async def test_no_flow_tasks_dont_spawn(
 
     schd = scheduler(id_)
     async with start(schd):
-        # mark task 1/a as succeeded
         task_a = schd.pool.get_tasks()[0]
-        # TODO: actually for convenience state reset should set outputs?
-        # now state and outputs are divorced, unless use process_message.
-        task_a.state_reset('succeeded')
-        task_a.state.outputs.set_completion('succeeded', True)
+
+        # set as no-flow:
+        task_a.flow_nums = set()
+
+        # Needed for job config in simulation mode:
+        schd.task_job_mgr.submit_task_jobs(
+            schd.workflow, [task_a], None, None)
+
+        # Set as completed: should not spawn children.
+        schd.pool.set([task_a.identity], None, None, [FLOW_NONE])
 
         for flow_nums, force, pool in (
             # outputs yielded from a no-flow task should not spawn downstreams
@@ -1138,7 +1162,7 @@ async def test_task_proxy_remove_from_queues(
 
 
 async def test_runahead_offset_start(
-    mod_example_flow_2: Scheduler
+    mod_example_flow_2: 'Scheduler'
 ) -> None:
     """Late-start recurrences should not break the runahead limit at start-up.
 
@@ -1185,6 +1209,7 @@ async def test_detect_incomplete_tasks(
             # ensure that it is correctly identified as incomplete
             assert itask.state.outputs.get_incomplete()
             assert itask.state.outputs.is_incomplete()
-            assert log_filter(log, contains=f"[{itask}] did not complete required outputs:")
+            assert log_filter(
+                log, contains=f"[{itask}] did not complete required outputs:")
             # the task should not have been removed
             assert itask in schd.pool.get_tasks()

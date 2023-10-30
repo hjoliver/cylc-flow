@@ -24,7 +24,6 @@ from typing import Any, Callable
 from cylc.flow.exceptions import CylcError
 from cylc.flow.parsec.exceptions import ParsecError
 from cylc.flow.scheduler import Scheduler, SchedulerStop
-from cylc.flow.task_outputs import TASK_OUTPUT_SUCCEEDED
 from cylc.flow.task_state import (
     TASK_STATUS_WAITING,
     TASK_STATUS_SUBMIT_FAILED,
@@ -348,11 +347,14 @@ async def test_restart_timeout(
     id_ = flow(one_conf)
 
     # run the workflow to completion
-    schd = scheduler(id_)
-    async with start(schd):
+    # (by setting the only task to completed)
+    schd = scheduler(id_, paused_start=False)
+    async with start(schd) as log:
         for itask in schd.pool.get_tasks():
-            schd.pool.task_events_mgr.process_message(
-                itask, 1, TASK_OUTPUT_SUCCEEDED)
+            # (needed for job config in sim mode:)
+            schd.task_job_mgr.submit_task_jobs(
+                schd.workflow, [itask], None, None)
+            schd.pool.set([itask.identity], None, None, ['all'])
 
     # restart the completed workflow
     schd = scheduler(id_)
