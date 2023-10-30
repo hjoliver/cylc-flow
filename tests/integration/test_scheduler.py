@@ -325,7 +325,7 @@ async def test_uuid_unchanged_on_restart(
         cf_uuid = uuid_re.findall(contact_file.read_text())
         assert cf_uuid == [schd.uuid_str]
 
-        
+
 async def test_restart_timeout(
     flow,
     one_conf,
