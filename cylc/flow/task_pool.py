@@ -1221,9 +1221,12 @@ class TaskPool:
 
         Remove the parent task from the pool if complete.
 
-        Called by the task event manager on receiving output messages, or via
-        manual calls to set task outputs (in this case the parent task could be
-        transient, i.e. not in the pool).
+        Called by task event manager on receiving output messages, and after
+        forced setting of task outputs (in this case the parent task could
+        be transient, i.e. not in the pool).
+
+        (Note we don't add implied outputs in the automatic case - should not
+        be necessary.)
 
         Also set the abort-on-task-failed flag if necessary.
 
@@ -1904,6 +1907,9 @@ class TaskPool:
                 continue
             self.task_events_mgr.process_message(
                 itask, logging.WARNING, TASK_OUTPUT_EXPIRED)
+
+            if itask.state(TASK_STATUS_EXPIRED):
+                self.remove(itask, 'completed')
 
     def task_succeeded(self, id_):
         """Return True if task with id_ is in the succeeded state."""
