@@ -40,12 +40,12 @@ cylc stop --now --now --interval=2 --max-polls=5 "${WORKFLOW_NAME}"
 # - implied outputs reported as already completed
 
 cylc cat-log "${WORKFLOW_NAME}" | \
-    grep " completed" | sed -e 's/.* - //' > grep.log
+    grep -E " (c|C)omplet(ed|ing)" | sed -e 's/.* - //' > grep.log
 
 cmp_ok grep.log <<__END__
-Already completed: 1/foo:"submitted"
-Already completed: 1/foo:"started"
-Setting completed: 1/foo:"failed"
+Output already completed: 1/foo:submitted
+Output already completed: 1/foo:started
+Completing output: 1/foo:failed
 __END__
 
 # Check the DB records all the outputs.

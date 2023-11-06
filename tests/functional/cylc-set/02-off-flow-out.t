@@ -26,22 +26,22 @@ install_and_validate
 reftest_run
 
 cylc cat-log "${WORKFLOW_NAME}" | \
-    grep "Setting completed" | sed -e 's/.*: //' > grep.log
+    grep "Completing output" | sed -e 's/.*: //' > grep.log
 
 # Check that we set:
 #  - all the required outputs of a_cold
 #  - the requested and implied outputs (in order) of b_cold and c_cold
 
 cmp_ok grep.log <<__END__
-1/a_cold:"submitted"
-1/a_cold:"started"
-1/a_cold:"succeeded"
-1/b_cold:"submitted"
-1/b_cold:"started"
-1/b_cold:"succeeded"
-1/c_cold:"submitted"
-1/c_cold:"started"
-1/c_cold:"succeeded"
+1/a_cold:submitted
+1/a_cold:started
+1/a_cold:succeeded
+1/b_cold:submitted
+1/b_cold:started
+1/b_cold:succeeded
+1/c_cold:submitted
+1/c_cold:started
+1/c_cold:succeeded
 __END__
 
 purge
