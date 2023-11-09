@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # THIS FILE IS PART OF THE CYLC WORKFLOW ENGINE.
 # Copyright (C) NIWA & British Crown (Met Office) & Contributors.
-#
+# 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
@@ -15,31 +15,45 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #-------------------------------------------------------------------------------
-# Test "cylc set-verbosity"
+
+# "cylc set" proposal examples.
+# Set incomplete failed tasks to succeeded.
+
 . "$(dirname "$0")/test_header"
 set_test_number 6
 
-# Test illegal log level
-TEST_NAME="${TEST_NAME_BASE}-bad"
-run_fail "$TEST_NAME" cylc set-verbosity duck quack
-grep_ok 'InputError: Illegal logging level, duck' "${TEST_NAME}.stderr"
+install_and_validate
+reftest_run
 
-# Test good log level
-TEST_NAME="${TEST_NAME_BASE}-good"
-init_workflow "${TEST_NAME_BASE}" << '__FLOW__'
-[scheduler]
-    allow implicit tasks = True
-[scheduling]
-    [[graph]]
-        R1 = andor
-__FLOW__
+for TASK in foo bar
+do
+    sqlite3 ~/cylc-run/"${WORKFLOW_NAME}"/log/db \
+       "SELECT status FROM task_states WHERE name is \"$TASK\"" > "${TASK}.1"
 
-run_ok "${TEST_NAME}-validate" cylc validate "$WORKFLOW_NAME"
-workflow_run_ok "${TEST_NAME}-run" cylc play --pause "$WORKFLOW_NAME"
+    cmp_ok ${TASK}.1 - << __OUT__
+succeeded
+__OUT__
 
-run_ok "$TEST_NAME" cylc set-verbosity DEBUG "$WORKFLOW_NAME"
-log_scan "${TEST_NAME}-grep" "${WORKFLOW_RUN_DIR}/log/scheduler/log" 5 1 \
-    'Command actioned: set_verbosity'
+    sqlite3 ~/cylc-run/"${WORKFLOW_NAME}"/log/db \
+       "SELECT outputs FROM task_outputs WHERE name is \"$TASK\"" > "${TASK}.2"
 
-cylc stop "$WORKFLOW_NAME"
+    # Json string list of outputs from the db may not be ordered correctly.
+    # E.g., '["submitted", "started", "succeeded", "failed"]'.
+    python3 - << __END__ > "${TASK}.3"
+import json
+with open("${TASK}.2", 'r') as f:
+    print(
+        ','.join(
+            sorted(
+                json.load(f)
+             )
+        )
+    )
+__END__
+
+    cmp_ok "${TASK}.3" - << __OUT__
+failed,started,submitted,succeeded
+__OUT__
+
+done
 purge

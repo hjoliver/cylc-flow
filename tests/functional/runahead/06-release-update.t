@@ -32,9 +32,18 @@ poll_grep_workflow_log -E "${NEXT1}/bar .* spawned"
 # sleep a little to allow the datastore to update (`cylc dump` sees the
 # datastore) TODO can we avoid this flaky sleep somehow?
 sleep 10
+
 # (gratuitous use of --flows for test coverage)
 cylc dump --flows -t "${WORKFLOW_NAME}" | awk '{print $1 $2 $3 $7}' >'log'
+
+# The scheduler task pool should contain:
+#   NEXT1/foo - waiting on clock trigger
+#   NEXT1/bar - waiting, partially satisfied
+# The n=1 data store should also contain:
+#   YYYY/bar - succeeded
+
 cmp_ok 'log' - <<__END__
+bar,$YYYY,succeeded,[1]
 bar,$NEXT1,waiting,[1]
 foo,$NEXT1,waiting,[1]
 __END__

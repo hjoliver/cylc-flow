@@ -16,7 +16,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #-------------------------------------------------------------------------------
 
-# Check that "cylc set-outputs" works like it says on the tin.
+# Check that "cylc set" continues a flow by default.
 . "$(dirname "$0")/test_header"
 set_test_number 2
 reftest

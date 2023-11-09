@@ -1882,8 +1882,9 @@ class DataStoreMgr:
         if reloaded is not w_data.reloaded:
             w_delta.reloaded = reloaded
 
-        if self.schd.pool.main_pool:
-            pool_points = set(self.schd.pool.main_pool)
+        if self.schd.pool.active_tasks:
+            pool_points = set(self.schd.pool.active_tasks)
+
             oldest_point = str(min(pool_points))
             if w_data.oldest_active_cycle_point != oldest_point:
                 w_delta.oldest_active_cycle_point = oldest_point

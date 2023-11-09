@@ -19,6 +19,7 @@
 from collections import Counter
 from copy import copy
 from fnmatch import fnmatchcase
+from time import time
 from typing import (
     Any, Callable, Dict, List, Set, Tuple, Optional, TYPE_CHECKING
 )
@@ -28,7 +29,11 @@ from metomi.isodatetime.timezone import get_local_time_zone
 from cylc.flow import LOG
 from cylc.flow.platforms import get_platform
 from cylc.flow.task_action_timer import TimerFlags
-from cylc.flow.task_state import TaskState, TASK_STATUS_WAITING
+from cylc.flow.task_state import (
+    TaskState,
+    TASK_STATUS_WAITING,
+    TASK_STATUS_EXPIRED
+)
 from cylc.flow.taskdef import generate_graph_children
 from cylc.flow.wallclock import get_unix_time_from_time_string as str2time
 from cylc.flow.cycling.iso8601 import (
@@ -245,15 +250,22 @@ class TaskProxy:
         self.non_unique_events = Counter()  # type: ignore # TODO: figure out
 
         self.clock_trigger_time: Optional[float] = None
-        self.expire_time: Optional[float] = None
         self.late_time: Optional[float] = None
         self.is_late = is_late
         self.waiting_on_job_prep = False
 
         self.state = TaskState(tdef, self.point, status, is_held)
 
-        # Determine graph children of this task (for spawning).
         self.graph_children = generate_graph_children(tdef, self.point)
+
+        self.expire_time: Optional[float] = None
+        if self.tdef.expiration_offset is not None:
+            self.expire_time = (
+                self.get_point_as_seconds() +
+                self.get_offset_as_seconds(
+                    self.tdef.expiration_offset
+                )
+            )
 
     def __repr__(self) -> str:
         return f"<{self.__class__.__name__} '{self.tokens}'>"
@@ -470,3 +482,23 @@ class TaskProxy:
                 LOG.info(f"[{before}] => {self.state}")
             return True
         return False
+
+    def satisfy_me(self, prereqs) -> bool:
+        """Attempt to satisfy the given prerequisites.
+
+        return True if all are valid, else False.
+        """
+        bad = self.state.satisfy_me(prereqs)
+        for err in bad:
+            LOG.warning(f"{self.identity} has no prerequisites {err}")
+        return len(bad) == 0
+
+    def clock_expire(self) -> bool:
+        """Return True if clock expire time is up, else False."""
+        if (
+            self.expire_time is None  # expiry not configured
+            or self.state(TASK_STATUS_EXPIRED)  # already expired
+            or time() < self.expire_time  # not time yet
+        ):
+            return False
+        return True

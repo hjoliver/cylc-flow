@@ -452,7 +452,7 @@ class WorkflowDatabaseManager:
         # This should already be done by self.put_task_event_timers above:
         # self.db_deletes_map[self.TABLE_TASK_ACTION_TIMERS].append({})
         self.db_deletes_map[self.TABLE_TASK_TIMEOUT_TIMERS].append({})
-        for itask in pool.get_all_tasks():
+        for itask in pool.get_tasks():
             for prereq in itask.state.prerequisites:
                 for (p_cycle, p_name, p_output), satisfied_state in (
                     prereq.satisfied.items()
