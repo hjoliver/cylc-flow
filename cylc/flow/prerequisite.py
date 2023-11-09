@@ -200,14 +200,22 @@ class Prerequisite:
         Updates cache with the evaluation result.
 
         """
-        relevant_messages = all_task_outputs & set(self.satisfied)
-        for message in relevant_messages:
-            self.satisfied[message] = self.DEP_STATE_SATISFIED
+        # In Cylc 8 SOD we don't need to filter for relevant prerequisites.
+        # This only gets called for known prerequisites, except in bad or
+        # overly wide manual "cylc set" calls.
+
+        satisfied = False
+        for message in all_task_outputs:
+            if message in self.satisfied:
+                self.satisfied[message] = self.DEP_STATE_SATISFIED
+            else:
+                continue
+            satisfied = True
             if self.conditional_expression is None:
                 self._all_satisfied = all(self.satisfied.values())
             else:
                 self._all_satisfied = self._conditional_is_satisfied()
-        return relevant_messages
+        return satisfied
 
     def api_dump(self):
         """Return list of populated Protobuf data objects."""

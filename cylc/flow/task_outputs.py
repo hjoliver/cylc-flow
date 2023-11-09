@@ -15,6 +15,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """Task output message manager and constants."""
 
+from typing import List
 
 # Standard task output strings, used for triggering.
 TASK_OUTPUT_EXPIRED = "expired"
@@ -46,6 +47,34 @@ TASK_OUTPUTS = (
 _TRIGGER = 0
 _MESSAGE = 1
 _IS_COMPLETED = 2
+
+
+def add_implied_outputs(output: str) -> List[str]:
+    """Return a list with implied outputs prepended.
+
+    - succeeded and failed imply started
+    - started implies submitted
+    - custom outputs and expired do not imply other outputs
+
+    Examples:
+        >>> add_implied_outputs('cat')
+        ['cat']
+
+        >>> add_implied_outputs('started')
+        ['submitted', 'started']
+
+        >>> add_implied_outputs('succeeded')
+        ['submitted', 'started', 'succeeded']
+
+        >>> add_implied_outputs('failed')
+        ['submitted', 'started', 'failed']
+    """
+    if output in [TASK_OUTPUT_SUCCEEDED, TASK_OUTPUT_FAILED]:
+        return [TASK_OUTPUT_SUBMITTED, TASK_OUTPUT_STARTED, output]
+    elif output == TASK_OUTPUT_STARTED:
+        return [TASK_OUTPUT_SUBMITTED, output]
+    else:
+        return [output]
 
 
 class TaskOutputs:
@@ -114,8 +143,20 @@ class TaskOutputs:
             return False
 
     def get_all(self):
-        """Return an iterator for all outputs."""
+        """Return an iterator for all output messages."""
         return sorted(self._by_message.values(), key=self.msg_sort_key)
+
+    def get_msg(self, out):
+        """Translate a message or label into message, or None if not valid."""
+        if out in self._by_message:
+            # It's already a valid message.
+            return out
+        elif out in self._by_trigger:
+            # It's a valid trigger label, return the message.
+            return (self._by_trigger[out])[1]
+        else:
+            # Not a valid message or trigger label.
+            return None
 
     def get_completed(self):
         """Return all completed output messages."""

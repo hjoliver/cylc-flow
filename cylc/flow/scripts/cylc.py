@@ -243,6 +243,8 @@ ALIASES = {
     'get-cylc-version': 'get-workflow-version',
     'log': 'cat-log',
     'ls': 'list',
+    'reset': 'set',
+    'set-outputs': 'set',
     'shutdown': 'stop',
     'task-message': 'message',
     'unhold': 'release',
@@ -293,7 +295,9 @@ DEAD_ENDS = {
     'register':
         'cylc register has been removed; use cylc install or cylc play',
     'reset':
-        'cylc reset has been replaced by cylc set-outputs',
+        'cylc reset has been replaced by cylc set',
+    'set-outputs':
+        'cylc set-outputs (cylc 8.0-8.2) has been replaced by cylc set',
     'restart':
         'cylc run & cylc restart have been replaced by cylc play',
     'review':
@@ -311,6 +315,8 @@ DEAD_ENDS = {
         'cylc submit has been removed',
     'start':
         'cylc start & cylc restart have been replaced by cylc play',
+    'set-verbosity':
+        'cylc set-verbosity has been replaced by cylc verbosity',
     'warranty':
         'cylc warranty has been replaced by cylc help license',
 }

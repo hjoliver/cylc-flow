@@ -20,17 +20,70 @@ from typing import Dict, Set, Optional, TYPE_CHECKING
 import datetime
 
 from cylc.flow import LOG
+from cylc.flow.exceptions import InputError
 
 
 if TYPE_CHECKING:
     from cylc.flow.workflow_db_mgr import WorkflowDatabaseManager
-
 
 FlowNums = Set[int]
 # Flow constants
 FLOW_ALL = "all"
 FLOW_NEW = "new"
 FLOW_NONE = "none"
+
+# For flow-related CLI options:
+ERR_OPT_FLOW_VAL = "Flow values must be integer, 'all', 'new', or 'none'"
+ERR_OPT_FLOW_INT = "Multiple flow options must all be integer valued"
+ERR_OPT_FLOW_META = "Metadata is only for new flows"
+ERR_OPT_FLOW_WAIT = (
+    f"--wait is not compatible with --flow={FLOW_NEW} or --flow={FLOW_NONE}"
+)
+
+
+def add_flow_opts(parser):
+    parser.add_option(
+        "--flow", action="append", dest="flow", metavar="FLOW",
+        help=f'Assign new tasks to all active flows ("{FLOW_ALL}");'
+             f' no flow ("{FLOW_NONE}"); a new flow ("{FLOW_NEW}");'
+             f' or a specific flow (e.g. "2"). The default is "{FLOW_ALL}".'
+             ' Reuse the option to assign multiple flow numbers.'
+    )
+
+    parser.add_option(
+        "--meta", metavar="DESCRIPTION", action="store",
+        dest="flow_descr", default=None,
+        help=f"description of new flow (with --flow={FLOW_NEW})."
+    )
+
+    parser.add_option(
+        "--wait", action="store_true", default=False, dest="flow_wait",
+        help="Wait for merge with current active flows before flowing on."
+    )
+
+
+def validate_flow_opts(options):
+    """Check validity of flow-related CLI options."""
+    if options.flow is None:
+        # Default to all active flows
+        options.flow = [FLOW_ALL]
+
+    for val in options.flow:
+        val = val.strip()
+        if val in [FLOW_NONE, FLOW_NEW, FLOW_ALL]:
+            if len(options.flow) != 1:
+                raise InputError(ERR_OPT_FLOW_INT)
+        else:
+            try:
+                int(val)
+            except ValueError:
+                raise InputError(ERR_OPT_FLOW_VAL.format(val))
+
+    if options.flow_descr and options.flow != [FLOW_NEW]:
+        raise InputError(ERR_OPT_FLOW_META)
+
+    if options.flow_wait and options.flow[0] in [FLOW_NEW, FLOW_NONE]:
+        raise InputError(ERR_OPT_FLOW_WAIT)
 
 
 class FlowMgr:
