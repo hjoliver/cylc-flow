@@ -616,18 +616,28 @@ class TaskEventsManager():
         msg0 = message.split('/')[0]
         if message.startswith(ABORT_MESSAGE_PREFIX):
             msg0 = TASK_OUTPUT_FAILED
+
         completed_output = itask.state.outputs.set_msg_trg_completion(
             message=msg0, is_completed=True)
         self.data_store_mgr.delta_task_output(itask, msg0)
 
-        # Check the `started` event has not been missed e.g. due to
-        # polling delay
-        if (message not in [self.EVENT_SUBMITTED, self.EVENT_SUBMIT_FAILED,
-                            self.EVENT_STARTED]
-                and not itask.state.outputs.is_completed(TASK_OUTPUT_STARTED)):
-            self.setup_event_handlers(
-                itask, self.EVENT_STARTED, f'job {self.EVENT_STARTED}')
-
+        # Check `started` event not missed due to late polling.
+        # (Note: custom outputs are handled on late polling).
+        if (
+            message not in [
+                self.EVENT_SUBMITTED,
+                self.EVENT_SUBMIT_FAILED,
+                self.EVENT_STARTED,
+                self.EVENT_EXPIRED
+            ] and (
+                not itask.state.outputs.is_completed(TASK_OUTPUT_STARTED)
+            )
+        ):
+            LOG.warning("Processing missed started event")
+            itask.state.outputs.set_msg_trg_completion(
+                message=TASK_OUTPUT_STARTED, is_completed=True)
+            self.data_store_mgr.delta_task_output(itask, TASK_OUTPUT_STARTED)
+            self._process_message_started(itask, event_time)
             self.spawn_children(itask, TASK_OUTPUT_STARTED)
 
         if message == self.EVENT_STARTED:
