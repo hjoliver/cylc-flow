@@ -1672,7 +1672,8 @@ class TaskPool:
     def _set_prereqs(self, point, taskdef, prereqs, flow_nums, flow_wait):
         """Set given prerequisites of a target task.
 
-           Spawn the task first, if it's not already in the task pool.
+        Spawn the task first if it's not already in the pool.
+
         """
         if prereqs == ["all"]:
             itask = self.get_or_spawn_task(point, taskdef.name, flow_nums)
