@@ -1707,7 +1707,7 @@ class TaskPool:
 
             requested = set()
             for p in prereqs:
-                t = Tokens(p)
+                t = Tokens(p, relative=True)
                 requested.add((t['cycle'], t['task'], t['task_sel']))
 
             good = available & requested
@@ -1715,8 +1715,8 @@ class TaskPool:
             if bad:
                 for b in bad:
                     LOG.warning(
-                        f"{point}/{taskdef.name} does not"
-                        f" depend on {b[0]}/{b[1]}:{b[2]}"
+                        f"{point}/{taskdef.name} does not depend on"
+                        f" {b[0]}/{b[1]}:{b[2]}"
                     )
             if not good:
                 # No valid prerequisites requested.

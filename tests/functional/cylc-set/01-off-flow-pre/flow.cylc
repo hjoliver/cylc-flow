@@ -25,9 +25,9 @@
             if (( CYLC_TASK_SUBMIT_NUMBER == 1 )); then
                 # set off-flow prerequisites (and trigger 1/a)
                 cylc set --flow=new \
-                    --pre=${CYLC_WORKFLOW_ID}//1/a_cold:succeeded \
-                    --pre=${CYLC_WORKFLOW_ID}//1/b_cold:succeeded \
-                    --pre=${CYLC_WORKFLOW_ID}//1/c_cold:succeeded \
+                    --pre=1/a_cold:succeeded \
+                    --pre=1/b_cold:succeeded \
+                    --pre=1/c_cold:succeeded \
                      ${CYLC_WORKFLOW_ID}//1/a \
                      ${CYLC_WORKFLOW_ID}//1/b \
                      ${CYLC_WORKFLOW_ID}//1/c
