@@ -1351,9 +1351,6 @@ class TaskPool:
             if not itask.state(TASK_STATUS_FAILED, TASK_OUTPUT_SUBMIT_FAILED):
                 self.remove(itask, 'completed')
 
-            if not itask.state(TASK_STATUS_FAILED, TASK_OUTPUT_SUBMIT_FAILED):
-                self.remove(itask, 'finished')
-
             if self.compute_runahead():
                 self.release_runahead_tasks()
 
@@ -1510,20 +1507,9 @@ class TaskPool:
                 )
                 return None
 
-        # Is it on-sequence and within recurrence bounds.
-        # TODO DUPLICATED BLOCK
-        taskdef = self.config.get_taskdef(name)
-        if not taskdef.is_valid_point(point):
-            LOG.warning(
-                self.ERR_PREFIX_TASK_NOT_ON_SEQUENCE.format(
-                    name, point
-                )
-            )
-            return None
-
         itask = TaskProxy(
             self.tokens,
-            taskdef,
+            self.config.get_taskdef(name),
             point,
             flow_nums,
             submit_num=submit_num,
