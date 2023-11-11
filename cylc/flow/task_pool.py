@@ -1351,9 +1351,6 @@ class TaskPool:
             if not itask.state(TASK_STATUS_FAILED, TASK_OUTPUT_SUBMIT_FAILED):
                 self.remove(itask, 'completed')
 
-            if not itask.state(TASK_STATUS_FAILED, TASK_OUTPUT_SUBMIT_FAILED):
-                self.remove(itask, 'finished')
-
             if self.compute_runahead():
                 self.release_runahead_tasks()
 
