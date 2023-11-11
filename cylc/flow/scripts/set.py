@@ -58,11 +58,10 @@ Examples:
 
   # set multiple prerequisites at once:
   $ cylc set --pre=3/foo:x --pre=3/foo:y,3/foo:z my_workflow//3/bar
-
 """
 
 from functools import partial
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, List
 
 from cylc.flow.exceptions import InputError
 from cylc.flow.network.client_factory import get_client
@@ -133,7 +132,7 @@ def get_option_parser() -> COP:
             "Set task prerequisites satisfied."
             " PREREQUISITE format: 'point/task:message'."
             " Multiple use allowed, items may be comma separated."
-            " Use 'all' to satisfy any and all prerequisites."
+            " Use 'all' to satisfy all prerequisites, if any."
         ),
         action="append", default=None, dest="prerequisites"
     )
@@ -143,54 +142,89 @@ def get_option_parser() -> COP:
 
 
 def validate_prereq(prereq: str) -> bool:
-    """Return True prereq string is valid, else False.
+    """Return True if prereq is valid, else False.
 
     Examples:
-        Good prerequisite:
         >>> validate_prereq('1/foo:succeeded')
         True
 
-        Bad prerequisite:
         >>> validate_prereq('1/foo::succeeded')
         False
 
-        (That's sufficient, Tokens is fully tested elsewhere).
+        >>> validate_prereq('all')
+        True
+
+        >>> validate_prereq('fish')
+        False
 
     """
     try:
-        Tokens(prereq)
+        tokens = Tokens(prereq, relative=True)
     except ValueError:
         return False
-    else:
-        return True
+    if (
+        tokens["cycle"] == prereq
+        and prereq not in ["all"]
+    ):
+        # Error: --pre=<word> other than "all"
+        return False
+    return True
 
 
-def split_opts(options):
+def split_opts(options: List[str]):
     """Return list from multi-use and comma-separated single-use options.
 
-    Example: for "--xxx=a" and "-xxx=b,c", return [a, b, c].
+    Examples:
+        # --out='a,b,c'
+        >>> split_opts(['a,b,c'])
+        ['a', 'b', 'c']
+
+        # --out='a' --out='a,b'
+        >>> split_opts(['a', 'b,c'])
+        ['a', 'b', 'c']
+
+        # --out='a' --out='a,b'
+        >>> split_opts(['a', 'a,b'])
+        ['a', 'b']
+
     """
     if options is None:
         return []
     splat = []  # (past tense of split)
     for p in options:
         splat += p.split(',')
-    return splat
+    return sorted(set(splat))
 
 
-def get_prerequisite_opts(prereq_options):
-    """Convert prerequisite inputs to a single list, and validate.
+def get_prerequisite_opts(prereq_options: List[str]):
+    """Validate prerequisite inputs and return them as a flat list.
 
-    Validation: format <point>/<name>:<qualifier>
-    """
+    Examples:
+        >>> get_prerequisite_opts(['1/foo:bar', '2/foo:baz,3/foo:qux'])
+        ['1/foo:bar', '2/foo:baz', '3/foo:qux']
+
+        >>> get_prerequisite_opts(['all'])
+        ['all']
+
+        >>> get_prerequisite_opts(['fish'])
+        Traceback (most recent call last):
+        ...
+        InputError:
+
+        >>> get_prerequisite_opts(['all', '2/foo:baz'])
+        Traceback (most recent call last):
+        ...
+        InputError:
+
+        >>> get_prerequisite_opts(['1/foo::bar'])
+        Traceback (most recent call last):
+        ...
+        InputError:
+
+     """
     prereqs = split_opts(prereq_options)
     if not prereqs:
         return []
-
-    if "all" in prereqs:
-        if len(prereqs) != 1:
-            raise InputError("--pre=all must be used alone")
-        return prereqs
 
     msg = '\n'.join(
         [
@@ -201,16 +235,31 @@ def get_prerequisite_opts(prereq_options):
     if msg:
         raise InputError(f"Invalid prerequisite(s):\n{msg}")
 
+    if len(prereqs) > 1:  # noqa SIM102 (anticipates "cylc set --pre=cycle")
+        if "all" in prereqs:
+            raise InputError("--pre=all must be used alone")
+
     return prereqs
 
 
-def get_output_opts(output_options):
-    """Convert outputs options to a single list, and validate."""
+def get_output_opts(output_options: List[str]):
+    """Convert outputs options to a single list, and validate.
+
+    Examples:
+        >>> get_output_opts(['a', 'b,c'])
+        ['a', 'b', 'c']
+
+    """
     # (No current validation)
     return split_opts(output_options)
 
 
-async def run(options: 'Values', workflow_id: str, *tokens_list) -> None:
+async def run(
+    options: 'Values',
+    workflow_id: str,
+    *tokens_list
+) -> None:
+
     pclient = get_client(workflow_id, timeout=options.comms_timeout)
 
     mutation_kwargs = {
