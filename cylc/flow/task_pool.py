@@ -1527,21 +1527,21 @@ class TaskPool:
             )
             self.hold_active_task(itask)
 
+        # Don't spawn if it depends on a task beyond the stop point.
+        # """
+        #    foo
+        #    foo[+P1] & bar => baz
+        # """
+        # Here, in the final cycle bar wants to spawn baz, but that would stall
+        # the workflow because baz also depends on foo after the final point.
         if self.stop_point and itask.point <= self.stop_point:
-            future_trigger_overrun = False
             for pct in itask.state.prerequisites_get_target_points():
                 if pct > self.stop_point:
-                    future_trigger_overrun = True
-                    break
-            if future_trigger_overrun:
-                LOG.warning(
-                    f"[{itask}] won't run: depends on a task beyond "
-                    f"the stop point ({self.stop_point})"
-                )
-                # TODO: future trigger overrun tasks were previously kept in
-                # the hidden task pool (for partially satisfied tasks) and
-                # ignored. But perhaps they should cause a stall?
-                return None
+                    LOG.warning(
+                        f"[{itask}] won't run: depends on a task beyond "
+                        f"the stop point ({self.stop_point})"
+                    )
+                    return None
 
         # Satisfy any absolute triggers.
         if (
