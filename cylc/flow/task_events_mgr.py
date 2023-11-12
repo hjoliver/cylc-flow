@@ -1348,7 +1348,10 @@ class TaskEventsManager():
         # itask.jobs appends for automatic retries (which reuse the same task
         # proxy) but a retriggered task that was not already in the pool will
         # not see previous submissions (so can't use itask.jobs[submit_num-1]).
-        job_conf = itask.jobs[-1]
+        if itask.tdef.run_mode == "simulation":
+            job_conf = {"submit_num": 0}
+        else:
+            job_conf = itask.jobs[-1]
 
         # insert job into data store
         self.data_store_mgr.insert_job(

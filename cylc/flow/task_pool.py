@@ -1447,7 +1447,7 @@ class TaskPool:
 
         if self.config.final_point and point > self.config.final_point:
             # Only happens on manual trigger beyond FCP
-            LOG.debug(
+            LOG.warning(
                 'Not spawning %s/%s: beyond final cycle point', point, name)
             return False
 
@@ -1538,8 +1538,8 @@ class TaskPool:
             for pct in itask.state.prerequisites_get_target_points():
                 if pct > self.stop_point:
                     LOG.warning(
-                        f"[{itask}] won't run: depends on a task beyond "
-                        f"the stop point ({self.stop_point})"
+                        f"[{itask}] not spawned: a prerequisite is beyond"
+                        f" the workflow stop point ({self.stop_point})"
                     )
                     return None
 
