@@ -1030,9 +1030,7 @@ async def test_db_update_on_removal(
     schd = scheduler(id_)
     async with start(schd):
         task_a = schd.pool.get_tasks()[0]
-        # (needed for job config in sim mode:)
-        schd.task_job_mgr.submit_task_jobs(
-            schd.workflow, [task_a], None, None)
+
         # set it to running (and submitted implied)
         schd.pool.set(
             [task_a.identity], [TASK_OUTPUT_STARTED], None, ['all'])
@@ -1089,10 +1087,6 @@ async def test_no_flow_tasks_dont_spawn(
 
         # set as no-flow:
         task_a.flow_nums = set()
-
-        # Needed for job config in simulation mode:
-        schd.task_job_mgr.submit_task_jobs(
-            schd.workflow, [task_a], None, None)
 
         # Set as completed: should not spawn children.
         schd.pool.set([task_a.identity], None, None, [FLOW_NONE])
@@ -1213,3 +1207,217 @@ async def test_detect_incomplete_tasks(
                 log, contains=f"[{itask}] did not complete required outputs:")
             # the task should not have been removed
             assert itask in schd.pool.get_tasks()
+
+
+async def test_future_trigger_final_point(
+    flow,
+    scheduler,
+    start,
+    log_filter,
+):
+    """Check spawning of future-triggered tasks: foo[+P1] => bar.
+
+    Don't spawn if a prerequisite reaches beyond the final cycle point.
+
+    """
+    id_ = flow(
+        {
+            'scheduler': {
+                'allow implicit tasks': 'True',
+            },
+            'scheduling': {
+                'cycling mode': 'integer',
+                'initial cycle point': 1,
+                'final cycle point': 1,
+                'graph': {
+                    'P1': "foo\n foo[+P1] & bar => baz"
+                }
+            }
+        }
+    )
+    schd = scheduler(id_)
+    async with start(schd) as log:
+        for itask in schd.pool.get_tasks():
+            schd.pool.spawn_on_output(itask, "succeeded")
+        assert log_filter(
+            log,
+            regex=(
+                ".*1/baz.*not spawned: a prerequisite is beyond"
+                r" the workflow stop point \(1\)"
+            )
+        )
+
+
+async def test_set_incomplete_to_succeeded(
+    flow,
+    scheduler,
+    start,
+    log_filter,
+):
+    """Check the "set" method completes incomplete tasks by default.
+
+    """
+    id_ = flow(
+        {
+            'scheduler': {
+                'allow implicit tasks': 'True',
+            },
+            'scheduling': {
+                'graph': {
+                    'R1': "foo"
+                }
+            }
+        }
+    )
+    schd = scheduler(id_)
+    async with start(schd) as log:
+        ifoo = schd.pool.get_tasks()[0]
+
+        # fake submitted, running, failed
+        ifoo.state_reset(is_queued=False)
+        schd.pool.task_events_mgr.process_message(ifoo, 1, "submitted")
+        schd.pool.task_events_mgr.process_message(ifoo, 1, 'started')
+        schd.pool.task_events_mgr.process_message(ifoo, 1, "failed")
+
+        assert log_filter(
+            log, regex="1/foo failed.* did not complete required outputs")
+
+        schd.pool.set([ifoo.identity], None, None, ['all'])
+
+        assert log_filter(
+            log, contains="Completing output: 1/foo:succeeded")
+
+
+async def test_set_prereqs(
+    flow,
+    scheduler,
+    start,
+    log_filter,
+):
+    """Check manual setting of prerequisites.
+
+    """
+    id_ = flow(
+        {
+            'scheduler': {
+                'allow implicit tasks': 'True',
+            },
+            'scheduling': {
+                'graph': {
+                    'R1': "foo & bar => baz"
+                }
+            }
+        }
+    )
+    schd = scheduler(id_)
+
+    async with start(schd) as log:
+
+        # should start up with 1/foo and 1/bar
+        tasks = [itask.identity for itask in schd.pool.get_tasks()]
+        assert len(tasks) == 2
+        assert "1/foo" in tasks
+        assert "1/bar" in tasks
+
+        # set one prereq of future task baz
+        schd.pool.set(["1/baz"], None, ["1/foo:succeeded"], ['all'])
+
+        tasks = [itask.identity for itask in schd.pool.get_tasks()]
+        # baz should now be spawned
+        assert len(tasks) == 3
+        assert "1/baz" in tasks
+
+        # get the 1/baz task proxy
+        baz = next(
+            itask for itask in schd.pool.get_tasks()
+            if itask.identity == "1/baz"
+        )
+
+        # baz should not be fully satisfied yet
+        assert not baz.state.prerequisites_all_satisfied()
+
+        # manually set its other prereq
+        schd.pool.set(["1/baz"], None, ["1/bar:succeeded"], ['all'])
+
+        # it should now be fully satisfied
+        assert baz.state.prerequisites_all_satisfied()
+
+        # try to set an invalid prereq
+        schd.pool.set(["1/baz"], None, ["1/qux:succeeded"], ['all'])
+        assert log_filter(
+            log, contains="1/baz does not depend on 1/qux:succeeded")
+
+
+async def test_set_outputs(
+    flow,
+    scheduler,
+    start,
+    log_filter,
+):
+    """Check manual setting of outputs.
+
+    """
+    id_ = flow(
+        {
+            'scheduler': {
+                'allow implicit tasks': 'True',
+            },
+            'scheduling': {
+                'graph': {
+                    'R1': "foo:x => bar\n"
+                          "a => b => c"
+                }
+            },
+            'runtime': {
+                'foo': {
+                    'outputs': {
+                        'x': 'x'
+                    }
+                }
+            }
+        }
+    )
+    schd = scheduler(id_)
+
+    async with start(schd) as log:
+
+        # it should start up with just 1/foo and 1/a
+        tasks = [itask.identity for itask in schd.pool.get_tasks()]
+        assert len(tasks) == 2
+        assert "1/foo" in tasks
+        assert "1/a" in tasks
+
+        # get the 1/foo task proxy
+        foo = next(
+            itask for itask in schd.pool.get_tasks()
+            if itask.identity == "1/foo"
+        )
+
+        # fake submitted, running, failed
+        foo.state_reset(is_queued=False)
+        schd.pool.task_events_mgr.process_message(foo, 1, "submitted")
+        schd.pool.task_events_mgr.process_message(foo, 1, 'started')
+        schd.pool.task_events_mgr.process_message(foo, 1, 'failed')
+
+        # setting foo:x should spawn bar
+        schd.pool.set(["1/foo"], ["x"], None, ['all'])
+        tasks = [itask.identity for itask in schd.pool.get_tasks()]
+        print(tasks)
+        assert len(tasks) == 3
+        assert "1/foo" in tasks
+        assert "1/bar" in tasks
+
+        # setting future task b succeeded should spawn c but not b
+        schd.pool.set(["1/b"], ["succeeded"], None, ['all'])
+        tasks = [itask.identity for itask in schd.pool.get_tasks()]
+        assert len(tasks) == 4
+        assert "1/b" not in tasks
+        assert "1/c" in tasks
+
+        # try to set an invalid output
+        schd.pool.set(["1/b"], ["shrub"], None, ['all'])
+        assert log_filter(log, contains="Output not found: 1/b:shrub")
+
+        # try to set an invalid output
+        schd.pool.set(["1/b"], ["shrub"], None, ['all'])
+        assert log_filter(log, contains="Output not found: 1/b:shrub")
