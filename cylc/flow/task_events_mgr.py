@@ -621,24 +621,34 @@ class TaskEventsManager():
             message=msg0, is_completed=True)
         self.data_store_mgr.delta_task_output(itask, msg0)
 
-        # Check `started` event not missed due to late polling.
-        # (Note: custom outputs are handled on late polling).
-        if (
-            message not in [
-                self.EVENT_SUBMITTED,
-                self.EVENT_SUBMIT_FAILED,
-                self.EVENT_STARTED,
-                self.EVENT_EXPIRED
-            ] and (
-                not itask.state.outputs.is_completed(TASK_OUTPUT_STARTED)
-            )
-        ):
-            LOG.warning("Processing missed started event")
-            itask.state.outputs.set_msg_trg_completion(
-                message=TASK_OUTPUT_STARTED, is_completed=True)
-            self.data_store_mgr.delta_task_output(itask, TASK_OUTPUT_STARTED)
-            self._process_message_started(itask, event_time)
-            self.spawn_children(itask, TASK_OUTPUT_STARTED)
+        if message not in [
+            self.EVENT_SUBMITTED,
+            self.EVENT_SUBMIT_FAILED,
+            self.EVENT_STARTED,
+            self.EVENT_EXPIRED
+        ]:
+            # Can't get here unless the job was submitted or started first.
+            # Check those events were not missed, e.g. due to delayed poll
+            # results. NB custom outputs are picked up by delayed polling.
+
+            if not itask.state.outputs.is_completed(TASK_OUTPUT_SUBMITTED):
+                LOG.warning(f"[{itask}] handling missed event: submitted")
+                itask.state.outputs.set_msg_trg_completion(
+                    message=TASK_OUTPUT_SUBMITTED, is_completed=True)
+                self.data_store_mgr.delta_task_output(
+                    itask, TASK_OUTPUT_SUBMITTED)
+                self._process_message_submitted(itask, event_time)
+                self.spawn_children(itask, TASK_OUTPUT_SUBMITTED)
+
+            if not itask.state.outputs.is_completed(TASK_OUTPUT_STARTED):
+
+                LOG.warning(f"[{itask}] handling missed event: started")
+                itask.state.outputs.set_msg_trg_completion(
+                    message=TASK_OUTPUT_STARTED, is_completed=True)
+                self.data_store_mgr.delta_task_output(
+                    itask, TASK_OUTPUT_STARTED)
+                self._process_message_started(itask, event_time)
+                self.spawn_children(itask, TASK_OUTPUT_STARTED)
 
         if message == self.EVENT_STARTED:
             if (
@@ -1283,31 +1293,23 @@ class TaskEventsManager():
             )
 
         itask.set_summary_time('submitted', event_time)
-        if itask.tdef.run_mode == 'simulation':
-            # Simulate job started as well.
-            itask.set_summary_time('started', event_time)
-            if itask.state_reset(TASK_STATUS_RUNNING):
+        # Unset started and finished times in case of resubmission.
+        itask.set_summary_time('started')
+        itask.set_summary_time('finished')
+        if itask.state.status == TASK_STATUS_PREPARING:
+            # The job started message can (rarely) come in before the
+            # submit command returns - in which case do not go back to
+            # 'submitted'.
+            if itask.state_reset(TASK_STATUS_SUBMITTED):
+                itask.state_reset(is_queued=False)
+                self.setup_event_handlers(
+                    itask,
+                    self.EVENT_SUBMITTED,
+                    f'job {self.EVENT_SUBMITTED}',
+                )
                 self.data_store_mgr.delta_task_state(itask)
-            itask.state.outputs.set_completion(TASK_OUTPUT_STARTED, True)
-            self.data_store_mgr.delta_task_output(itask, TASK_OUTPUT_STARTED)
-        else:
-            # Unset started and finished times in case of resubmission.
-            itask.set_summary_time('started')
-            itask.set_summary_time('finished')
-            if itask.state.status == TASK_STATUS_PREPARING:
-                # The job started message can (rarely) come in before the
-                # submit command returns - in which case do not go back to
-                # 'submitted'.
-                if itask.state_reset(TASK_STATUS_SUBMITTED):
-                    itask.state_reset(is_queued=False)
-                    self.setup_event_handlers(
-                        itask,
-                        self.EVENT_SUBMITTED,
-                        f'job {self.EVENT_SUBMITTED}',
-                    )
-                    self.data_store_mgr.delta_task_state(itask)
-                    self.data_store_mgr.delta_task_queued(itask)
-                self._reset_job_timers(itask)
+                self.data_store_mgr.delta_task_queued(itask)
+            self._reset_job_timers(itask)
 
         # Register the newly submitted job with the database and datastore.
         # Do after itask has changed state

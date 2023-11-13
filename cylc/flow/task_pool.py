@@ -1656,13 +1656,12 @@ class TaskPool:
                     f"Output not found: {itask.identity}:{output}")
                 continue
             for out in add_implied_outputs(msg):
+                # Handle implied output as if completed naturally.
                 if itask.state.outputs.is_completed(out):
-                    LOG.warning(
-                        f"Output already completed: {itask.identity}:{out}")
+                    # already completed
                     continue
-                # Handle the output as if completed naturally.
                 LOG.warning(
-                    f"Completing output: {itask.identity}:{out}")
+                    f"Completing implied output: {itask.identity}:{out}")
                 self.task_events_mgr.process_message(
                     itask, logging.WARNING, out)
             if not in_pool:

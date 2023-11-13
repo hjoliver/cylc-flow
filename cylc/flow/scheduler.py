@@ -1496,12 +1496,13 @@ class Scheduler:
         log = LOG.debug
         if self.options.reftest or self.options.genref:
             log = LOG.info
+        is_sim_mode = self.config.run_mode('simulation')
         for itask in self.task_job_mgr.submit_task_jobs(
             self.workflow,
             pre_prep_tasks,
             self.server.curve_auth,
             self.server.client_pub_key_dir,
-            is_simulation=self.config.run_mode('simulation')
+            is_simulation=is_sim_mode
         ):
             if itask.flow_nums:
                 flow = ','.join(str(i) for i in itask.flow_nums)
@@ -1511,6 +1512,9 @@ class Scheduler:
                 f"{itask.identity} -triggered off "
                 f"{itask.state.get_resolved_dependencies()} in flow {flow}"
             )
+            if is_sim_mode:
+                # simulate job started.
+                self.task_events_mgr.process_message(itask, 1, "started")
 
         # one or more tasks were passed through the submission pipeline
         return True
