@@ -222,21 +222,25 @@ async def test_mutation_mapper(mock_flow):
         await mock_flow.resolvers._mutation_mapper('non_exist', {}, meta)
 
 
-async def test_command_logging(mock_flow, caplog):
-    """It should log the command, with user name if not owner."""
-    caplog.set_level(logging.INFO, logger=CYLC_LOG)
+async def test_command_logging(mock_flow):
+    """The command log message should include non-owner name."""
+
     owner = mock_flow.owner
     other = f"not-{mock_flow.owner}"
 
     command = "stop"
-    mock_flow.resolvers._log_command(command, owner)
-    assert caplog.records[-1].msg == f"[command] issued: {command}"
-    mock_flow.resolvers._log_command(command, other)
-    msg1 = f"[command] issued: {command} (by {other})"
-    assert caplog.records[-1].msg == msg1
+    log_lines = mock_flow.resolvers._get_log_lines(command, [], {}, owner)
+    assert int(log_lines[0]) == logging.INFO
+    assert log_lines[1] == 'Command "stop" received:'
+
+    log_lines = mock_flow.resolvers._get_log_lines(command, [], {}, other)
+    assert log_lines[1] == f'Command "stop" received from {other}:'
 
     command = "put_messages"
-    mock_flow.resolvers._log_command(command, owner)
-    assert caplog.records[-1].msg == msg1  # (prev message, i.e. not logged).
-    mock_flow.resolvers._log_command(command, other)
-    assert caplog.records[-1].msg == f"[command] issued: {command} (by {other})"
+    log_lines = mock_flow.resolvers._get_log_lines(command, [], {}, owner)
+    assert int(log_lines[0]) == logging.DEBUG
+    assert log_lines[1] == 'Command "put_messages" received:'
+
+    log_lines = mock_flow.resolvers._get_log_lines(command, [], {}, other)
+    assert int(log_lines[0]) == logging.INFO
+    assert log_lines[1] == f'Command "put_messages" received from {other}:'

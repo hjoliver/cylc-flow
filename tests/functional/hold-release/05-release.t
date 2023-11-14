@@ -34,7 +34,7 @@ init_workflow "${TEST_NAME_BASE}" <<'__FLOW_CONFIG__'
         script = """
             cylc__job__wait_cylc_message_started
             cylc hold --after=0 ${CYLC_WORKFLOW_ID}
-            cylc__job__poll_grep_workflow_log -E '\[command] actioned.*set_hold_point'
+            cylc__job__poll_grep_workflow_log 'Command "set_hold_point" actioned'
             cylc release "${CYLC_WORKFLOW_ID}//1/*FF"  # inexact fam
             cylc release "${CYLC_WORKFLOW_ID}//1/TOAST"  # exact fam
             cylc release "${CYLC_WORKFLOW_ID}//1/cat*"  # inexact tasks

@@ -38,9 +38,9 @@ run_ok "${TEST_NAME}-validate" cylc validate "$WORKFLOW_NAME"
 workflow_run_ok "${TEST_NAME}-run" cylc play --pause "$WORKFLOW_NAME"
 
 run_ok "$TEST_NAME" cylc verbosity DEBUG "$WORKFLOW_NAME"
-LOG_SCAN_GREP_OPTS="-E" \
-  log_scan "${TEST_NAME}-grep" "${WORKFLOW_RUN_DIR}/log/scheduler/log" 5 1 \
-    '\[command] actioned.*verbosity'
+
+log_scan "${TEST_NAME}-grep" "${WORKFLOW_RUN_DIR}/log/scheduler/log" 5 1 \
+    'Command "set_verbosity" actioned'
 
 cylc stop "$WORKFLOW_NAME"
 purge

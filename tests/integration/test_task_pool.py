@@ -1436,8 +1436,6 @@ async def test_set_outputs_live(
         assert log_filter(
             log, contains="Completing implied output: 1/foo:y")
 
-        assert False
-
 
 async def test_set_outputs_future(
     flow,
