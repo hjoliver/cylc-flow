@@ -710,7 +710,7 @@ class Resolvers(BaseResolvers):
             owner_msg = f" from {user}"
 
         return [
-            level,
+            str(level),
             f'Command "{name}" received{owner_msg}:',
             f"{name}({args_string}{sep}{kwargs_string})"
         ]
@@ -730,7 +730,7 @@ class Resolvers(BaseResolvers):
         )
         method = getattr(self, command, None)
         if method is not None:
-            LOG.log(log_lines[0], '\n'.join(log_lines[1:]))
+            LOG.log(int(log_lines[0]), '\n'.join(log_lines[1:]))
             return method(**kwargs)
 
         try:

@@ -745,7 +745,6 @@ class GraphParser:
         if suicide:
             return
 
-        # TODO: OS: "This is now covered by the optional outputs stuff"
         if output == TASK_OUTPUT_EXPIRED and not optional:
             raise GraphParseError(
                 f"Expired-output {name}:{output} must be optional")

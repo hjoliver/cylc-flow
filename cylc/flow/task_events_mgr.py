@@ -619,6 +619,7 @@ class TaskEventsManager():
 
         completed_output = itask.state.outputs.set_msg_trg_completion(
             message=msg0, is_completed=True)
+
         self.data_store_mgr.delta_task_output(itask, msg0)
 
         if message not in [
@@ -635,18 +636,22 @@ class TaskEventsManager():
                 LOG.warning(f"[{itask}] handling missed event: submitted")
                 itask.state.outputs.set_msg_trg_completion(
                     message=TASK_OUTPUT_SUBMITTED, is_completed=True)
-                self.data_store_mgr.delta_task_output(
-                    itask, TASK_OUTPUT_SUBMITTED)
-                self._process_message_submitted(itask, event_time)
+                self.setup_event_handlers(
+                    itask,
+                    self.EVENT_SUBMITTED,
+                    f'job {self.EVENT_SUBMITTED}',
+                )
                 self.spawn_children(itask, TASK_OUTPUT_SUBMITTED)
 
             if not itask.state.outputs.is_completed(TASK_OUTPUT_STARTED):
                 LOG.warning(f"[{itask}] handling missed event: started")
                 itask.state.outputs.set_msg_trg_completion(
                     message=TASK_OUTPUT_STARTED, is_completed=True)
-                self.data_store_mgr.delta_task_output(
-                    itask, TASK_OUTPUT_STARTED)
-                self._process_message_started(itask, event_time)
+                self.setup_event_handlers(
+                    itask,
+                    self.EVENT_STARTED,
+                    f'job {self.EVENT_STARTED}',
+                )
                 self.spawn_children(itask, TASK_OUTPUT_STARTED)
 
         if message == self.EVENT_STARTED:
@@ -1277,7 +1282,6 @@ class TaskEventsManager():
             job_tokens,
             TASK_STATUS_SUBMIT_FAILED
         )
-
         self._reset_job_timers(itask)
 
         return no_retries
@@ -1296,26 +1300,32 @@ class TaskEventsManager():
             )
 
         itask.set_summary_time('submitted', event_time)
-        # Unset started and finished times in case of resubmission.
-        itask.set_summary_time('started')
-        itask.set_summary_time('finished')
-        if (
-            itask.state.status == TASK_STATUS_PREPARING
-            or itask.tdef.run_mode == 'simulation'
-        ):
-            # The job started message can (rarely) come in before the
-            # submit command returns - in which case do not go back to
-            # 'submitted'.
-            if itask.state_reset(TASK_STATUS_SUBMITTED):
-                itask.state_reset(is_queued=False)
-                self.setup_event_handlers(
-                    itask,
-                    self.EVENT_SUBMITTED,
-                    f'job {self.EVENT_SUBMITTED}',
-                )
+        if itask.tdef.run_mode == 'simulation':
+            # Simulate job started as well.
+            itask.set_summary_time('started', event_time)
+            if itask.state_reset(TASK_STATUS_RUNNING):
                 self.data_store_mgr.delta_task_state(itask)
-                self.data_store_mgr.delta_task_queued(itask)
-            self._reset_job_timers(itask)
+            itask.state.outputs.set_completion(TASK_OUTPUT_STARTED, True)
+            self.data_store_mgr.delta_task_output(itask, TASK_OUTPUT_STARTED)
+
+        else:
+            # Unset started and finished times in case of resubmission.
+            itask.set_summary_time('started')
+            itask.set_summary_time('finished')
+            if itask.state.status == TASK_STATUS_PREPARING:
+                # The job started message can (rarely) come in before the
+                # submit command returns - in which case do not go back to
+                # 'submitted'.
+                if itask.state_reset(TASK_STATUS_SUBMITTED):
+                    itask.state_reset(is_queued=False)
+                    self.setup_event_handlers(
+                        itask,
+                        self.EVENT_SUBMITTED,
+                        f'job {self.EVENT_SUBMITTED}',
+                    )
+                    self.data_store_mgr.delta_task_state(itask)
+                    self.data_store_mgr.delta_task_queued(itask)
+                self._reset_job_timers(itask)
 
         # Register the newly submitted job with the database and datastore.
         # Do after itask has changed state
@@ -1594,8 +1604,10 @@ class TaskEventsManager():
 
     def _reset_job_timers(self, itask):
         """Set up poll timer and timeout for task."""
-        if itask.transient or itask.tdef.run_mode == "simulation":
+
+        if itask.transient:
             return
+
         if not itask.state(*TASK_STATUSES_ACTIVE):
             # Reset, task not active
             itask.timeout = None
