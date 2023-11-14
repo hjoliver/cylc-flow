@@ -1434,7 +1434,7 @@ async def test_set_outputs_live(
 
         # it should complete the implied output y too.
         assert log_filter(
-            log, contains="Completing output: 1/foo:y")
+            log, contains="Completing implied output: 1/foo:y")
 
         assert False
 

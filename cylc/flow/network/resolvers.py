@@ -685,28 +685,52 @@ class Resolvers(BaseResolvers):
         result = await self._mutation_mapper(command, kwargs, meta)
         return [{'id': w_id, 'response': result}]
 
-    def _log_command(self, command: str, user: str) -> None:
-        """Log receipt of command, with user name if not owner."""
+    def _get_log_lines(
+        self, name: str, args: list, kwargs: dict, user: str
+    ) -> List[str]:
+        """Return [log_level, line1, line2] for logging received command."""
+
         is_owner = user == self.schd.owner
-        if command == 'put_messages' and is_owner:
+
+        if name == 'put_messages' and is_owner:
             # Logging put_messages is overkill.
-            return
-        log_msg = f"[command] issued: {command}"
-        if not is_owner:
-            log_msg += (f" (by {user})")
-        LOG.info(log_msg)
+            level = logging.DEBUG
+        else:
+            level = logging.INFO
+
+        args_string = ', '.join(str(a) for a in args)
+        kwargs_string = ', '.join(
+            f"{key}={value}" for key, value in kwargs.items()
+        )
+        sep = ', ' if kwargs_string and args_string else ''
+
+        if is_owner:
+            owner_msg = ""
+        else:
+            owner_msg = f" from {user}"
+
+        return [
+            level,
+            f'Command "{name}" received{owner_msg}:',
+            f"{name}({args_string}{sep}{kwargs_string})"
+        ]
 
     async def _mutation_mapper(
         self, command: str, kwargs: Dict[str, Any], meta: Dict[str, Any]
     ) -> Tuple[bool, str]:
-        """Map between GraphQL resolvers and internal command interface."""
+        """Map between GraphQL resolvers and internal command interface.
 
-        self._log_command(
+        Internal commands are executed immediately, not queued.
+
+        """
+        log_lines = self._get_log_lines(
             command,
-            meta.get('auth_user', self.schd.owner)
+            [], kwargs,
+            meta.get('auth_user', self.schd.owner),
         )
         method = getattr(self, command, None)
         if method is not None:
+            LOG.log(log_lines[0], '\n'.join(log_lines[1:]))
             return method(**kwargs)
 
         try:
@@ -718,6 +742,7 @@ class Resolvers(BaseResolvers):
             True,
             self.schd.queue_command(
                 command,
+                log_lines,
                 [],
                 kwargs
             )
