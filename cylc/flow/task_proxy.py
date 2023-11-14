@@ -142,6 +142,8 @@ class TaskProxy:
         .waiting_on_job_prep:
             True whilst task is awaiting job prep, reset to False once the
             preparation has completed.
+        .transient:
+            This is a transient proxy used for internal purposes.
 
     Args:
         tdef: The definition object of this task.
@@ -183,6 +185,7 @@ class TaskProxy:
         'tokens',
         'try_timers',
         'waiting_on_job_prep',
+        'transient'
     ]
 
     def __init__(
@@ -198,6 +201,7 @@ class TaskProxy:
         is_manual_submit: bool = False,
         flow_wait: bool = False,
         data_mode: bool = False,
+        transient: bool = False
     ) -> None:
 
         self.tdef = tdef
@@ -243,6 +247,8 @@ class TaskProxy:
         else:
             self.platform = get_platform()
 
+        self.transient = transient
+
         self.job_vacated = False
         self.poll_timer: Optional['TaskActionTimer'] = None
         self.timeout: Optional[float] = None
@@ -272,6 +278,10 @@ class TaskProxy:
                 )
             )
 
+    def flows_str(self) -> str:
+        """Return string representation of my flow numbers."""
+        return f"flows:{','.join(str(i) for i in self.flow_nums) or 'none'}"
+
     def __repr__(self) -> str:
         return f"<{self.__class__.__name__} '{self.tokens}'>"
 
@@ -280,8 +290,8 @@ class TaskProxy:
         return (
             f"{self.identity} "
             f"{self.state} "
-            f"job:{self.submit_num:02d}"
-            f" flows:{','.join(str(i) for i in self.flow_nums) or 'none'}"
+            f"job:{self.submit_num:02d} "
+            f"{self.flows_str()}"
         )
 
     def copy_to_reload_successor(self, reload_successor, check_output):
@@ -489,7 +499,7 @@ class TaskProxy:
         """Set new state and log the change. Return whether it changed."""
         before = str(self)
         if self.state.reset(status, is_held, is_queued, is_runahead):
-            if not silent:
+            if not silent and not self.transient:
                 LOG.info(f"[{before}] => {self.state}")
             return True
         return False

@@ -30,9 +30,10 @@ Setting outputs affects task completion and spawns downstream tasks that depend
 on those outputs.
 
 Implied outputs are set automatically:
-  - succeeded and failed imply started
   - started implies submitted
-  - custom outputs and expired do not imply other outputs
+  - custom outputs imply started
+  - succeeded and failed imply started, and all custom outputs
+  - expired does not imply other outputs
 
 Examples:
 

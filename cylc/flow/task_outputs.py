@@ -49,34 +49,6 @@ _MESSAGE = 1
 _IS_COMPLETED = 2
 
 
-def add_implied_outputs(output: str) -> List[str]:
-    """Return a list with implied outputs prepended.
-
-    - succeeded and failed imply started
-    - started implies submitted
-    - custom outputs and expired do not imply other outputs
-
-    Examples:
-        >>> add_implied_outputs('cat')
-        ['cat']
-
-        >>> add_implied_outputs('started')
-        ['submitted', 'started']
-
-        >>> add_implied_outputs('succeeded')
-        ['submitted', 'started', 'succeeded']
-
-        >>> add_implied_outputs('failed')
-        ['submitted', 'started', 'failed']
-    """
-    if output in [TASK_OUTPUT_SUCCEEDED, TASK_OUTPUT_FAILED]:
-        return [TASK_OUTPUT_SUBMITTED, TASK_OUTPUT_STARTED, output]
-    elif output == TASK_OUTPUT_STARTED:
-        return [TASK_OUTPUT_SUBMITTED, output]
-    else:
-        return [output]
-
-
 class TaskOutputs:
     """Task output message manager.
 
@@ -98,7 +70,7 @@ class TaskOutputs:
     def __init__(self, tdef):
         self._by_message = {}
         self._by_trigger = {}
-        self._required = set()
+        self._required = {}  # trigger: message
 
         # Add outputs from task def.
         for trigger, (message, required) in tdef.outputs.items():
@@ -122,7 +94,7 @@ class TaskOutputs:
         self._by_message[message] = [trigger, message, is_completed]
         self._by_trigger[trigger] = self._by_message[message]
         if required:
-            self._required.add(trigger)
+            self._required[trigger] = message
 
     def set_completed_by_msg(self, message):
         """For flow trigger --wait: set completed outputs from the DB."""
@@ -180,6 +152,13 @@ class TaskOutputs:
     def has_custom_triggers(self):
         """Return True if it has any custom triggers."""
         return any(key not in SORT_ORDERS for key in self._by_trigger)
+
+    def _get_custom_triggers(self):
+        """Return list of custom trigger messages."""
+        return [
+            out[1] for trg, out in self._by_trigger.items()
+            if trg not in SORT_ORDERS
+        ]
 
     def get_not_completed(self):
         """Return all not-completed output messages."""
@@ -291,6 +270,36 @@ class TaskOutputs:
             return self._by_trigger[trigger]
         else:
             return self._by_message[message]
+
+    def add_implied_outputs(self, output: str) -> List[str]:
+        """Return a list with implied outputs prepended.
+
+        - started implies submitted
+        - any custom output implies started
+        - succeeded and failed imply started and any required custom outputs
+        - expired does not imply other outputs
+
+        """
+        if output == TASK_OUTPUT_STARTED:
+            return [TASK_OUTPUT_SUBMITTED, output]
+
+        elif output in self._get_custom_triggers():
+            return [TASK_OUTPUT_SUBMITTED, TASK_OUTPUT_STARTED, output]
+
+        elif output in [TASK_OUTPUT_SUCCEEDED, TASK_OUTPUT_FAILED]:
+            required_custom = [
+                msg for msg in self._get_custom_triggers()
+                if msg in self._required.values()
+            ]
+            return [
+                TASK_OUTPUT_SUBMITTED,
+                TASK_OUTPUT_STARTED,
+                *required_custom,
+                output
+            ]
+
+        else:
+            return [output]
 
     @staticmethod
     def is_valid_std_name(name):
