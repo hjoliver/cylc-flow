@@ -1448,7 +1448,6 @@ class TaskPool:
             return False
 
         # Is it on-sequence and within recurrence bounds.
-        # TODO DUPLICATED BLOCK
         if not self.config.get_taskdef(name).is_valid_point(point):
             LOG.warning(
                 self.ERR_PREFIX_TASK_NOT_ON_SEQUENCE.format(
@@ -1663,11 +1662,10 @@ class TaskPool:
                 info = " "
                 if out != msg:
                     info = " implied "
-                LOG.warning(
+                LOG.info(
                     f"Completing{info}output: {itask.identity}:{out}"
                     f" ({itask.flows_str()})")
-                self.task_events_mgr.process_message(
-                    itask, logging.WARNING, out)
+                self.task_events_mgr.process_message(itask, logging.INFO, out)
 
             if transient:
                 # tasks states table gets updated from the task pool
