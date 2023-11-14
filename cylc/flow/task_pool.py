@@ -789,12 +789,13 @@ class TaskPool:
             point_itasks[point] = list(itask_id_map.values())
         return point_itasks
 
-    def get_task(self, point, name):
+    def get_task(self, point, name) -> Optional[TaskProxy]:
         """Retrieve a task from the pool."""
         rel_id = f'{point}/{name}'
         tasks = self.active_tasks.get(point)
         if tasks and rel_id in tasks:
             return tasks[rel_id]
+        return None
 
     def _get_task_by_id(self, id_: str) -> Optional[TaskProxy]:
         """Return pool task by ID if it exists, or None."""
