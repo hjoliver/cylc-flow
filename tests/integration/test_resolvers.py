@@ -230,7 +230,7 @@ async def test_command_logging(mock_flow):
 
     command = "stop"
     log_lines = mock_flow.resolvers._get_log_lines(command, [], {}, owner)
-    assert log_lines[0] == logging.INFO
+    assert int(log_lines[0]) == logging.INFO
     assert log_lines[1] == 'Command "stop" received:'
 
     log_lines = mock_flow.resolvers._get_log_lines(command, [], {}, other)
@@ -238,9 +238,9 @@ async def test_command_logging(mock_flow):
 
     command = "put_messages"
     log_lines = mock_flow.resolvers._get_log_lines(command, [], {}, owner)
-    assert log_lines[0] == logging.DEBUG
+    assert int(log_lines[0]) == logging.DEBUG
     assert log_lines[1] == 'Command "put_messages" received:'
 
     log_lines = mock_flow.resolvers._get_log_lines(command, [], {}, other)
-    assert log_lines[0] == logging.INFO
+    assert int(log_lines[0]) == logging.INFO
     assert log_lines[1] == f'Command "put_messages" received from {other}:'
