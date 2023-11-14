@@ -641,7 +641,6 @@ class TaskEventsManager():
                 self.spawn_children(itask, TASK_OUTPUT_SUBMITTED)
 
             if not itask.state.outputs.is_completed(TASK_OUTPUT_STARTED):
-
                 LOG.warning(f"[{itask}] handling missed event: started")
                 itask.state.outputs.set_msg_trg_completion(
                     message=TASK_OUTPUT_STARTED, is_completed=True)
@@ -790,6 +789,7 @@ class TaskEventsManager():
         if lseverity in self.NON_UNIQUE_EVENTS:
             itask.non_unique_events.update({lseverity: 1})
             self.setup_event_handlers(itask, lseverity, message)
+
         return None
 
     def _process_message_check(
@@ -807,6 +807,9 @@ class TaskEventsManager():
         Check whether to process/skip message.
         Return True if `.process_message` should contine, False otherwise.
         """
+        if itask.transient:
+            return True
+
         if self.timestamp:
             timestamp = f" at {event_time}"
         else:
@@ -1588,6 +1591,8 @@ class TaskEventsManager():
 
     def _reset_job_timers(self, itask):
         """Set up poll timer and timeout for task."""
+        if itask.transient:
+            return
         if not itask.state(*TASK_STATUSES_ACTIVE):
             # Reset, task not active
             itask.timeout = None

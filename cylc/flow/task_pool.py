@@ -68,7 +68,6 @@ from cylc.flow.task_outputs import (
     TASK_OUTPUT_FAILED,
     TASK_OUTPUT_SUCCEEDED,
     TASK_OUTPUT_SUBMIT_FAILED,
-    add_implied_outputs
 )
 from cylc.flow.task_queues.independent import IndepQueueManager
 
@@ -1224,9 +1223,6 @@ class TaskPool:
         forced setting of task outputs (in this case the parent task could
         be transient, i.e. not in the pool).
 
-        (Note we don't add implied outputs in the automatic case - should not
-        be necessary.)
-
         Also set the abort-on-task-failed flag if necessary.
 
         If not flowing on, update existing children but don't spawn new ones
@@ -1471,6 +1467,7 @@ class TaskPool:
         force: bool = False,
         is_manual_submit: bool = False,
         flow_wait: bool = False,
+        transient: bool = False
     ) -> Optional[TaskProxy]:
         """Spawn and return task point/name, or None.
 
@@ -1515,6 +1512,7 @@ class TaskPool:
             submit_num=submit_num,
             is_manual_submit=is_manual_submit,
             flow_wait=flow_wait,
+            transient=transient
         )
         if (name, point) in self.tasks_to_hold:
             LOG.info(f"[{itask}] holding (as requested earlier)")
@@ -1622,17 +1620,18 @@ class TaskPool:
         )
         if itask is not None:
             # The parent task already exists in the pool.
-            in_pool = True
+            transient = False
             self.merge_flows(itask, flow_nums)
         else:
             # Spawn a transient task instance to use for spawning children.
-            in_pool = False
+            transient = True
             itask = self.spawn_task(
                 taskdef.name,
                 point,
                 flow_nums,
                 flow_wait=flow_wait,
-                force=True
+                force=True,
+                transient=True
             )
             # force=True: spawn it even if previously spawned in this flow,
             # because even if it was, its children might not have been. It
@@ -1655,16 +1654,22 @@ class TaskPool:
                 LOG.warning(
                     f"Output not found: {itask.identity}:{output}")
                 continue
-            for out in add_implied_outputs(msg):
-                # Handle implied output as if completed naturally.
+
+            for out in itask.state.outputs.add_implied_outputs(msg):
+                # Handle outputs as if completed naturally.
                 if itask.state.outputs.is_completed(out):
                     # already completed
                     continue
+                info = " "
+                if out != msg:
+                    info = " implied "
                 LOG.warning(
-                    f"Completing implied output: {itask.identity}:{out}")
+                    f"Completing{info}output: {itask.identity}:{out}"
+                    f" ({itask.flows_str()})")
                 self.task_events_mgr.process_message(
                     itask, logging.WARNING, out)
-            if not in_pool:
+
+            if transient:
                 # tasks states table gets updated from the task pool
                 self.workflow_db_mgr.put_update_task_state(itask)
 
@@ -1686,7 +1691,7 @@ class TaskPool:
             # without incrementing submit number or checking the flow.
             available = set()
             for p in TaskProxy(  # transient task
-                self.tokens, taskdef, point
+                self.tokens, taskdef, point, transient=True
             ).state.prerequisites:
                 for pp in p.satisfied.keys():
                     available.add(pp)

@@ -28,6 +28,7 @@ from typing import (
 
 import pytest
 from pytest import param
+from json import loads
 
 from cylc.flow import CYLC_LOG
 from cylc.flow.cycling.integer import IntegerPoint
@@ -1310,11 +1311,18 @@ async def test_set_failed_complete(
         schd.pool.set([foo.identity], None, None, ['all'])
 
         assert log_filter(
-            log, contains="Completing implied output: 1/foo:succeeded")
+            log, contains="Completing output: 1/foo:succeeded")
 
-        db_outputs = db_select(schd, True, 'task_outputs', 'outputs')
-        print(db_outputs)
-        assert False
+        db_outputs = db_select(
+            schd, True, 'task_outputs', 'outputs',
+            **{'name': 'foo'}
+        )
+        assert (
+            sorted(loads((db_outputs[0])[0])) == [
+                "failed", "started", "submitted", "succeeded"
+            ]
+        )
+
 
 async def test_set_prereqs(
     flow,
@@ -1387,13 +1395,14 @@ async def test_set_outputs_live(
             },
             'scheduling': {
                 'graph': {
-                    'R1': "foo:x => bar\nfoo => baz"
+                    'R1': "foo:x => bar\nfoo => baz\nfoo:y"
                 }
             },
             'runtime': {
                 'foo': {
                     'outputs': {
-                        'x': 'x'
+                        'x': 'x',
+                        'y': 'y'
                     }
                 }
             }
@@ -1409,8 +1418,6 @@ async def test_set_outputs_live(
         # fake submitted, running, failed
         foo = pool_get_proxy_by_id(schd.pool, "1/foo")
         foo.state_reset(is_queued=False)
-        schd.pool.task_events_mgr.process_message(foo, 1, "submitted")
-        schd.pool.task_events_mgr.process_message(foo, 1, 'started')
         schd.pool.task_events_mgr.process_message(foo, 1, 'failed')
 
         # setting foo:x should spawn bar but not baz
@@ -1424,6 +1431,12 @@ async def test_set_outputs_live(
         assert (
             pool_get_task_ids(schd.pool) == ["1/bar", "1/baz"]
         )
+
+        # it should complete the implied output y too.
+        assert log_filter(
+            log, contains="Completing output: 1/foo:y")
+
+        assert False
 
 
 async def test_set_outputs_future(
@@ -1444,7 +1457,7 @@ async def test_set_outputs_future(
                 'graph': {
                     'R1': "a => b => c"
                 }
-            },
+            }
         }
     )
     schd = scheduler(id_)
