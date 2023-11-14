@@ -1299,7 +1299,10 @@ class TaskEventsManager():
         # Unset started and finished times in case of resubmission.
         itask.set_summary_time('started')
         itask.set_summary_time('finished')
-        if itask.state.status == TASK_STATUS_PREPARING:
+        if (
+            itask.state.status == TASK_STATUS_PREPARING
+            or itask.tdef.run_mode == 'simulation'
+        ):
             # The job started message can (rarely) come in before the
             # submit command returns - in which case do not go back to
             # 'submitted'.
@@ -1591,7 +1594,7 @@ class TaskEventsManager():
 
     def _reset_job_timers(self, itask):
         """Set up poll timer and timeout for task."""
-        if itask.transient:
+        if itask.transient or itask.tdef.run_mode == "simulation":
             return
         if not itask.state(*TASK_STATUSES_ACTIVE):
             # Reset, task not active

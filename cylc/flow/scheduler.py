@@ -906,23 +906,17 @@ class Scheduler:
     def queue_command(
         self,
         name: str,
+        log_lines: List[str],
         args: list,
         kwargs: dict
     ) -> str:
         """Queue a command for action by the scheduler.
 
         Return a unique command ID for provenance tracking.
+
         """
-        args_string = ', '.join(str(a) for a in args)
-        kwargs_string = ', '.join(
-            f"{key}={value}" for key, value in kwargs.items()
-        )
-        sep = ', ' if kwargs_string and args_string else ''
         uuid = str(uuid4())
-        LOG.info(
-            f"[command] queued: {uuid}:\n"
-            f"{name}({args_string}{sep}{kwargs_string})"
-        )
+        LOG.log(log_lines[0], f"{log_lines[1]} id={uuid}\n{log_lines[2]}")
         self.command_queue.put(
             (
                 uuid,
@@ -948,7 +942,7 @@ class Scheduler:
                 uuid, name, args, kwargs = self.command_queue.get(False)
             except Empty:
                 break
-            msg = f"[command] actioned: {uuid} ({name})"
+            msg = f'Command "{name}" actioned: id={uuid}'
             try:
                 fcn = self.get_command_method(name)
                 n_warnings: Optional[int]
@@ -2122,7 +2116,7 @@ class Scheduler:
         if self.is_paused:
             LOG.info("Workflow is already paused")
             return
-        _msg = "PAUSING the workflow now"
+        _msg = "Pausing the workflow"
         if msg:
             _msg += f': {msg}'
         LOG.info(_msg)
