@@ -684,6 +684,9 @@ class TaskEventsManager():
                 self.data_store_mgr.delta_job_attr(
                     job_tokens, 'job_id', itask.summary['submit_method_id'])
 
+        elif message == "expired":
+            self.spawn_func(itask, message)
+
         elif message.startswith(FAIL_MESSAGE_PREFIX):
             # Task received signal.
             if (

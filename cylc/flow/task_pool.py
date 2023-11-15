@@ -1829,6 +1829,8 @@ class TaskPool:
             if itask.state_reset(TASK_STATUS_EXPIRED, is_held=False):
                 self.data_store_mgr.delta_task_state(itask)
                 self.data_store_mgr.delta_task_held(itask)
+            self.task_events_mgr.process_message(
+                itask, logging.WARNING, "expired")
             self.remove(itask, 'expired')
             return True
         return False
