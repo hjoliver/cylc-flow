@@ -685,52 +685,31 @@ class Resolvers(BaseResolvers):
         result = await self._mutation_mapper(command, kwargs, meta)
         return [{'id': w_id, 'response': result}]
 
-    def _get_log_lines(
-        self, name: str, args: list, kwargs: dict, user: str
-    ) -> List[str]:
-        """Return [log_level, line1, line2] for logging received command."""
-
-        is_owner = user == self.schd.owner
-
-        if name == 'put_messages' and is_owner:
-            # Logging put_messages is overkill.
-            level = logging.DEBUG
-        else:
-            level = logging.INFO
-
-        args_string = ', '.join(str(a) for a in args)
-        kwargs_string = ', '.join(
-            f"{key}={value}" for key, value in kwargs.items()
-        )
-        sep = ', ' if kwargs_string and args_string else ''
-
-        if is_owner:
-            owner_msg = ""
-        else:
-            owner_msg = f" from {user}"
-
-        return [
-            str(level),
-            f'Command "{name}" received{owner_msg}:',
-            f"{name}({args_string}{sep}{kwargs_string})"
-        ]
-
     async def _mutation_mapper(
         self, command: str, kwargs: Dict[str, Any], meta: Dict[str, Any]
     ) -> Tuple[bool, str]:
         """Map between GraphQL resolvers and internal command interface.
 
-        Internal commands are executed immediately, not queued.
+        Internal commands return immediately, not queued to the scheduler.
 
         """
-        log_lines = self._get_log_lines(
-            command,
-            [], kwargs,
-            meta.get('auth_user', self.schd.owner),
+        msg1 = f'Command "{command}" received'
+
+        user = meta.get('auth_user', self.schd.owner)
+        if user != self.schd.owner:
+            msg1 += f" from {user}"
+
+        kwargs_string = ', '.join(
+            f"{key}={value}" for key, value in kwargs.items()
         )
+        msg2 = f"{command}({kwargs_string})"
+
         method = getattr(self, command, None)
         if method is not None:
-            LOG.log(int(log_lines[0]), '\n'.join(log_lines[1:]))
+            # Direct call to an internal resolver method.
+            if command != "put_messages":
+                # Logging task messages as commands is overkill.
+                LOG.info(f"{msg1}\n{msg2}")
             return method(**kwargs)
 
         try:
@@ -742,9 +721,9 @@ class Resolvers(BaseResolvers):
             True,
             self.schd.queue_command(
                 command,
-                log_lines,
                 [],
-                kwargs
+                kwargs,
+                [msg1, msg2],
             )
         )
 

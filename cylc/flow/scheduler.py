@@ -906,9 +906,9 @@ class Scheduler:
     def queue_command(
         self,
         name: str,
-        log_lines: List[str],
         args: list,
-        kwargs: dict
+        kwargs: dict,
+        log_lines: List[str],
     ) -> str:
         """Queue a command for action by the scheduler.
 
@@ -916,7 +916,7 @@ class Scheduler:
 
         """
         uuid = str(uuid4())
-        LOG.log(int(log_lines[0]), f"{log_lines[1]} id={uuid}\n{log_lines[2]}")
+        LOG.info(f"{log_lines[0]} id={uuid}\n{log_lines[1]}")
         self.command_queue.put(
             (
                 uuid,
