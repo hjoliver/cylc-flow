@@ -1674,7 +1674,7 @@ class TaskPool:
     def _set_prereqs(self, point, taskdef, prereqs, flow_nums, flow_wait):
         """Set given prerequisites of a target task.
 
-        Spawn the task first if it's not already in the pool.
+        Spawn the task first if not already in the pool.
 
         """
         if prereqs == ["all"]:
@@ -1697,6 +1697,8 @@ class TaskPool:
             requested = set()
             for p in prereqs:
                 t = Tokens(p, relative=True)
+                # Default to :succeeded
+                t['task_sel'] = t['task_sel'] or TASK_OUTPUT_SUCCEEDED
                 requested.add((t['cycle'], t['task'], t['task_sel']))
 
             good = available & requested

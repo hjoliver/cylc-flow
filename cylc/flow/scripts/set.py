@@ -20,11 +20,11 @@
 
 Manually set task prerequisites and outputs in a running workflow.
 
-By default, set all required outputs complete (note this won't set
-`succeeded` unless that is a required output).
+By default, set all required outputs complete (note that `succeeded` could be
+an optional output).
 
 Setting prerequisites contributes to a task's readiness to run and promotes it
-to the active window where any clock and xtriggers will become active.
+to the scheduler's active window where clock and xtriggers will become active.
 
 Setting outputs affects task completion and spawns downstream tasks that depend
 on those outputs.
@@ -44,6 +44,8 @@ Examples:
   $ cylc set --out=succeeded my_workflow//3/bar
 
   # satisfy the `3/foo:succeeded` prerequisite of 3/bar:
+  $ cylc set --pre=3/foo my_workflow//3/bar
+  #   or:
   $ cylc set --pre=3/foo:succeeded my_workflow//3/bar
 
   # satisfy all prerequisites of 3/bar and start checking its xtriggers:
