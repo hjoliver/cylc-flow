@@ -243,8 +243,6 @@ ALIASES = {
     'get-cylc-version': 'get-workflow-version',
     'log': 'cat-log',
     'ls': 'list',
-    'reset': 'set',
-    'set-outputs': 'set',
     'shutdown': 'stop',
     'task-message': 'message',
     'unhold': 'release',
