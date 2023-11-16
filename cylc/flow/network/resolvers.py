@@ -688,28 +688,35 @@ class Resolvers(BaseResolvers):
     async def _mutation_mapper(
         self, command: str, kwargs: Dict[str, Any], meta: Dict[str, Any]
     ) -> Tuple[bool, str]:
-        """Map between GraphQL resolvers and internal command interface.
+        """Map to internal command interface.
 
-        Internal commands return immediately, not queued to the scheduler.
+        Some direct methods are in this module.
+        Others go to the scheduler command queue.
 
         """
-        msg1 = f'Command "{command}" received'
-
         user = meta.get('auth_user', self.schd.owner)
-        if user != self.schd.owner:
-            msg1 += f" from {user}"
+        if user == self.schd.owner:
+            log_user = ""  # don't log user name if owner
+        else:
+            log_user = f" from {user}"
 
-        kwargs_string = ', '.join(
-            f"{key}={value}" for key, value in kwargs.items()
+        log_msg1 = f'Command "{command}" received{log_user}:'
+
+        log_msg2 = (
+            f"{command}("
+            + ", ".join(
+                f"{key}={value}" for key, value in kwargs.items())
+            + ")"
         )
-        msg2 = f"{command}({kwargs_string})"
 
         method = getattr(self, command, None)
         if method is not None:
-            # Direct call to an internal resolver method.
-            if command != "put_messages":
+            if (
+                command != "put_messages"
+                or user != self.schd.owner
+            ):
                 # Logging task messages as commands is overkill.
-                LOG.info(f"{msg1}\n{msg2}")
+                LOG.info(f"{log_msg1}\n{log_msg2}")
             return method(**kwargs)
 
         try:
@@ -723,7 +730,7 @@ class Resolvers(BaseResolvers):
                 command,
                 [],
                 kwargs,
-                [msg1, msg2],
+                [log_msg1, log_msg2],
             )
         )
 

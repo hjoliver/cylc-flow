@@ -20,12 +20,11 @@ from unittest.mock import Mock
 
 import pytest
 
-from cylc.flow import CYLC_LOG
 from cylc.flow.data_store_mgr import EDGES, TASK_PROXIES
 from cylc.flow.id import Tokens
+from cylc.flow import CYLC_LOG
 from cylc.flow.network.resolvers import Resolvers
 from cylc.flow.scheduler import Scheduler
-from cylc.flow.workflow_status import StopMode
 
 
 @pytest.fixture
@@ -222,25 +221,27 @@ async def test_mutation_mapper(mock_flow):
         await mock_flow.resolvers._mutation_mapper('non_exist', {}, meta)
 
 
-async def test_command_logging(mock_flow):
+async def test_command_logging(mock_flow, caplog, log_filter):
     """The command log message should include non-owner name."""
 
-    owner = mock_flow.owner
-    other = f"not-{mock_flow.owner}"
+    meta = {}
 
-    command = "stop"
-    log_lines = mock_flow.resolvers._get_log_lines(command, [], {}, owner)
-    assert int(log_lines[0]) == logging.INFO
-    assert log_lines[1] == 'Command "stop" received:'
+    caplog.set_level(logging.INFO, CYLC_LOG)
 
-    log_lines = mock_flow.resolvers._get_log_lines(command, [], {}, other)
-    assert log_lines[1] == f'Command "stop" received from {other}:'
+    await mock_flow.resolvers._mutation_mapper("stop", {}, meta)
+    assert log_filter(caplog, contains='Command "stop" received:')
 
-    command = "put_messages"
-    log_lines = mock_flow.resolvers._get_log_lines(command, [], {}, owner)
-    assert int(log_lines[0]) == logging.DEBUG
-    assert log_lines[1] == 'Command "put_messages" received:'
+    # put_messages: only log for owner
+    kwargs = {
+        "task_job": "1/foo/01",
+        "event_time": "bedtime",
+        "messages": [[logging.CRITICAL, "it's late"]]
+    }
+    meta["auth_user"] = mock_flow.owner
+    await mock_flow.resolvers._mutation_mapper("put_messages", kwargs, meta)
+    assert not log_filter(caplog, contains='Command "put_messages" received:')
 
-    log_lines = mock_flow.resolvers._get_log_lines(command, [], {}, other)
-    assert int(log_lines[0]) == logging.INFO
-    assert log_lines[1] == f'Command "put_messages" received from {other}:'
+    meta["auth_user"] = "Dr Spock"
+    await mock_flow.resolvers._mutation_mapper("put_messages", kwargs, meta)
+    assert log_filter(
+        caplog, contains='Command "put_messages" received from Dr Spock:')
