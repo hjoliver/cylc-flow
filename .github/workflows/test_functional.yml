@@ -10,7 +10,6 @@ on:
       - 'etc/syntax/**'
       - 'tests/unit/**'
       - 'tests/integration/**'
-      - 'tests/functional/canonical/**'
       - '**.md'
       - '**/README*/**'
   push:
@@ -24,7 +23,6 @@ on:
       - 'etc/syntax/**'
       - 'tests/unit/**'
       - 'tests/integration/**'
-      - 'tests/functional/canonical/**'
       - '**.md'
       - '**/README*/**'
 
