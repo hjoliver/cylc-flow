@@ -1798,7 +1798,7 @@ class TaskPool:
 
     def set_expired_tasks(self):
         res = False
-        for itask in self.get_tasks():
+        for itask in self.get_all_tasks():
             if self._set_expired_task(itask):
                 res = True
         return res
