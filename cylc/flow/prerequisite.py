@@ -75,6 +75,10 @@ class Prerequisite:
         # * `False` (prerequisite unsatisfied).
         self._all_satisfied = None
 
+    def __str__(self):
+        # TODO make this more useful
+        return f"{self.point}: {self.satisfied}, {self.conditional_expression}"
+
     def instantaneous_hash(self):
         """Generate a hash of this prerequisite in its current state.
 

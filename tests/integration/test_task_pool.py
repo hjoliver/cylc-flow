@@ -1301,17 +1301,17 @@ async def test_set_failed_complete(
 
         schd.pool.task_events_mgr.process_message(foo, 1, "failed")
         assert log_filter(
-            log, regex="1/foo .* handling missed event: submitted")
+            log, regex="1/foo.* handling missed event: submitted")
         assert log_filter(
-            log, regex="1/foo .* handling missed event: started")
+            log, regex="1/foo.* handling missed event: started")
         assert log_filter(
-            log, regex="1/foo failed.* did not complete required outputs")
+            log, regex="failed.* did not complete required outputs")
 
         # Set failed task complete via default "set" args.
         schd.pool.set([foo.identity], None, None, ['all'])
 
         assert log_filter(
-            log, contains="Completing output: 1/foo:succeeded")
+            log, contains='completing output "succeeded" of 1/foo')
 
         db_outputs = db_select(
             schd, True, 'task_outputs', 'outputs',
@@ -1434,7 +1434,7 @@ async def test_set_outputs_live(
 
         # it should complete the implied output y too.
         assert log_filter(
-            log, contains="Completing implied output: 1/foo:y")
+            log, contains='completing implied output "y" of 1/foo')
 
 
 async def test_set_outputs_future(

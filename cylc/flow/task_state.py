@@ -307,19 +307,19 @@ class TaskState:
             )
         )
 
-    def satisfy_me(self, all_task_outputs):
+    def satisfy_me(self, outputs):
         """Attempt to get my prerequisites satisfied."""
         goodies = set()
         for prereqs in [self.prerequisites, self.suicide_prerequisites]:
             for prereq in prereqs:
-                satisfied = prereq.satisfy_me(all_task_outputs)
+                satisfied = prereq.satisfy_me(outputs)
                 if satisfied:
                     self._is_satisfied = None
                     self._suicide_is_satisfied = None
-                for out in all_task_outputs:
+                for out in outputs:
                     if out in prereq.satisfied:
                         goodies.add(out)
-        return all_task_outputs - goodies
+        return set(outputs) - goodies
 
     def xtriggers_all_satisfied(self):
         """Return True if all xtriggers are satisfied."""

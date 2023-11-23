@@ -15,9 +15,9 @@
    [[foo]]
       script = """
          cylc trigger --wait ${CYLC_WORKFLOW_ID}//1/baz
-         cylc__job__poll_grep_workflow_log "1/baz running job:01 .* succeeded"
+         cylc__job__poll_grep_workflow_log "1/baz/01:running.*succeeded"
          cylc trigger --wait ${CYLC_WORKFLOW_ID}//1/baz
-         cylc__job__poll_grep_workflow_log "1/baz running job:02 .* succeeded"
+         cylc__job__poll_grep_workflow_log "1/baz/02:running.*succeeded"
       """
    [[baz]]
       script = """

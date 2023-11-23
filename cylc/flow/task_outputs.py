@@ -15,7 +15,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """Task output message manager and constants."""
 
-from typing import List
+from typing import Set
 
 # Standard task output strings, used for triggering.
 TASK_OUTPUT_EXPIRED = "expired"
@@ -271,8 +271,8 @@ class TaskOutputs:
         else:
             return self._by_message[message]
 
-    def add_implied_outputs(self, output: str) -> List[str]:
-        """Return a list with implied outputs prepended.
+    def add_implied_outputs(self, output: str) -> Set[str]:
+        """Return a set with implied outputs prepended.
 
         - started implies submitted
         - any custom output implies started
@@ -281,25 +281,25 @@ class TaskOutputs:
 
         """
         if output == TASK_OUTPUT_STARTED:
-            return [TASK_OUTPUT_SUBMITTED, output]
+            return {TASK_OUTPUT_SUBMITTED, output}
 
         elif output in self._get_custom_triggers():
-            return [TASK_OUTPUT_SUBMITTED, TASK_OUTPUT_STARTED, output]
+            return {TASK_OUTPUT_SUBMITTED, TASK_OUTPUT_STARTED, output}
 
         elif output in [TASK_OUTPUT_SUCCEEDED, TASK_OUTPUT_FAILED]:
-            required_custom = [
+            required_custom = {
                 msg for msg in self._get_custom_triggers()
                 if msg in self._required.values()
-            ]
-            return [
+            }
+            return {
                 TASK_OUTPUT_SUBMITTED,
                 TASK_OUTPUT_STARTED,
                 *required_custom,
                 output
-            ]
+            }
 
         else:
-            return [output]
+            return {output}
 
     @staticmethod
     def is_valid_std_name(name):

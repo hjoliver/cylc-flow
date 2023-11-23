@@ -591,6 +591,9 @@ class Scheduler:
             # Note that the following lines must be present at the top of
             # the workflow log file for use in reference test runs.
             LOG.info(
+                "Task log key: [<cycle>/<name>/<job>(<flows>):<status>]"
+            )
+            LOG.info(
                 f'Run mode: {self.config.run_mode()}',
                 extra=RotatingLogFileHandler.header_extra
             )
