@@ -795,6 +795,7 @@ class TaskPool:
         tasks = self.active_tasks.get(point)
         if tasks and rel_id in tasks:
             return tasks[rel_id]
+        return None
 
     def _get_task_by_id(self, id_: str) -> Optional[TaskProxy]:
         """Return pool task by ID if it exists, or None."""

@@ -269,7 +269,6 @@ class TaskProxy:
         else:
             self.graph_children = generate_graph_children(tdef, self.point)
 
-        self.expire_time: Optional[float] = None
         if self.tdef.expiration_offset is not None:
             self.expire_time = (
                 self.get_point_as_seconds() +
