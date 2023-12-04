@@ -1720,6 +1720,13 @@ class TaskPool:
             # (note tasks states table gets updated from the task pool)
             self.workflow_db_mgr.put_update_task_state(itask)
 
+        # testing...
+        # self.data_store_mgr.delta_task_outputs(itask)
+        # self.data_store_mgr.delta_task_state(itask)
+        # self.data_store_mgr.update_data_structure()
+        # self.data_store_mgr.prune_data_store()
+        # self.data_store_mgr.update_updates_pending = True
+
     def _set_prereqs_itask(self, itask, prereqs, flow_nums, flow_wait):
         """Set prerequisites on a task in the pool.
 
