@@ -286,6 +286,8 @@ async def run(
 
 @cli_function(get_option_parser)
 def main(parser: COP, options: 'Values', *ids) -> None:
+    if options.outputs and options.prerequisites:
+        raise InputError("Use --prerequisite or --output, not both.")
     validate_flow_opts(options)
     call_multi(
         partial(run, options),

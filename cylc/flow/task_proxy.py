@@ -522,7 +522,10 @@ class TaskProxy:
         """
         bad = self.state.satisfy_me(prereqs)
         for err in bad:
-            LOG.warning(f"{self.identity} has no prerequisites {err}")
+            LOG.warning(
+                f"{self.identity} does not depend on"
+                f" {err[0]}/{err[1]}:{err[2]}"
+            )
         return len(bad) == 0
 
     def clock_expire(self) -> bool:
