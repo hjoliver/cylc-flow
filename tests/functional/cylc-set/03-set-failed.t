@@ -20,7 +20,7 @@
 # check that we can set a dead orphaned job to failed.
 
 . "$(dirname "$0")/test_header"
-set_test_number 6
+set_test_number 4
 
 install_and_validate
 
@@ -39,13 +39,9 @@ cylc stop --now --now --interval=2 --max-polls=5 "${WORKFLOW_NAME}"
 # - set completion message
 # - implied outputs reported as already completed
 
-# order of output completion is currently not fixed (using a set of outputs).
-grep_workflow_log_ok grep-1 'set: implied output "submitted" of 1/foo'  # already completed'
-grep_workflow_log_ok grep-2 'set: implied output "started" of 1/foo'  # already completed'
-grep_workflow_log_ok grep-3 'set: completing output "failed" of 1/foo'
+grep_workflow_log_ok grep-3 'set: output 1/foo:failed completed'
 
 # Check the DB records all the outputs.
-
 sqlite3 ~/cylc-run/"${WORKFLOW_NAME}"/log/db \
    "SELECT outputs FROM task_outputs WHERE name is \"foo\"" > db-foo.1
 

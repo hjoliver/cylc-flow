@@ -15,7 +15,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """Task output message manager and constants."""
 
-from typing import Set
+from typing import List
 
 # Standard task output strings, used for triggering.
 TASK_OUTPUT_EXPIRED = "expired"
@@ -153,12 +153,15 @@ class TaskOutputs:
         """Return True if it has any custom triggers."""
         return any(key not in SORT_ORDERS for key in self._by_trigger)
 
-    def _get_custom_triggers(self):
-        """Return list of custom trigger messages."""
-        return [
+    def _get_custom_triggers(self, required: bool = False) -> List[str]:
+        """Return list of all, or required, custom trigger messages."""
+        custom = [
             out[1] for trg, out in self._by_trigger.items()
             if trg not in SORT_ORDERS
         ]
+        if required:
+            custom = [out for out in custom if out in self._required.values()]
+        return custom
 
     def get_not_completed(self):
         """Return all not-completed output messages."""
@@ -271,35 +274,53 @@ class TaskOutputs:
         else:
             return self._by_message[message]
 
-    def add_implied_outputs(self, output: str) -> Set[str]:
-        """Return a set with implied outputs prepended.
+    def get_incomplete_implied(self, output: str, forced=False) -> List[str]:
+        """Return an ordered list of incomplete implied outputs.
 
-        - started implies submitted
-        - any custom output implies started
-        - succeeded and failed imply started and any required custom outputs
-        - expired does not imply other outputs
+        Use to determined implied outputs to complete automatically.
+
+        For forced completion of outputs via `cylc set":
+           - complete all implied outputs automatically
+           - forced success implies all required outputs
+           - (forced failure does not)
+
+        For natural completion of outputs via task messages:
+           - complete implied submitted and started outputs automatically
+               (runtime outputs cannot be generated without starting the job,
+               so missing these only implies e.g. network issues)
+           - do not complete other implied outputs automatically (doing so
+               would break error detection based on required outputs)
+
+        Note that submitted and started are *implied* but later outputs, but
+        submitted is not necessarily *required*.
 
         """
-        if output == TASK_OUTPUT_STARTED:
-            return {TASK_OUTPUT_SUBMITTED, output}
+        implied: List[str] = []
 
-        elif output in self._get_custom_triggers():
-            return {TASK_OUTPUT_SUBMITTED, TASK_OUTPUT_STARTED, output}
+        if forced and output in [TASK_OUTPUT_SUCCEEDED, TASK_OUTPUT_FAILED]:
+            # Finished, so it must have submitted and started.
+            implied = [TASK_OUTPUT_SUBMITTED, TASK_OUTPUT_STARTED]
+            if output == TASK_OUTPUT_SUCCEEDED:
+                # Even if success is optional we can assume required custom
+                # outputs are on the success path (not so for failure - that
+                # depends on when failure occurs during job execution).
+                implied += self._get_custom_triggers(required=True)
 
-        elif output in [TASK_OUTPUT_SUCCEEDED, TASK_OUTPUT_FAILED]:
-            required_custom = {
-                msg for msg in self._get_custom_triggers()
-                if msg in self._required.values()
-            }
-            return {
-                TASK_OUTPUT_SUBMITTED,
-                TASK_OUTPUT_STARTED,
-                *required_custom,
-                output
-            }
+        elif output == TASK_OUTPUT_STARTED:
+            # It must have submitted.
+            implied = [TASK_OUTPUT_SUBMITTED]
+
+        elif (
+            output in self._get_custom_triggers() or
+            output in [TASK_OUTPUT_SUCCEEDED, TASK_OUTPUT_FAILED]
+        ):
+            # It must have submitted and started
+            implied = [TASK_OUTPUT_SUBMITTED, TASK_OUTPUT_STARTED]
 
         else:
-            return {output}
+            pass
+
+        return [out for out in implied if not self.is_completed(out)]
 
     @staticmethod
     def is_valid_std_name(name):

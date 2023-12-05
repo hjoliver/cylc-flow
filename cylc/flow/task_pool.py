@@ -1629,16 +1629,23 @@ class TaskPool:
 
         Default: set all required outputs.
 
-        Setting prerequisites spawns the target task.
-        Setting outputs spawns children of the target task.
+        Set prerequisites:
+        - spawn the task (if not spawned)
+        - update its prerequisites
 
-        Use a transient task proxy to spawn children. (Even if the parent was
+        Set outputs:
+        - update task outputs in the DB
+        - spawn children of the outputs (if not spawned)
+        - update the child prerequisites
+        - implied outputs are handled universally by the event manager
+
+        Uses a transient task proxy to spawn children. (Even if parent was
         previously spawned in this flow its children might not have been).
 
-        Task matching:
+        Task matching restrictions (for now):
         - globs (cycle and name) only match in the pool
-        - family names are not expanded
         - future tasks must be specified individually
+        - family names are not expanded to members
 
         Args:
             items: task ID match patterns
@@ -1667,8 +1674,7 @@ class TaskPool:
                 self._set_prereqs_itask(
                     itask, prereqs, flow_nums, flow_wait)
             else:
-                self._set_outputs_itask(
-                    itask, outputs or itask.tdef.get_required_outputs())
+                self._set_outputs_itask(itask, outputs)
 
         for name, point in future_tasks:
             tdef = self.config.get_taskdef(name)
@@ -1679,44 +1685,36 @@ class TaskPool:
                 trans = self._spawn_transient(
                     point, tdef, flow_nums, flow_wait)
                 if trans is not None:
-                    self._set_outputs_itask(
-                        trans, outputs or itask.tdef.get_required_outputs())
+                    self._set_outputs_itask(trans, outputs)
 
     def _set_outputs_itask(
         self,
         itask: 'TaskProxy',
-        req_outputs: List[str],
+        outputs: List[str],
     ) -> None:
-        """Set requested outputs on a task and spawn its children."""
+        """Set requested outputs on a task and spawn associated children."""
 
-        # TODO TIDIER "set:"" LOG MESSAGES
+        if not outputs:
+            # Default to required outputs.
+            outputs = itask.tdef.get_required_outputs()
 
-        # convert from labels to messages
-        requested = []
-        allout: Set[str] = set()  # requested plus implied outputs
-        for output in req_outputs:
-            o_msg = itask.state.outputs.get_msg(output)
-            if o_msg is None:
-                LOG.warning(
-                    f"Output not found: {itask.identity}:{output}")
+        changed = False
+        for output in outputs:
+            # convert trigger label to output message
+            out = itask.state.outputs.get_msg(output)
+            info = f'set: output {itask.identity}:{output}'
+            if out is None:
+                LOG.warning(f"{info} not found")
                 continue
-            requested.append(o_msg)
-            allout = allout.union(
-                itask.state.outputs.add_implied_outputs(o_msg)
-            )
-
-        for out in allout:
-            info = f'output "{out}" of {itask.identity}'
-            if out not in requested:
-                info = f"implied {info}"
             if itask.state.outputs.is_completed(out):
-                LOG.info(f"set: {info} already completed")
+                LOG.info(f"{info} completed already")
                 continue
-            LOG.info(f"set: completing {info}")
+            changed = True
+            self.task_events_mgr.process_message(
+                itask, logging.INFO, out, forced=True)
+            LOG.info(f"{info} completed")
 
-            self.task_events_mgr.process_message(itask, logging.INFO, out)
-
-        if itask.transient:
+        if changed and itask.transient:
             # (note tasks states table gets updated from the task pool)
             self.workflow_db_mgr.put_update_task_state(itask)
 
@@ -1728,9 +1726,7 @@ class TaskPool:
         # self.data_store_mgr.update_updates_pending = True
 
     def _set_prereqs_itask(self, itask, prereqs, flow_nums, flow_wait):
-        """Set prerequisites on a task in the pool.
-
-        """
+        """Set prerequisites on a task in the pool."""
         if prereqs == ["all"]:
             itask.state.set_all_satisfied()
         else:
@@ -1738,9 +1734,7 @@ class TaskPool:
         self.data_store_mgr.delta_task_prerequisite(itask)
 
     def _set_prereqs_tdef(self, point, taskdef, prereqs, flow_nums, flow_wait):
-        """Spawn a future task and set specified prerequisites on it.
-
-        """
+        """Spawn a future task and set specified prerequisites on it."""
         itask = self.spawn_task(taskdef.name, point, flow_nums, flow_wait)
         if itask is None:
             return

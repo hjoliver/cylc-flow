@@ -539,6 +539,7 @@ class TaskEventsManager():
         event_time: Optional[str] = None,
         flag: str = FLAG_INTERNAL,
         submit_num: Optional[int] = None,
+        forced: bool = False
     ) -> Optional[bool]:
         """Parse a task message and update task state.
 
@@ -576,6 +577,8 @@ class TaskEventsManager():
             submit_num:
                 The submit number of the task relevant for the message.
                 If not specified, use latest submit number.
+            forced:
+                If this message is due to manual completion or not (cylc set)
 
         Return:
             None: in normal circumstances.
@@ -622,37 +625,16 @@ class TaskEventsManager():
 
         self.data_store_mgr.delta_task_output(itask, msg0)
 
-        if message not in [
-            self.EVENT_SUBMITTED,
-            self.EVENT_SUBMIT_FAILED,
-            self.EVENT_STARTED,
-            self.EVENT_EXPIRED
-        ]:
-            # Can't get here unless the job was submitted or started first.
-            # Check those events were not missed, e.g. due to delayed poll
-            # results. NB custom outputs are picked up by delayed polling.
-
-            if not itask.state.outputs.is_completed(TASK_OUTPUT_SUBMITTED):
-                LOG.warning(f"[{itask}] handling missed event: submitted")
-                itask.state.outputs.set_msg_trg_completion(
-                    message=TASK_OUTPUT_SUBMITTED, is_completed=True)
-                self.setup_event_handlers(
-                    itask,
-                    self.EVENT_SUBMITTED,
-                    f'job {self.EVENT_SUBMITTED}',
-                )
-                self.spawn_children(itask, TASK_OUTPUT_SUBMITTED)
-
-            if not itask.state.outputs.is_completed(TASK_OUTPUT_STARTED):
-                LOG.warning(f"[{itask}] handling missed event: started")
-                itask.state.outputs.set_msg_trg_completion(
-                    message=TASK_OUTPUT_STARTED, is_completed=True)
-                self.setup_event_handlers(
-                    itask,
-                    self.EVENT_STARTED,
-                    f'job {self.EVENT_STARTED}',
-                )
-                self.spawn_children(itask, TASK_OUTPUT_STARTED)
+        for implied in (
+            itask.state.outputs.get_incomplete_implied(msg0, forced)
+        ):
+            # Check we have not missed any outputs e.g. by delayed poll.
+            LOG.warning(
+                f"[{itask}] setting missed output: {implied}")
+            self.process_message(
+                itask, INFO, implied, event_time,
+                self.FLAG_INTERNAL, submit_num, forced
+            )
 
         if message == self.EVENT_STARTED:
             if (

@@ -197,6 +197,7 @@ class TaskDef:
         for out, (_msg, req) in self.outputs.items():
             if req:
                 res.append(out)
+        print(self.outputs)
         return res
 
     def tweak_outputs(self):
