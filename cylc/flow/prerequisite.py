@@ -202,7 +202,7 @@ class Prerequisite:
                 '"%s":\n%s' % (self.get_raw_conditional_expression(), err_msg))
         return res
 
-    def satisfy_me(self, outputs: Iterable['Tokens']) -> Set[str]:
+    def satisfy_me(self, outputs: Iterable['Tokens']) -> 'Set[Tokens]':
         """Attempt to satisfy me with given outputs.
 
         Updates cache with the result.
@@ -214,7 +214,7 @@ class Prerequisite:
             prereq = output.to_prereq_tuple()
             if prereq not in self.satisfied:
                 continue
-            valid.add(output.relative_id_with_selectors)
+            valid.add(output)
             self.satisfied[prereq] = self.DEP_STATE_SATISFIED
             if self.conditional_expression is None:
                 self._all_satisfied = all(self.satisfied.values())

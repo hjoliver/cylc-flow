@@ -37,7 +37,6 @@ from metomi.isodatetime.timezone import get_local_time_zone
 
 from cylc.flow import LOG
 from cylc.flow.flow_mgr import stringify_flow_nums
-from cylc.flow.id import Tokens
 from cylc.flow.platforms import get_platform
 from cylc.flow.task_action_timer import TimerFlags
 from cylc.flow.task_state import (
@@ -57,6 +56,7 @@ if TYPE_CHECKING:
     from cylc.flow.cycling import PointBase
     from cylc.flow.task_action_timer import TaskActionTimer
     from cylc.flow.taskdef import TaskDef
+    from cylc.flow.id import Tokens
 
 
 class TaskProxy:
@@ -518,18 +518,17 @@ class TaskProxy:
             return True
         return False
 
-    def satisfy_me(self, outputs: Iterable[str]) -> None:
+    def satisfy_me(self, outputs: 'Iterable[Tokens]') -> None:
         """Try to satisfy my prerequisites with given outputs.
 
         The output strings are of the form "cycle/task:message"
         Log a warning for outputs that I don't depend on.
 
         """
-        tokens = [Tokens(p, relative=True) for p in outputs]
-        used = self.state.satisfy_me(tokens)
+        used = self.state.satisfy_me(outputs)
         for output in set(outputs) - used:
             LOG.warning(
-                f"{self.identity} does not depend on {output}"
+                f"{self.identity} does not depend on {output.relative_id_with_selectors}"
             )
 
     def clock_expire(self) -> bool:
