@@ -313,12 +313,12 @@ class TaskState:
     def satisfy_me(
         self,
         outputs: Iterable['Tokens']
-    ) -> Set[str]:
+    ) -> Set['Tokens']:
         """Try to satisfy my prerequisites with given outputs.
 
         Return which outputs I actually depend on.
         """
-        valid: Set[str] = set()
+        valid: Set[Tokens] = set()
         for prereq in (*self.prerequisites, *self.suicide_prerequisites):
             yep = prereq.satisfy_me(outputs)
             if yep:

@@ -32,8 +32,9 @@ from json import loads
 from cylc.flow import CYLC_LOG
 from cylc.flow.cycling.integer import IntegerPoint
 from cylc.flow.cycling.iso8601 import ISO8601Point
-from cylc.flow.task_events_mgr import TaskEventsManager
 from cylc.flow.data_store_mgr import TASK_PROXIES
+from cylc.flow.id import Tokens
+from cylc.flow.task_events_mgr import TaskEventsManager
 from cylc.flow.task_outputs import (
     TASK_OUTPUT_STARTED,
     TASK_OUTPUT_SUCCEEDED
@@ -1523,7 +1524,10 @@ async def test_prereq_satisfaction(
         assert not b.is_waiting_prereqs_done()
 
         # set valid and invalid prerequisites, check log.
-        b.satisfy_me(["1/a:x", "1/a:y", "1/a:z", "1/a:w"])
+        b.satisfy_me([
+            Tokens(id_, relative=True)
+            for id_ in ["1/a:x", "1/a:y", "1/a:z", "1/a:w"]
+        ])
         assert log_filter(log, contains="1/b does not depend on 1/a:z")
         assert log_filter(log, contains="1/b does not depend on 1/a:w")
         assert not log_filter(log, contains="1/b does not depend on 1/a:x")

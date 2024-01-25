@@ -1299,7 +1299,7 @@ class TaskPool:
                 else:
                     tasks = [c_task]
                 for t in tasks:
-                    t.satisfy_me([f"{itask.identity}:{output}"])
+                    t.satisfy_me([itask.tokens.duplicate(task_sel=output)])
                     self.data_store_mgr.delta_task_prerequisite(t)
                     self.add_to_pool(t)
 
@@ -1423,7 +1423,9 @@ class TaskPool:
                     # not spawnable
                     continue
                 if completed_only:
-                    c_task.satisfy_me([f"{itask.identity}:{output}"])
+                    c_task.satisfy_me(
+                        [itask.tokens.duplicate(task_sel=output)]
+                    )
                     self.data_store_mgr.delta_task_prerequisite(c_task)
                 self.add_to_pool(c_task)
                 if (
@@ -1604,9 +1606,10 @@ class TaskPool:
             and itask.tdef.has_abs_triggers
             and itask.state.prerequisites_are_not_all_satisfied()
         ):
-            itask.satisfy_me(
-                [f"{a[0]}/{a[1]}:{a[2]}" for a in self.abs_outputs_done]
-            )
+            itask.satisfy_me([
+                Tokens(cycle=cycle, task=task, task_sel=output)
+                for cycle, task, output in self.abs_outputs_done
+            ])
 
         if prev_flow_wait:
             self._spawn_after_flow_wait(itask)
@@ -1716,6 +1719,11 @@ class TaskPool:
             # Illegal flow command opts
             return
 
+        _prereqs: List[Tokens] = [
+            Tokens(prereq, relative=True)
+            for prereq in (prereqs or [])
+        ]
+
         # Get matching pool tasks and future task definitions.
         itasks, future_tasks, unmatched = self.filter_task_proxies(
             items,
@@ -1725,17 +1733,17 @@ class TaskPool:
 
         for itask in itasks:
             self.merge_flows(itask, flow_nums)
-            if prereqs:
+            if _prereqs:
                 self._set_prereqs_itask(
-                    itask, prereqs, flow_nums, flow_wait)
+                    itask, _prereqs, flow_nums, flow_wait)
             else:
                 self._set_outputs_itask(itask, outputs)
 
         for name, point in future_tasks:
             tdef = self.config.get_taskdef(name)
-            if prereqs:
+            if _prereqs:
                 self._set_prereqs_tdef(
-                    point, tdef, prereqs, flow_nums, flow_wait)
+                    point, tdef, _prereqs, flow_nums, flow_wait)
             else:
                 trans = self._get_task_proxy(
                     point, tdef, flow_nums, flow_wait, transient=True)
@@ -1778,7 +1786,7 @@ class TaskPool:
     def _set_prereqs_itask(
         self,
         itask: 'TaskProxy',
-        prereqs: List[str],
+        prereqs: List[Tokens],
         flow_nums: Set[int],
         flow_wait: bool
     ) -> None:
