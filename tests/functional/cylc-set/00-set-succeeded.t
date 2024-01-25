@@ -30,30 +30,15 @@ do
     sqlite3 ~/cylc-run/"${WORKFLOW_NAME}"/log/db \
        "SELECT status FROM task_states WHERE name is \"$TASK\"" > "${TASK}.1"
 
-    cmp_ok ${TASK}.1 - << __OUT__
-succeeded
-__OUT__
+    cmp_ok ${TASK}.1 - <<<succeeded
 
     sqlite3 ~/cylc-run/"${WORKFLOW_NAME}"/log/db \
        "SELECT outputs FROM task_outputs WHERE name is \"$TASK\"" > "${TASK}.2"
 
-    # Json string list of outputs from the db may not be ordered correctly.
-    # E.g., '["submitted", "started", "succeeded", "failed"]'.
-    python3 - << __END__ > "${TASK}.3"
-import json
-with open("${TASK}.2", 'r') as f:
-    print(
-        ','.join(
-            sorted(
-                json.load(f)
-             )
-        )
-    )
-__END__
-
-    cmp_ok "${TASK}.3" - << __OUT__
-failed,started,submitted,succeeded
-__OUT__
+    cmp_json \
+        "check-${TASK}-outputs" \
+        "${TASK}.2" \
+        "${TASK}.2"<<<'["submitted", "started", "succeeded", "hello"]'
 
 done
 purge
