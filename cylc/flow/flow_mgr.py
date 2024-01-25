@@ -117,11 +117,12 @@ def stringify_flow_nums(flow_nums: Set[int], full: bool = False) -> str:
 class FlowMgr:
     """Logic to manage flow counter and flow metadata."""
 
-    def __init__(self, db_mgr: "WorkflowDatabaseManager") -> None:
+    def __init__(self, db_mgr: "WorkflowDatabaseManager", utc: bool) -> None:
         """Initialise the flow manager."""
         self.db_mgr = db_mgr
         self.flows: Dict[int, Dict[str, str]] = {}
         self.counter: int = 0
+        self._timezone = datetime.timezone.utc if utc else None
 
     def get_flow_num(
         self,
@@ -155,9 +156,9 @@ class FlowMgr:
                 )
         else:
             # Record a new flow.
-            now = datetime.datetime.now()
-            now_sec: str = str(
-                now - datetime.timedelta(microseconds=now.microsecond))
+            now_sec = datetime.datetime.now(self._timezone).isoformat(
+                timespec="seconds"
+            )
             meta = meta or "no description"
             self.flows[flow_num] = {
                 "description": meta,

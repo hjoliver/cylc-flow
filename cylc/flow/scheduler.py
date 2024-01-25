@@ -364,7 +364,6 @@ class Scheduler:
         self.data_store_mgr = DataStoreMgr(self)
         self.broadcast_mgr = BroadcastMgr(
             self.workflow_db_mgr, self.data_store_mgr)
-        self.flow_mgr = FlowMgr(self.workflow_db_mgr)
 
         self.server = WorkflowRuntimeServer(self)
 
@@ -457,6 +456,8 @@ class Scheduler:
             self.options.utc_mode = get_utc_mode()
             self.options.cycle_point_tz = (
                 self.config.cfg['scheduler']['cycle point time zone'])
+
+        self.flow_mgr = FlowMgr(self.workflow_db_mgr, self.options.utc_mode)
 
         # Note that daemonization happens after this:
         self.log_start()
