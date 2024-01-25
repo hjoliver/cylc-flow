@@ -918,9 +918,9 @@ class Scheduler:
         # Remaining messages don't have a receiving task in the pool.
         # E.g., after manually setting a running task to finished.
         for _id, tms in messages.items():
-            warn = "Undeliverable task messages received and ignored:\n"
+            warn = "Undeliverable task messages received and ignored:"
             for _, msg in tms:
-                warn += f'{msg.job_id}: {msg.severity} - "{msg.message}"'
+                warn += f'\n  {msg.job_id}: {msg.severity} - "{msg.message}"'
             LOG.warning(warn)
 
     def get_command_method(self, command_name: str) -> Callable:
