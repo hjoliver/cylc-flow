@@ -194,13 +194,20 @@ def split_opts(options: List[str]):
         >>> split_opts(['a', 'a,b'])
         ['a', 'b']
 
+        # --out='  a '
+        >>> split_opts(['  a  '])
+        ['a']
+
+        # --out='a, b, c , d'
+        >>> split_opts(['a, b, c , d'])
+        ['a', 'b', 'c', 'd']
+
     """
-    if options is None:
-        return []
-    splat = []  # (past tense of split)
-    for p in options:
-        splat += p.split(',')
-    return sorted(set(splat))
+    return sorted({
+        item.strip()
+        for option in (options or [])
+        for item in option.strip().split(',')
+    })
 
 
 def get_prerequisite_opts(prereq_options: List[str]):
