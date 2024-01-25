@@ -528,7 +528,8 @@ class TaskProxy:
         used = self.state.satisfy_me(outputs)
         for output in set(outputs) - used:
             LOG.warning(
-                f"{self.identity} does not depend on {output.relative_id_with_selectors}"
+                f"{self.identity} does not depend on"
+                f" {output.relative_id_with_selectors}"
             )
 
     def clock_expire(self) -> bool:
