@@ -2180,7 +2180,6 @@ class Scheduler:
     ):
         """Force spawn task successors.
 
-        User-facing method name: reset.
         """
         return self.pool.set(  # noqa: A003
             tasks, outputs, prerequisites, flow, flow_wait, flow_descr
