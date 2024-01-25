@@ -1045,10 +1045,6 @@ async def test_db_update_on_removal(
     async with start(schd):
         task_a = schd.pool.get_tasks()[0]
 
-        # set it to running (and submitted implied)
-        schd.pool.set(
-            [task_a.identity], [TASK_OUTPUT_STARTED], None, ['all'])
-
         # set the task to running
         schd.pool.task_events_mgr.process_message(task_a, 1, 'started')
 
