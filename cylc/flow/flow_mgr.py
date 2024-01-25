@@ -93,31 +93,36 @@ def stringify_flow_nums(flow_nums: Set[int], full: bool = False) -> str:
 
     Examples:
         >>> stringify_flow_nums({})
-        '(none)'
+        '(flows=none)'
 
         >>> stringify_flow_nums({1})
         ''
 
         >>> stringify_flow_nums({1}, True)
-        '(1)'
+        '(flows=1)'
 
         >>> stringify_flow_nums({1,2,3})
-        '(1,2,3)'
+        '(flows=1,2,3)'
 
     """
     if not full and flow_nums == {1}:
         return ""
-    return (
-        "("
-        f"{','.join(str(i) for i in flow_nums) or 'none'}"
-        ")"
-    )
+    else:
+        return (
+            "(flows="
+            f"{','.join(str(i) for i in flow_nums) or 'none'}"
+            ")"
+        )
 
 
 class FlowMgr:
     """Logic to manage flow counter and flow metadata."""
 
-    def __init__(self, db_mgr: "WorkflowDatabaseManager", utc: bool) -> None:
+    def __init__(
+        self,
+        db_mgr: "WorkflowDatabaseManager",
+        utc: bool = True
+    ) -> None:
         """Initialise the flow manager."""
         self.db_mgr = db_mgr
         self.flows: Dict[int, Dict[str, str]] = {}
@@ -156,7 +161,7 @@ class FlowMgr:
                 )
         else:
             # Record a new flow.
-            now_sec = datetime.datetime.now(self._timezone).isoformat(
+            now_sec = datetime.datetime.now(tz=self._timezone).isoformat(
                 timespec="seconds"
             )
             meta = meta or "no description"
