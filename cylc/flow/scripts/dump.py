@@ -18,8 +18,7 @@
 
 """cylc dump [OPTIONS] ARGS
 
-Print current state information for a running workflow, including tasks
-in the scheduler's active (n=0) window.
+Print state of a running workflow including tasks in the active (n=0) window.
 
 For a more detailed view of the workflow see `cylc tui` or `cylc gui`.
 
