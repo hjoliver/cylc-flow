@@ -151,8 +151,7 @@ async def mod_example_flow(
     id_ = mod_flow(EXAMPLE_FLOW_CFG)
     schd: 'Scheduler' = mod_scheduler(id_, paused_start=True)
     async with mod_run(schd):
-        pass
-    return schd
+        yield schd
 
 
 @pytest.fixture
@@ -188,8 +187,7 @@ async def mod_example_flow_2(
     id_ = mod_flow(EXAMPLE_FLOW_2_CFG)
     schd: 'Scheduler' = mod_scheduler(id_, paused_start=True)
     async with mod_run(schd):
-        pass
-    return schd
+        yield schd
 
 
 @pytest.mark.parametrize(
@@ -1687,6 +1685,35 @@ async def test_runahead_future_trigger(
         assert str(schd.pool.runahead_limit_point) == '20010104'
 
 
+@pytest.fixture(scope='module')
+async def mod_blah(
+    mod_flow: Callable, mod_scheduler: Callable, mod_run: Callable
+) -> 'Scheduler':
+    """Return a scheduler for interrogating its task pool.
+
+    This is module-scoped so faster than example_flow, but should only be used
+    where the test does not mutate the state of the scheduler or task pool.
+    """
+
+    config = {
+        'scheduler': {
+            'allow implicit tasks': 'True',
+            'cycle point format': '%Y',
+        },
+        'scheduling': {
+            'initial cycle point': '0001',
+            'runahead limit': 'P1Y',
+            'graph': {
+                'P1Y': 'a'
+            },
+        }
+    }
+    id_ = mod_flow(config)
+    schd: 'Scheduler' = mod_scheduler(id_, paused_start=True)
+    async with mod_run(schd):
+        yield schd
+
+
 @pytest.mark.parametrize(
     'status, expected',
     [
@@ -1702,12 +1729,10 @@ async def test_runahead_future_trigger(
     ]
 )
 async def test_runahead_c7_compat_task_state(
-    flow,
-    scheduler,
-    start,
-    monkeypatch,
     status,
-    expected
+    expected,
+    mod_blah,
+    monkeypatch,
 ):
     """For each task status check whether changing the oldest task
     to that status will cause compute_runahead to make a change.
@@ -1715,19 +1740,6 @@ async def test_runahead_c7_compat_task_state(
     Compat mode: Cylc 7 ignored failed tasks but not submit-failed!
 
     """
-    config = {
-        'scheduler': {
-            'allow implicit tasks': 'True',
-            'cycle point format': '%Y',
-        },
-        'scheduling': {
-            'initial cycle point': '0001',
-            'runahead limit': 'P1Y',
-            'graph': {
-                'P1Y': 'a'
-            },
-        }
-    }
 
     def max_cycle(tasks):
         return max([int(t.tokens.get("cycle")) for t in tasks])
@@ -1738,14 +1750,12 @@ async def test_runahead_c7_compat_task_state(
         'cylc.flow.task_events_mgr.TaskEventsManager._insert_task_job',
         lambda *_: True)
 
-    schd = scheduler(flow(config))
-    async with start(schd):
-        before = max_cycle(schd.pool.get_tasks())
-        itask = schd.pool.get_task(ISO8601Point(f'{before - 2:04}'), 'a')
-        schd.task_events_mgr.process_message(
-            itask,
-            logging.DEBUG,
-            status,
-        )
-        after = max_cycle(schd.pool.get_tasks())
-        assert bool(before != after) == expected
+    before = max_cycle(mod_blah.pool.get_tasks())
+    itask = mod_blah.pool.get_task(ISO8601Point(f'{before - 2:04}'), 'a')
+    mod_blah.task_events_mgr.process_message(
+        itask,
+        logging.DEBUG,
+        status,
+    )
+    after = max_cycle(mod_blah.pool.get_tasks())
+    assert bool(before != after) == expected
