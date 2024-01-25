@@ -1009,9 +1009,7 @@ class Output(ObjectType):
 
 
 class OutputLabel(String):
-    class Meta:
-        description = """Task output label, as used in the graph."""
-    label = String()
+    """Task output label, as used in the graph e.g. "succeeded"."""
 
 
 class XTrigger(ObjectType):
