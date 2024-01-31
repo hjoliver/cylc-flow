@@ -2120,9 +2120,9 @@ class SetPrereqsAndOutputs(Mutation, TaskMutation):
             Setting outputs contributes to the task's completion, sets the
             corresponding prerequisites of child tasks, and sets any implied
             outputs:
-             - started implies submitted
-             - succeeded and failed imply started
-             - custom outputs and expired do not imply any other outputs
+             - ``started`` implies ``submitted``.
+             - ``succeeded`` and ``failed`` imply ``started``.
+             - custom outputs and ``expired`` do not imply any other outputs.
         """)
         resolver = partial(mutator, command='set')
 
