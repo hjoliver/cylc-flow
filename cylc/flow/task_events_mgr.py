@@ -659,6 +659,9 @@ class TaskEventsManager():
             True: if polling is required to confirm a reversal of status.
 
         """
+        # TODO - clear up confusing use of TASK_OUTPUTs vs TASK_EVENTs as
+        #        task messages below.
+
         # Log messages
         if event_time is None:
             event_time = get_current_time_string()
