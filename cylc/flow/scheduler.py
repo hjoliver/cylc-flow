@@ -451,9 +451,9 @@ class Scheduler:
 
         self.workflow_db_mgr.on_workflow_start(self.is_restart)
 
+        self.options.utc_mode = get_utc_mode()
         if not self.is_restart:
             # Set workflow params that would otherwise be loaded from database:
-            self.options.utc_mode = get_utc_mode()
             self.options.cycle_point_tz = (
                 self.config.cfg['scheduler']['cycle point time zone'])
 
