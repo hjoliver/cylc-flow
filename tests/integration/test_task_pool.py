@@ -1724,7 +1724,7 @@ async def mod_blah(
     [
         # (Status, Are we expecting an update?)
         (TASK_STATUS_WAITING, False),
-        (TASK_STATUS_EXPIRED, True),
+        (TASK_STATUS_EXPIRED, False),
         (TASK_STATUS_PREPARING, False),
         (TASK_STATUS_SUBMIT_FAILED, False),
         (TASK_STATUS_SUBMITTED, False),
@@ -1755,12 +1755,11 @@ async def test_runahead_c7_compat_task_state(
         'cylc.flow.task_events_mgr.TaskEventsManager._insert_task_job',
         lambda *_: True)
 
-    before = max_cycle(mod_blah.pool.get_tasks())
-    itask = mod_blah.pool.get_task(ISO8601Point(f'{before - 2:04}'), 'a')
-    mod_blah.task_events_mgr.process_message(
-        itask,
-        logging.DEBUG,
-        status,
-    )
-    after = max_cycle(mod_blah.pool.get_tasks())
+    mod_blah.pool.compute_runahead()
+    before_pt = max_cycle(mod_blah.pool.get_tasks())
+    before = mod_blah.pool.runahead_limit_point
+    itask = mod_blah.pool.get_task(ISO8601Point(f'{before_pt - 2:04}'), 'a')
+    itask.state_reset(status, is_queued=False)
+    mod_blah.pool.compute_runahead()
+    after = mod_blah.pool.runahead_limit_point
     assert bool(before != after) == expected
