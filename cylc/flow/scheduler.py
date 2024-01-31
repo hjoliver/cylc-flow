@@ -2184,7 +2184,7 @@ class Scheduler:
         """Force spawn task successors.
 
         """
-        return self.pool.set(  # noqa: A003
+        return self.pool.set_prereqs_and_outputs(
             tasks, outputs, prerequisites, flow, flow_wait, flow_descr
         )
 

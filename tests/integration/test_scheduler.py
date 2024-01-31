@@ -354,7 +354,8 @@ async def test_restart_timeout(
             # (needed for job config in sim mode:)
             schd.task_job_mgr.submit_task_jobs(
                 schd.workflow, [itask], None, None)
-            schd.pool.set([itask.identity], None, None, ['all'])
+            schd.pool.set_prereqs_and_outputs(
+                [itask.identity], None, None, ['all'])
 
     # restart the completed workflow
     schd = scheduler(id_)

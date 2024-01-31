@@ -1674,7 +1674,7 @@ class TaskPool:
 
         return itask
 
-    def set(  # noqa: A003
+    def set_prereqs_and_outputs(
         self,
         items: Iterable[str],
         outputs: Optional[List[str]],

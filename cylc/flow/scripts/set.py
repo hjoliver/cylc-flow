@@ -22,7 +22,7 @@ Manually set task prerequisites or outputs in a running workflow.
 
 Default: set all required outputs (note "succeeded" can be optional).
 
-Prerequitistes:
+Prerequisites:
   Setting prerequisites contributes to a task's readiness and promotes it
   to the scheduler's active window, where clock and xtriggers become active.
 
@@ -93,13 +93,13 @@ MUTATION = '''
 mutation (
   $wFlows: [WorkflowID]!,
   $tasks: [NamespaceIDGlob]!,
-  $prerequisites: [String],
+  $prerequisites: [PrerequisiteString],
   $outputs: [OutputLabel],
   $flow: [Flow!],
   $flowWait: Boolean,
   $flowDescr: String,
 ) {
-  set (
+  setPrereqsAndOutputs (
     workflows: $wFlows,
     tasks: $tasks,
     prerequisites: $prerequisites,

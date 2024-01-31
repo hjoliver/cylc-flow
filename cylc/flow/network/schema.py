@@ -1012,6 +1012,10 @@ class OutputLabel(String):
     """Task output label, as used in the graph e.g. "succeeded"."""
 
 
+class PrerequisiteString(String):
+    """String form of a single task prerequisite."""
+
+
 class XTrigger(ObjectType):
     class Meta:
         description = """Task trigger"""
@@ -2104,7 +2108,7 @@ class Remove(Mutation, TaskMutation):
         resolver = partial(mutator, command='remove_tasks')
 
 
-class Set(Mutation, TaskMutation):
+class SetPrereqsAndOutputs(Mutation, TaskMutation):
     class Meta:
         description = sstrip("""
             Set task prerequisites or outputs.
@@ -2128,7 +2132,7 @@ class Set(Mutation, TaskMutation):
             description='List of task outputs to set complete.'
         )
         prerequisites = graphene.List(
-            String,
+            PrerequisiteString,
             description='List of task prerequisites to set satisfied.'
         )
 
@@ -2190,7 +2194,7 @@ class Mutations(ObjectType):
     poll = _mut_field(Poll)
     release = _mut_field(Release)
     remove = _mut_field(Remove)
-    set = _mut_field(Set)  # noqa: A003
+    set_prereqs_and_outputs = _mut_field(SetPrereqsAndOutputs)
     trigger = _mut_field(Trigger)
 
     # job actions

@@ -1097,7 +1097,8 @@ async def test_no_flow_tasks_dont_spawn(
         task_a.flow_nums = set()
 
         # Set as completed: should not spawn children.
-        schd.pool.set([task_a.identity], None, None, [FLOW_NONE])
+        schd.pool.set_prereqs_and_outputs(
+            [task_a.identity], None, None, [FLOW_NONE])
 
         for flow_nums, force, pool in (
             # outputs yielded from a no-flow task should not spawn downstreams
@@ -1292,7 +1293,7 @@ async def test_set_failed_complete(
             log, regex="failed.* did not complete required outputs")
 
         # Set failed task complete via default "set" args.
-        schd.pool.set([one.identity], None, None, ['all'])
+        schd.pool.set_prereqs_and_outputs([one.identity], None, None, ['all'])
 
         assert log_filter(
             log, contains='output 1/one:succeeded completed')
@@ -1339,7 +1340,8 @@ async def test_set_prereqs(
         )
 
         # set one prereq of future task baz
-        schd.pool.set(["1/baz"], None, ["1/foo:succeeded"], ['all'])
+        schd.pool.set_prereqs_and_outputs(
+            ["1/baz"], None, ["1/foo:succeeded"], ['all'])
 
         assert (
             pool_get_task_ids(schd.pool) == [
@@ -1352,13 +1354,15 @@ async def test_set_prereqs(
         assert not baz.state.prerequisites_all_satisfied()
 
         # set its other prereq
-        schd.pool.set(["1/baz"], None, ["1/bar:succeeded"], ['all'])
+        schd.pool.set_prereqs_and_outputs(
+            ["1/baz"], None, ["1/bar:succeeded"], ['all'])
 
         # it should now be fully satisfied
         assert baz.state.prerequisites_all_satisfied()
 
         # try to set an invalid prereq
-        schd.pool.set(["1/baz"], None, ["1/qux:succeeded"], ['all'])
+        schd.pool.set_prereqs_and_outputs(
+            ["1/baz"], None, ["1/qux:succeeded"], ['all'])
         assert log_filter(
             log, contains="1/baz does not depend on 1/qux:succeeded")
 
@@ -1409,13 +1413,14 @@ async def test_set_outputs_live(
         schd.pool.task_events_mgr.process_message(foo, 1, 'failed')
 
         # set foo:x: it should spawn bar but not baz
-        schd.pool.set(["1/foo"], ["x"], None, ['all'])
+        schd.pool.set_prereqs_and_outputs(["1/foo"], ["x"], None, ['all'])
         assert (
             pool_get_task_ids(schd.pool) == ["1/bar", "1/foo"]
         )
 
         # set foo:succeed: it should spawn baz but foo remains incomplete.
-        schd.pool.set(["1/foo"], ["succeeded"], None, ['all'])
+        schd.pool.set_prereqs_and_outputs(
+            ["1/foo"], ["succeeded"], None, ['all'])
         assert (
             pool_get_task_ids(schd.pool) == ["1/bar", "1/baz", "1/foo"]
         )
@@ -1427,7 +1432,7 @@ async def test_set_outputs_live(
             log, contains="setting missed output: started")
 
         # set foo (default: all required outputs): complete y.
-        schd.pool.set(["1/foo"], None, None, ['all'])
+        schd.pool.set_prereqs_and_outputs(["1/foo"], None, None, ['all'])
         assert (
             pool_get_task_ids(schd.pool) == ["1/bar", "1/baz"]
         )
@@ -1464,13 +1469,14 @@ async def test_set_outputs_future(
         assert pool_get_task_ids(schd.pool) == ["1/a"]
 
         # setting future task b succeeded should spawn c but not b
-        schd.pool.set(["1/b"], ["succeeded"], None, ['all'])
+        schd.pool.set_prereqs_and_outputs(
+            ["1/b"], ["succeeded"], None, ['all'])
         assert (
             pool_get_task_ids(schd.pool) == ["1/a", "1/c"]
         )
 
         # try to set an invalid output
-        schd.pool.set(["1/b"], ["shrub"], None, ['all'])
+        schd.pool.set_prereqs_and_outputs(["1/b"], ["shrub"], None, ['all'])
         assert log_filter(log, contains="output 1/b:shrub not found")
 
 
@@ -1508,7 +1514,7 @@ async def test_prereq_satisfaction(
         # it should start up with just 1/a
         assert pool_get_task_ids(schd.pool) == ["1/a"]
         # spawn b
-        schd.pool.set(["1/a"], ["x"], None, ['all'])
+        schd.pool.set_prereqs_and_outputs(["1/a"], ["x"], None, ['all'])
         assert (
             pool_get_task_ids(schd.pool) == ["1/a", "1/b"]
         )
@@ -1528,7 +1534,6 @@ async def test_prereq_satisfaction(
         assert not log_filter(log, contains="1/b does not depend on 1/a:y")
 
         assert b.is_waiting_prereqs_done()
-
 
 
 @pytest.mark.parametrize('compat_mode', ['compat-mode', 'normal-mode'])
