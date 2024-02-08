@@ -1393,8 +1393,8 @@ async def test_set_outputs_live(
             'runtime': {
                 'foo': {
                     'outputs': {
-                        'x': 'x',
-                        'y': 'y'
+                        'x': 'xylophone',
+                        'y': 'yacht'
                     }
                 }
             }
@@ -1502,8 +1502,8 @@ async def test_prereq_satisfaction(
             'runtime': {
                 'a': {
                     'outputs': {
-                        'x': 'x',
-                        'y': 'y'
+                        'x': 'xylophone',
+                        'y': 'yacht'
                     }
                 }
             }
