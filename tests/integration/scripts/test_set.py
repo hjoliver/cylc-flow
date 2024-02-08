@@ -149,3 +149,15 @@ async def test_incomplete_detection(
     async with start(schd) as log:
         schd.pool.set_prereqs_and_outputs(['1/one'], ['failed'], None, ['1'])
     assert log_filter(log, contains='1/one did not complete')
+
+
+async def test_pre_all(flow, scheduler, run):
+    """Ensure that --pre=all is interpreted as a special case
+    and _not_ tokenized.
+    """
+    id_ = flow({'scheduling': {'graph': {'R1': 'a => z'}}})
+    schd = scheduler(id_, paused_start=False)
+    async with run(schd) as log:
+        schd.pool.set_prereqs_and_outputs(['1/z'], [], ['all'], ['all'])
+        warn_or_higher = [i for i in log.records if i.levelno > 20]
+        assert warn_or_higher == []

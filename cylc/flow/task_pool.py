@@ -88,6 +88,7 @@ if TYPE_CHECKING:
     from cylc.flow.task_events_mgr import TaskEventsManager
     from cylc.flow.workflow_db_mgr import WorkflowDatabaseManager
     from cylc.flow.flow_mgr import FlowMgr, FlowNums
+    from typing_extensions import Literal
 
 
 Pool = Dict['PointBase', Dict[str, TaskProxy]]
@@ -1719,10 +1720,14 @@ class TaskPool:
             # Illegal flow command opts
             return
 
-        _prereqs: List[Tokens] = [
-            Tokens(prereq, relative=True)
-            for prereq in (prereqs or [])
-        ]
+        _prereqs: 'Union[List[Tokens], Literal["all"]]'
+        if prereqs == ['all']:
+            _prereqs = 'all'
+        else:
+            _prereqs = [
+                Tokens(prereq, relative=True)
+                for prereq in (prereqs or [])
+            ]
 
         # Get matching pool tasks and future task definitions.
         itasks, future_tasks, unmatched = self.filter_task_proxies(
@@ -1786,7 +1791,7 @@ class TaskPool:
     def _set_prereqs_itask(
         self,
         itask: 'TaskProxy',
-        prereqs: List[Tokens],
+        prereqs: 'Union[List[Tokens], Literal["all"]]',
         flow_nums: Set[int],
         flow_wait: bool
     ) -> None:
@@ -1795,7 +1800,7 @@ class TaskPool:
         Prerequisite format: "cycle/task:message" or "all".
 
         """
-        if prereqs == ["all"]:
+        if prereqs == "all":
             itask.state.set_all_satisfied()
         else:
             itask.satisfy_me(prereqs)
