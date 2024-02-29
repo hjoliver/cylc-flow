@@ -744,18 +744,22 @@ class Resolvers(BaseResolvers):
         except AttributeError:
             raise ValueError(f"Command '{command}' not found")
 
-        # Queue the command to the scheduler, with a unique command ID
+        # If the command has a validator run it now.
+        with suppress(AttributeError):
+            validator = self.schd.get_command_val_method(command)
+            msg = validator(*kwargs)
+            if msg is not None:
+                # Validation failed.
+                return (False, msg)
+
+        # Queue the command for asynchronous execution.
         cmd_uuid = str(uuid4())
         LOG.info(f"{log1} ID={cmd_uuid}\n{log2}")
-        self.schd.command_queue.put(
-            (
-                cmd_uuid,
-                command,
-                [],
-                kwargs,
-            )
+        self.schd.command_queue.put((cmd_uuid, command, [], kwargs))
+        return (
+            True,
+            "Command {cmd_uuid} queued\ncheck the scheduler log for problems"
         )
-        return (True, cmd_uuid)
 
     def broadcast(
         self,

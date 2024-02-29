@@ -401,7 +401,7 @@ async def run(
         }
     }
 
-    await pclient.async_request('graphql', mutation_kwargs)
+    return await pclient.async_request('graphql', mutation_kwargs)
 
 
 @cli_function(get_option_parser)

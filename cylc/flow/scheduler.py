@@ -930,6 +930,10 @@ class Scheduler:
         """Return a command processing method or raise AttributeError."""
         return getattr(self, f'command_{command_name}')
 
+    def get_command_val_method(self, command_name: str) -> Callable:
+        """Return a command validation method or raise AttributeError."""
+        return getattr(self.pool, f'command_{command_name}_validate')
+
     async def process_command_queue(self) -> None:
         """Process queued commands."""
         qsize = self.command_queue.qsize()
@@ -2162,9 +2166,7 @@ class Scheduler:
         flow_wait: bool = False,
         flow_descr: Optional[str] = None
     ):
-        """Force spawn task successors.
-
-        """
+        """Force set prerequisites and outputs."""
         return self.pool.set_prereqs_and_outputs(
             tasks, outputs, prerequisites, flow, flow_wait, flow_descr
         )

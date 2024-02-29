@@ -106,5 +106,12 @@ def _report_single(report, workflow, result):
     report(result)
 
 
-def _report(_):
-    print('Command submitted; the scheduler will log any problems.')
+def _report(result):
+    if result:
+        for cmd, results in result.items():
+            print(f"Command {cmd}")
+            for c_result in result[cmd] 
+            
+            ": {result[cmd]}")
+            #response = result[cmd]['response']
+            #print("COMMAND {cmd}: {response}")

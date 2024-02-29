@@ -1744,6 +1744,23 @@ class TaskPool:
             _outputs.append(msg)
         return _outputs
 
+    def command_set_validate(
+        self,
+        items: Iterable[str],
+        outputs: List[str],
+        prereqs: List[str],
+        flow: List[str],
+        flow_wait: bool = False,
+        flow_descr: Optional[str] = None
+    ) -> Optional[str]:
+        """Validate arguments for the set command.
+
+        Return an error message on failure, else nothing.
+
+        """
+        #return "Illegal command args, YOU FUCKING MORON."
+        pass
+
     def set_prereqs_and_outputs(
         self,
         items: Iterable[str],
