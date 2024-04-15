@@ -215,11 +215,6 @@ class TaskPool:
         # Add row to task_outputs table:
         self.workflow_db_mgr.put_insert_task_outputs(itask)
 
-        # Update the DB immediately to ensure a record exists in case of
-        # very quick removal and respawn, due to suicide triggers.
-        # See https://github.com/cylc/cylc-flow/issues/6066
-        self.workflow_db_mgr.process_queued_ops()
-
     def add_to_pool(self, itask) -> None:
         """Add a task to the pool."""
 
@@ -230,7 +225,7 @@ class TaskPool:
 
         self.create_data_store_elements(itask)
 
-        self.db_add_new_flow_rows(itask)
+        # self.db_add_new_flow_rows(itask)
         
         if itask.tdef.max_future_prereq_offset is not None:
             # (Must do this once added to the pool).
@@ -1719,7 +1714,11 @@ class TaskPool:
                     for cycle, task, output in self.abs_outputs_done
                 ])
 
-            # self.db_add_new_flow_rows(itask)
+            # Update the DB immediately to ensure a record exists in case of
+            # very quick removal and respawn, due to suicide triggers.
+            # See https://github.com/cylc/cylc-flow/issues/6066
+            self.workflow_db_mgr.process_queued_ops()
+
         return itask
 
     def _spawn_after_flow_wait(self, itask: TaskProxy) -> None:
