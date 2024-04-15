@@ -1337,8 +1337,7 @@ async def test_set_prereqs(
         }
     )
     schd = scheduler(id_)
-
-    async with start(schd) as log:
+    async with start(schd, level=logging.DEBUG) as log:
 
         # it should start up with foo, bar, baz
         assert (

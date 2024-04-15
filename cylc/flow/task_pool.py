@@ -230,6 +230,8 @@ class TaskPool:
 
         self.create_data_store_elements(itask)
 
+        self.db_add_new_flow_rows(itask)
+        
         if itask.tdef.max_future_prereq_offset is not None:
             # (Must do this once added to the pool).
             self.set_max_future_offset()
@@ -1609,9 +1611,10 @@ class TaskPool:
         """Load a task's historical outputs from the DB."""
         info = self.workflow_db_mgr.pri_dao.select_task_outputs(
             itask.tdef.name, str(itask.point))
-        if not info:
+        if not info and not itask.transient:
             # task never ran before
-            self.db_add_new_flow_rows(itask)
+            # self.db_add_new_flow_rows(itask)
+            pass
         else:
             for outputs_str, fnums in info.items():
                 if itask.flow_nums.intersection(fnums):
@@ -1625,6 +1628,7 @@ class TaskPool:
         flow_nums: Set[int],
         force: bool = False,
         flow_wait: bool = False,
+        transient: bool = False,
     ) -> Optional[TaskProxy]:
         """Return task proxy if not completed in this flow, or if forced.
 
@@ -1656,6 +1660,7 @@ class TaskPool:
             status=prev_status,
             submit_num=submit_num,
             flow_wait=flow_wait,
+            transient=transient
         )
         if itask is None:
             return None
@@ -1714,7 +1719,7 @@ class TaskPool:
                     for cycle, task, output in self.abs_outputs_done
                 ])
 
-        self.db_add_new_flow_rows(itask)
+            # self.db_add_new_flow_rows(itask)
         return itask
 
     def _spawn_after_flow_wait(self, itask: TaskProxy) -> None:
@@ -1764,7 +1769,8 @@ class TaskPool:
             itask.tdef.name, str(itask.point))
         if not info:
             # (Note still need this if task not run before)
-            self.db_add_new_flow_rows(itask)
+            # self.db_add_new_flow_rows(itask)
+            pass
         for outputs_str, fnums in info.items():
             if flow_nums.intersection(fnums):
                 for msg in json.loads(outputs_str):
@@ -1976,12 +1982,16 @@ class TaskPool:
     def _set_prereqs_tdef(
         self, point, taskdef, prereqs, flow_nums, flow_wait
     ):
-        """Spawn a future task and set prerequisites on it."""
+        """Spawn a future task and set prerequisites on it.
 
-        itask = self.spawn_task(taskdef.name, point, flow_nums, flow_wait)
+        Note this task is transient unless the prerequisites are valid.
+
+        """
+        itask = self.spawn_task(taskdef.name, point, flow_nums, flow_wait, transient=True)
         if itask is None:
             return
         if self._set_prereqs_itask(itask, prereqs, flow_nums):
+            itask.transient = False
             self.add_to_pool(itask)
 
     def _get_active_flow_nums(self) -> Set[int]:
@@ -2159,7 +2169,7 @@ class TaskPool:
             if itask is None:
                 continue
 
-            self.db_add_new_flow_rows(itask)
+            # self.db_add_new_flow_rows(itask)
 
             if prev_fwait:
                 # update completed outputs from the DB
