@@ -132,7 +132,7 @@ class WorkflowPoller(Poller):
             sys.stderr.write('\n')
 
         if connected and self.args['cycle']:
-            fmt = self.checker.get_point_format()
+            fmt = self.checker.point_fmt
             if fmt:
                 # convert cycle point to DB format
                 self.args['cycle'] = str(
@@ -181,11 +181,15 @@ def get_option_parser() -> COP:
         " along with --task-point when polling one workflow from another.",
         action="store", dest="offset", metavar="OFFSET", default=None)
 
+    statuses = [
+        *TASK_STATUSES_ORDERED,
+        *CylcWorkflowDBChecker.STATE_ALIASES,
+        "started", "finished"
+    ]
     parser.add_option(
         "-S", "--status", metavar="STATUS",
-        help=f"Task status: {', '.join(TASK_STATUSES_ORDERED)};"
-        " plus: started, finished.",
-        action="store", dest="status", default=None)
+        help=f"Task status. Choices: {', '.join(statuses)}.",
+        action="store", dest="status", default=None, choices=statuses)
 
     parser.add_option(
         "-O", "--output", "-m", "--message", metavar="MESSAGE",
@@ -220,12 +224,6 @@ def main(parser: COP, options: 'Values', workflow_id: str) -> None:
     # Exit if both task state and message are to being polled
     if options.status and options.msg:
         raise InputError("cannot poll both status and custom output")
-
-    # Exit if an invalid status is requested
-    if (options.status and
-            options.status not in TASK_STATUSES_ORDERED and
-            options.status not in CylcWorkflowDBChecker.STATE_ALIASES):
-        raise InputError(f"invalid status '{options.status}'")
 
     workflow_id = infer_latest_run_from_id(workflow_id, options.alt_run_dir)
 

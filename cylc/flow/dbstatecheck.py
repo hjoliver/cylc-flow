@@ -126,10 +126,6 @@ class CylcWorkflowDBChecker:
         ):
             return row[0]
 
-    def get_point_format(self):
-        """Return the cycle point format of this DB."""
-        return self.point_fmt
-
     def state_lookup(self, state):
         """allows for multiple states to be searched via a status alias"""
         if state in self.STATE_ALIASES:

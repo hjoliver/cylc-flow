@@ -136,8 +136,7 @@ def test_cylc_7_db_wflow_params_table(_setup_db):
     ):
         checker._get_pt_fmt()
 
-    assert checker._get_pt_fmt_compat() == ptformat
-    assert checker.get_point_format() == ptformat
+    assert checker.point_fmt == ptformat
 
 
 def test_pre_830_task_action_timers(_setup_db):
