@@ -178,7 +178,8 @@ def get_option_parser() -> COP:
     parser.add_option(
         "-s", "--offset",
         help="Specify an offset from the target cycle point. Can be useful"
-        " along with --task-point when polling one workflow from another.",
+        " along with --task-point when polling one workflow from another."
+        " For example, --offset=PT30M for a 30 minute offset.",
         action="store", dest="offset", metavar="OFFSET", default=None)
 
     statuses = [
