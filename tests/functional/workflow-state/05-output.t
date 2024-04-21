@@ -15,21 +15,20 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-# Test workflow-state output query on a waiting task - GitHub #2440.
+# Test cylc workflow-state for outputs (as opposed to statuses)
 . "$(dirname "$0")/test_header"
-set_test_number 4
 
-install_workflow "${TEST_NAME_BASE}" "${TEST_NAME_BASE}"
+set_test_number 2
 
-run_ok "${TEST_NAME_BASE}-val" cylc validate "${WORKFLOW_NAME}"
+install_workflow "${TEST_NAME_BASE}" output
 
-workflow_run_ok "${TEST_NAME_BASE}-run" \
-    cylc play --debug --no-detach "${WORKFLOW_NAME}"
+TEST_NAME="${TEST_NAME_BASE}-run"
+workflow_run_ok "${TEST_NAME}" \
+    cylc play --reference-test --debug --no-detach "${WORKFLOW_NAME}"
 
-TEST_NAME=${TEST_NAME_BASE}-query
-run_fail "${TEST_NAME}" cylc workflow-state "${WORKFLOW_NAME}" \
-    -p 2013 -t foo --max-polls=1 --output x
+TEST_NAME=${TEST_NAME_BASE}-cli-check
+run_ok "${TEST_NAME}" cylc workflow-state "${WORKFLOW_NAME}" \
+    -p 20100101T0000Z --output=hello --task=t1 --max-polls=1
 
-grep_ok "ERROR: condition not satisfied" "${TEST_NAME}.stderr"
 
 purge

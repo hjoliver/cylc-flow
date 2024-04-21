@@ -54,8 +54,8 @@ __END__
 cylc workflow-state "${WORKFLOW_NAME}" > workflow-state.log
 
 contains_ok workflow-state.log << __END__
-stopper, 1, succeeded
-foo, 1, submit-failed
+stopper, 1, succeeded, [1]
+foo, 1, submit-failed, [1]
 __END__
 
 purge

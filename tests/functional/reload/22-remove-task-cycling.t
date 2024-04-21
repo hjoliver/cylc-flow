@@ -75,10 +75,10 @@ workflow_run_ok "${TEST_NAME}" cylc play --debug --no-detach "${WORKFLOW_NAME}"
 TEST_NAME="${TEST_NAME_BASE}-result"
 cylc workflow-state "${WORKFLOW_NAME}" > workflow-state.log
 contains_ok workflow-state.log << __END__
-foo, 1, succeeded
-bar, 1, succeeded
-foo, 2, succeeded
-foo, 3, succeeded
+foo, 1, succeeded, [1]
+bar, 1, succeeded, [1]
+foo, 2, succeeded, [1]
+foo, 3, succeeded, [1]
 __END__
 
 purge
