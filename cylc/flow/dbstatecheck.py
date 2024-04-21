@@ -168,13 +168,15 @@ class CylcWorkflowDBChecker:
         stmt_args = []
         stmt_wheres = []
 
-        # TODO: back compat flow_nums DB
         if output:
             target_table = CylcWorkflowDAO.TABLE_TASK_OUTPUTS
-            mask = "name, cycle, outputs, flow_nums"
+            mask = "name, cycle, outputs"
         else:
             target_table = CylcWorkflowDAO.TABLE_TASK_STATES
-            mask = "name, cycle, status, flow_nums"
+            mask = "name, cycle, status"
+
+        if not self.back_compat_mode:
+            mask += ", flow_nums"
 
         stmt = dedent(rf'''
             SELECT
@@ -222,9 +224,10 @@ class CylcWorkflowDBChecker:
             if row[2] is None:
                 # status can be None in Cylc 7 DBs
                 continue
-            flow_nums = deserialise(row[3])
-            if flow_num is not None and flow_num not in flow_nums:
-                continue
+            if not self.back_compat_mode:
+                flow_nums = deserialise(row[3])
+                if flow_num is not None and flow_num not in flow_nums:
+                    continue
             res.append(list(row))
 
         if output:
@@ -256,7 +259,7 @@ class CylcWorkflowDBChecker:
         cycle: str,
         status: Optional[str] = None,
         output: Optional[str] = None,
-        flow_num: int = None
+        flow_num: Optional[int] = None
     ):
         """Return True if cycle/task has achieved status or output.
 
