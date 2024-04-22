@@ -78,6 +78,6 @@ def suite_state(suite, task, point, offset=None, status='succeeded',
         point=point,
         offset=offset,
         status=status,
-        message=message,
+        output=message,
         cylc_run_dir=cylc_run_dir
     )

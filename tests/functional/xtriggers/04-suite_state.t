@@ -29,7 +29,7 @@ init_workflow "$TEST_NAME_BASE" << __FLOW_CONFIG__
         [[[R1]]]
             graph = @upstream => foo
     [[xtriggers]]
-        upstream = suite_state(suite=thorin/oin/gloin, task=mithril, point=1)
+        upstream = suite_state(suite=thorin/oin/gloin, task=mithril, point=1, status="succeeded")
 [runtime]
     [[foo]]
 __FLOW_CONFIG__
