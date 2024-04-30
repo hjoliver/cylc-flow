@@ -120,16 +120,25 @@ def cli_format(cmd: List[str]):
     return ' '.join(cmd)
 
 
-def serialise(flow_nums: set):
-    """Convert set to json.
+def serialise_set(flow_nums: set):
+    """Convert set to json, sorted.
+
     For use when a sorted result is needed for consistency.
+
     Example:
-    >>> serialise({'3','2'})
+    >>> serialise_set({'3','2'})
     '["2", "3"]'
-"""
+
+    """
     return json.dumps(sorted(flow_nums))
 
 
-def deserialise(flow_num_str: str):
-    """Converts string to set."""
+def deserialise_set(flow_num_str: str):
+    """Convert json string to set.
+
+    Example:
+    >>> sorted(deserialise_set('["2", "3"]'))
+    ['2', '3']
+
+    """
     return set(json.loads(flow_num_str))

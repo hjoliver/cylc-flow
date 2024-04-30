@@ -29,7 +29,7 @@ from cylc.flow.task_state import (
     TASK_STATUS_SUCCEEDED,
     TASK_STATUS_FAILED
 )
-from cylc.flow.util import deserialise
+from cylc.flow.util import deserialise_set
 
 
 class CylcWorkflowDBChecker:
@@ -225,10 +225,13 @@ class CylcWorkflowDBChecker:
                 # status can be None in Cylc 7 DBs
                 continue
             if not self.back_compat_mode:
-                flow_nums = deserialise(row[3])
+                # (convert json list to set)
+                flow_nums = deserialise_set(row[3])
                 if flow_num is not None and flow_num not in flow_nums:
                     continue
-            res.append(list(row))
+                res.append(list(row[:-1]) + [row[3]])
+            else:
+                res.append(list(row))
 
         if output:
             # Replace res with a task-states like result,
@@ -238,14 +241,14 @@ class CylcWorkflowDBChecker:
                 results = [
                     [name, cycle, output]
                     for name, cycle, outputs_str in res
-                    if output in deserialise(outputs_str).values()
+                    if output in deserialise_set(outputs_str).values()
                 ]
             else:
                 # Cylc 8 DB list of [output]
                 results = []
                 for name, cycle, outputs_str, flows_str in res:
-                    flows = deserialise(flows_str)
-                    outputs = deserialise(outputs_str)
+                    flows = deserialise_set(flows_str)
+                    outputs = deserialise_set(outputs_str)
                     if output not in outputs:
                         continue
                     results.append([name, cycle, output, flows])

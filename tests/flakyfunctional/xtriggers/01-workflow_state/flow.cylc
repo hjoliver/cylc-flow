@@ -9,7 +9,7 @@
     final cycle point = 2016
     [[xtriggers]]
          upstream = workflow_state(workflow={{UPSTREAM}}, task=foo,\
-                                point=%(point)s, message='data ready'):PT1S
+                                point=%(point)s, output='data_ready'):PT1S
    [[graph]]
         P1Y = """
             foo
