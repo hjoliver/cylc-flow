@@ -194,18 +194,17 @@ def get_option_parser() -> COP:
     ]
     parser.add_option(
         "-S", "--status", metavar="STATUS",
-        help=f"Task status. Choices: {', '.join(statuses)}.",
+        help=f"Check for a task status. Choices: {', '.join(statuses)}.",
         action="store", dest="status", default=None, choices=statuses)
 
     parser.add_option(
-        "-O", "--output", "--message", metavar="OUTPUT",
-        help="Check for a given task output"
-        " (--message is now aliased to task output)",
+        "-O", "--output", metavar="OUTPUT",
+        help="Check for a task output",
         action="store", dest="output", default=None)
 
     parser.add_option(
         "--flow",
-        help="Check for a specific flow number (default latest flow).",
+        help="Check for a flow number (default latest flow).",
         action="store", type="int", dest="flow_num", default=None)
 
     WorkflowPoller.add_to_cmd_options(parser)
@@ -236,9 +235,6 @@ def main(parser: COP, options: 'Values', workflow_id: str) -> None:
     # Exit if both task state and output are to being polled
     if options.status and options.output:
         raise InputError("cannot poll both status and custom output")
-
-    if options.output and not options.task and not options.cycle:
-        raise InputError("need a taskname and cycle point")
 
     workflow_id = infer_latest_run_from_id(workflow_id, options.alt_run_dir)
 

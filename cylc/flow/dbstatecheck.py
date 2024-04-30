@@ -158,11 +158,11 @@ class CylcWorkflowDBChecker:
         Query cycle=2023, status=succeeded:
            [[foo, 2023, succeeded], [bar, 2023, succeeded]]
 
-        Query task=foo, message="file ready":
-           [[foo, 2023, "file ready"], [foo, 2024, "file ready"]]
+        Query task=foo, output="file_ready":
+           [[foo, 2023, "file_ready"], [foo, 2024, "file_ready"]]
 
-        Query task=foo, point=2023, message="file ready":
-           [[foo, 2023, "file ready"]]
+        Query task=foo, point=2023, output="file_ready":
+           [[foo, 2023, "file_ready"]]
 
         """
         stmt_args = []
@@ -263,7 +263,7 @@ class CylcWorkflowDBChecker:
     ):
         """Return True if cycle/task has achieved status or output.
 
-        Call when polling for a status or output message.
+        Call when polling for a task status or output.
 
         """
         return bool(
