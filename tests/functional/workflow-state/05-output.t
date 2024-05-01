@@ -28,7 +28,7 @@ workflow_run_ok "${TEST_NAME}" \
 
 TEST_NAME=${TEST_NAME_BASE}-cli-check
 run_ok "${TEST_NAME}" cylc workflow-state "${WORKFLOW_NAME}" \
-    -p 20100101T0000Z --output=hello --task=t1 --max-polls=1
+    -p 20100101T0000Z --output=out1--task=t1 --max-polls=1
 
 
 purge

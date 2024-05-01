@@ -119,23 +119,20 @@ class TaskOutputs:
         return sorted(self._by_message.values(), key=self.msg_sort_key)
 
     def get_completed(self):
-        """Return all completed output messages."""
-        ret = []
-        for value in self.get_all():
-            if value[_IS_COMPLETED]:
-                ret.append(value[_MESSAGE])
-        return ret
+        """Return list of all completed output messages."""
+        return [
+            val[_MESSAGE]
+            for val in self.get_all()
+            if val[_IS_COMPLETED]
+        ]
 
     def get_completed_all(self):
-        """Return all completed outputs.
-
-        Return a list in this form: [(trigger1, message1), ...]
-        """
-        ret = []
-        for value in self.get_all():
-            if value[_IS_COMPLETED]:
-                ret.append((value[_TRIGGER], value[_MESSAGE]))
-        return ret
+        """Return dict of all completed outputs as {trigger: message}."""
+        return {
+            val[_TRIGGER]: val[_MESSAGE]
+            for val in self.get_all()
+            if val[_IS_COMPLETED]
+        }
 
     def has_custom_triggers(self):
         """Return True if it has any custom triggers."""

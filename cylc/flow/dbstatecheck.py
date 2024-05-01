@@ -236,15 +236,17 @@ class CylcWorkflowDBChecker:
         if output:
             # Replace res with a task-states like result,
             # [[foo, 2032, output], [foo, 2033, output]]
+
+            # DB outputs: serialised {trigger: message}
+            # # Cylc 7: only custom outputs; Cylc 8 all outputs.
             if self.back_compat_mode:
-                # Cylc 7 DB: list of {output: message}
                 results = [
                     [name, cycle, output]
                     for name, cycle, outputs_str in res
                     if output in deserialise_set(outputs_str).values()
                 ]
             else:
-                # Cylc 8 DB list of [output]
+                # Cylc 8 DB: dict {trigger: message} all outputs.
                 results = []
                 for name, cycle, outputs_str, flows_str in res:
                     flows = deserialise_set(flows_str)
