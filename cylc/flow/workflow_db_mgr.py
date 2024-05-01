@@ -631,8 +631,8 @@ class WorkflowDatabaseManager:
     def put_update_task_outputs(self, itask):
         """Put UPDATE statement for task_outputs table."""
         outputs = []
-        for _, message in itask.state.outputs.get_completed_all():
-            outputs.append(message)
+        for output, _msg in itask.state.outputs.get_completed_all():
+            outputs.append(output)
         set_args = {
             "outputs": json.dumps(outputs)
         }
