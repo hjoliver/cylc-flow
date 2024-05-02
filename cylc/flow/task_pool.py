@@ -19,6 +19,7 @@
 from contextlib import suppress
 from collections import Counter
 import json
+from textwrap import indent
 from typing import (
     Dict,
     Iterable,
@@ -103,7 +104,7 @@ class TaskPool:
 
     ERR_TMPL_NO_TASKID_MATCH = "No matching tasks found: {0}"
     ERR_PREFIX_TASK_NOT_ON_SEQUENCE = "Invalid cycle point for task: {0}, {1}"
-    SUICIDE_MSG = "suicide"
+    SUICIDE_MSG = "suicide trigger"
 
     def __init__(
         self,
@@ -221,7 +222,7 @@ class TaskPool:
         self.active_tasks.setdefault(itask.point, {})
         self.active_tasks[itask.point][itask.identity] = itask
         self.active_tasks_changed = True
-        LOG.info(f"[{itask}] added to active task pool")
+        LOG.debug(f"[{itask}] added to active task pool")
 
         self.create_data_store_elements(itask)
 
@@ -526,7 +527,7 @@ class TaskPool:
                     TASK_STATUS_SUCCEEDED
             ):
                 for message in json.loads(outputs_str):
-                    itask.state.outputs.set_completion(message, True)
+                    itask.state.outputs.set_message_complete(message)
                     self.data_store_mgr.delta_task_output(itask, message)
 
             if platform_name and status != TASK_STATUS_WAITING:
@@ -807,10 +808,11 @@ class TaskPool:
                 itask.flow_nums
             )
 
+        msg = "removed from active task pool"
         if reason is None:
-            msg = "task completed"
+            msg += ": completed"
         else:
-            msg = f"removed ({reason})"
+            msg += f": {reason}"
 
         if itask.is_xtrigger_sequential:
             self.xtrigger_mgr.sequential_spawn_next.discard(itask.identity)
@@ -837,7 +839,17 @@ class TaskPool:
             # Event-driven final update of task_states table.
             # TODO: same for datastore (still updated by scheduler loop)
             self.workflow_db_mgr.put_update_task_state(itask)
-            LOG.info(f"[{itask}] {msg}")
+
+            level = logging.DEBUG
+            if itask.state(
+                TASK_STATUS_PREPARING,
+                TASK_STATUS_SUBMITTED,
+                TASK_STATUS_RUNNING,
+            ):
+                level = logging.WARNING
+                msg += " - active job orphaned"
+
+            LOG.log(level, f"[{itask}] {msg}")
             del itask
 
     def get_tasks(self) -> List[TaskProxy]:
@@ -1146,15 +1158,22 @@ class TaskPool:
         for itask in self.get_tasks():
             if not itask.state(*TASK_STATUSES_FINAL):
                 continue
-            outputs = itask.state.outputs.get_incomplete()
-            if outputs:
-                incomplete.append((itask.identity, outputs))
+            if not itask.state.outputs.is_complete():
+                incomplete.append(
+                    (
+                        itask.identity,
+                        itask.state.outputs.format_completion_status(
+                            ansimarkup=1
+                        ),
+                    )
+                )
 
         if incomplete:
             LOG.error(
                 "Incomplete tasks:\n"
                 + "\n".join(
-                    f"  * {id_} did not complete required outputs: {outputs}"
+                    f"* {id_} did not complete the required outputs:"
+                    f"\n{indent(outputs, '  ')}"
                     for id_, outputs in incomplete
                 )
             )
@@ -1392,14 +1411,12 @@ class TaskPool:
                         suicide.append(t)
 
         for c_task in suicide:
-            msg = self.__class__.SUICIDE_MSG
-            if c_task.state(
-                    TASK_STATUS_PREPARING,
-                    TASK_STATUS_SUBMITTED,
-                    TASK_STATUS_RUNNING,
-                    is_held=False):
-                msg += " suiciding while active"
-            self.remove(c_task, msg)
+            self.remove(c_task, self.__class__.SUICIDE_MSG)
+
+        if suicide:
+            # Update DB now in case of very quick respawn attempt.
+            # See https://github.com/cylc/cylc-flow/issues/6066
+            self.workflow_db_mgr.process_queued_ops()
 
         self.remove_if_complete(itask, output)
 
@@ -1441,22 +1458,17 @@ class TaskPool:
                 self.release_runahead_tasks()
             return ret
 
-        if itask.state(TASK_STATUS_EXPIRED):
-            self.remove(itask, "expired")
-            if self.compute_runahead():
-                self.release_runahead_tasks()
-            return True
-
-        incomplete = itask.state.outputs.get_incomplete()
-        if incomplete:
+        if not itask.state.outputs.is_complete():
             # Keep incomplete tasks in the pool.
             if output in TASK_STATUSES_FINAL:
                 # Log based on the output, not the state, to avoid warnings
                 # due to use of "cylc set" to set internal outputs on an
                 # already-finished task.
                 LOG.warning(
-                    f"[{itask}] did not complete required outputs:"
-                    f" {incomplete}"
+                    f"[{itask}] did not complete the required outputs:\n"
+                    + itask.state.outputs.format_completion_status(
+                        ansimarkup=1
+                    )
                 )
             return False
 
@@ -1482,14 +1494,12 @@ class TaskPool:
         """
         if not itask.flow_nums:
             return
-        if completed_only:
-            outputs = itask.state.outputs.get_completed()
-        else:
-            outputs = itask.state.outputs._by_message
 
-        for output in outputs:
+        for _trigger, message, is_completed in itask.state.outputs:
+            if completed_only and not is_completed:
+                continue
             try:
-                children = itask.graph_children[output]
+                children = itask.graph_children[message]
             except KeyError:
                 continue
 
@@ -1509,7 +1519,7 @@ class TaskPool:
                     continue
                 if completed_only:
                     c_task.satisfy_me(
-                        [itask.tokens.duplicate(task_sel=output)]
+                        [itask.tokens.duplicate(task_sel=message)]
                     )
                     self.data_store_mgr.delta_task_prerequisite(c_task)
                 self.add_to_pool(c_task)
@@ -1555,17 +1565,33 @@ class TaskPool:
 
     def _get_task_history(
         self, name: str, point: 'PointBase', flow_nums: Set[int]
-    ) -> Tuple[int, str, bool]:
-        """Get history of previous submits for this task."""
+    ) -> Tuple[bool, int, str, bool]:
+        """Get history of previous submits for this task.
 
+        Args:
+            name: task name
+            point: task cycle point
+            flow_nums: task flow numbers
+
+        Returns:
+            never_spawned: if task never spawned before
+            submit_num: submit number of previous submit
+            prev_status: task status of previous sumbit
+            prev_flow_wait: if previous submit was a flow-wait task
+
+        """
         info = self.workflow_db_mgr.pri_dao.select_prev_instances(
             name, str(point)
         )
         try:
             submit_num: int = max(s[0] for s in info)
         except ValueError:
-            # never spawned before in any flow
+            # never spawned in any flow
             submit_num = 0
+            never_spawned = True
+        else:
+            never_spawned = False
+            # (submit_num could still be zero, if removed before submit)
 
         prev_status: str = TASK_STATUS_WAITING
         prev_flow_wait = False
@@ -1582,7 +1608,7 @@ class TaskPool:
                 # overlap due to merges (they'll have have same snum and
                 # f_wait); keep going to find the finished one, if any.
 
-        return submit_num, prev_status, prev_flow_wait
+        return never_spawned, submit_num, prev_status, prev_flow_wait
 
     def _load_historical_outputs(self, itask):
         """Load a task's historical outputs from the DB."""
@@ -1595,7 +1621,7 @@ class TaskPool:
             for outputs_str, fnums in info.items():
                 if itask.flow_nums.intersection(fnums):
                     for msg in json.loads(outputs_str):
-                        itask.state.outputs.set_completed_by_msg(msg)
+                        itask.state.outputs.set_message_complete(msg)
 
     def spawn_task(
         self,
@@ -1619,9 +1645,18 @@ class TaskPool:
         if not self.can_be_spawned(name, point):
             return None
 
-        submit_num, prev_status, prev_flow_wait = (
+        never_spawned, submit_num, prev_status, prev_flow_wait = (
             self._get_task_history(name, point, flow_nums)
         )
+
+        if (
+            not never_spawned and
+            not prev_flow_wait and
+            submit_num == 0
+        ):
+            # Previous instance removed before completing any outputs.
+            LOG.debug(f"Not spawning {point}/{name} - task removed")
+            return None
 
         itask = self._get_task_proxy_db_outputs(
             point,
@@ -1652,8 +1687,6 @@ class TaskPool:
 
             if itask.transient and not force:
                 return None
-
-        # (else not previously finishedr, so run it)
 
         if not itask.transient:
             if (name, point) in self.tasks_to_hold:
@@ -1744,7 +1777,7 @@ class TaskPool:
         for outputs_str, fnums in info.items():
             if flow_nums.intersection(fnums):
                 for msg in json.loads(outputs_str):
-                    itask.state.outputs.set_completed_by_msg(msg)
+                    itask.state.outputs.set_message_complete(msg)
         return itask
 
     def _standardise_prereqs(
@@ -1887,16 +1920,15 @@ class TaskPool:
         outputs: List[str],
     ) -> None:
         """Set requested outputs on a task proxy and spawn children."""
-
         if not outputs:
-            outputs = itask.tdef.get_required_output_messages()
+            outputs = list(itask.state.outputs.iter_required_messages())
         else:
             outputs = self._standardise_outputs(
-                itask.point, itask.tdef, outputs)
+                itask.point, itask.tdef, outputs
+            )
 
-        outputs = sorted(outputs, key=itask.state.outputs.output_sort_key)
-        for output in outputs:
-            if itask.state.outputs.is_completed(output):
+        for output in sorted(outputs, key=itask.state.outputs.output_sort_key):
+            if itask.state.outputs.is_message_complete(output):
                 LOG.info(f"output {itask.identity}:{output} completed already")
                 continue
             self.task_events_mgr.process_message(
@@ -2117,8 +2149,9 @@ class TaskPool:
             if not self.can_be_spawned(name, point):
                 continue
 
-            submit_num, _prev_status, prev_fwait = self._get_task_history(
-                name, point, flow_nums)
+            _, submit_num, _prev_status, prev_fwait = (
+                self._get_task_history(name, point, flow_nums)
+            )
 
             itask = TaskProxy(
                 self.tokens,
@@ -2161,10 +2194,25 @@ class TaskPool:
     def clock_expire_tasks(self):
         """Expire any tasks past their clock-expiry time."""
         for itask in self.get_tasks():
-            if not itask.clock_expire():
-                continue
-            self.task_events_mgr.process_message(
-                itask, logging.WARNING, TASK_OUTPUT_EXPIRED)
+            if (
+                # force triggered tasks can not clock-expire
+                # see proposal point 10:
+                # https://cylc.github.io/cylc-admin/proposal-optional-output-extension.html#proposal
+                not itask.is_manual_submit
+
+                # only waiting tasks can clock-expire
+                # see https://github.com/cylc/cylc-flow/issues/6025
+                # (note retrying tasks will be in the waiting state)
+                and itask.state(TASK_STATUS_WAITING)
+
+                # check if this task is clock expired
+                and itask.clock_expire()
+            ):
+                self.task_events_mgr.process_message(
+                    itask,
+                    logging.WARNING,
+                    TASK_OUTPUT_EXPIRED,
+                )
 
     def task_succeeded(self, id_):
         """Return True if task with id_ is in the succeeded state."""
@@ -2410,7 +2458,7 @@ class TaskPool:
 
         if (
             itask.state(*TASK_STATUSES_FINAL)
-            and itask.state.outputs.get_incomplete()
+            and not itask.state.outputs.is_complete()
         ):
             # Re-queue incomplete task to run again in the merged flow.
             LOG.info(f"[{itask}] incomplete task absorbed by new flow.")

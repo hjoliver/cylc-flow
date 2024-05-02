@@ -643,20 +643,32 @@ with Conf(
             365 day (never a leap year) and 366 day (always a leap year).
         ''')
         Conf('runahead limit', VDR.V_STRING, 'P4', desc='''
-            The scheduler runahead limit determines how many consecutive cycle
-            points can be active at once. The base point of the runahead
-            calculation is the lowest-valued point with :term:`active` or
-            :term:`incomplete` tasks present.
+            The runahead limit prevents a workflow from getting too far ahead
+            of the oldest cycle with :term:`active tasks <active task>`.
 
-            An integer interval value of ``Pn`` allows up to ``n+1`` cycle
-            points (including the base point) to be active at once.
+            A cycle is considered to be active if it contains any
+            :term:`active` tasks.
 
-            The default runahead limit is ``P4``, i.e. 5 active points
-            including the base point.
+            An integer interval value of ``Pn`` allows up to ``n+1`` cycles
+            to be active at once.
+
+            The default runahead limit is ``P4``, which means there may be up
+            to 5 active cycles.
 
             Datetime cycling workflows can optionally use a datetime interval
-            value instead, in which case the number of active cycle points
+            value instead, in which case the number of cycles
             within the interval depends on the cycling intervals present.
+
+            Examples:
+
+            ``P0``
+                Only one cycle can be active at a time.
+            ``P2``
+                The scheduler will run up to two cycles ahead of the oldest
+                active cycle.
+            ``P3D``
+                The scheduler will run cycles up to three days of cycles ahead
+                of the oldest active cycle.
 
             .. seealso::
 
@@ -674,7 +686,8 @@ with Conf(
             Configuration of internal queues of tasks.
 
             This section will allow you to limit the number of simultaneously
-            active tasks (submitted or running) by assigning tasks to queues.
+            :term:`active tasks <active task>` (submitted or running) by
+            assigning tasks to queues.
 
             By default, a single queue called ``default`` is defined,
             with all tasks assigned to it and no limit to the number of those
@@ -700,8 +713,8 @@ with Conf(
                 Section heading for configuration of a single queue.
             ''') as Queue:
                 Conf('limit', VDR.V_INTEGER, 0, desc='''
-                    The maximum number of active tasks allowed at any one
-                    time, for this queue.
+                    The maximum number of :term:`active tasks <active task>`
+                    allowed at any one time, for this queue.
 
                     If set to 0 this queue is not limited.
                 ''')
@@ -716,8 +729,8 @@ with Conf(
                 The default queue for all tasks not assigned to other queues.
             '''):
                 Conf('limit', VDR.V_INTEGER, 100, desc='''
-                    Controls the total number of active tasks in the default
-                    queue.
+                    Controls the total number of
+                    :term:`active tasks <active task>` in the default queue.
 
                     .. seealso::
 
@@ -996,6 +1009,150 @@ with Conf(
             can be explicitly configured to provide or override default
             settings for all tasks in the workflow.
         '''):
+            Conf('completion', VDR.V_STRING, desc='''
+                Define the condition for task output completion.
+
+                The completion condition is evaluated when a task reaches
+                a final state - i.e. once it finished executing (``succeeded``
+                or ``failed``) or it ``submit-failed``, or ``expired``.
+                It is a validation check which confirms that the
+                task has generated the outputs it was expected to.
+
+                If the task fails this check its outputs are considered
+                :term:`incomplete` and a warning will be raised alerting you
+                that something has gone wrong which requires investigation.
+
+                .. note::
+
+                   An event hook for this warning will follow in a future
+                   release of Cylc.
+
+                By default, the completion condition ensures that all required
+                outputs, i.e. outputs which appear in the graph but are not
+                marked as optional with the ``?`` character, are completed.
+
+                E.g., in this example, the task ``foo`` must generate the
+                required outputs ``succeeded`` and ``x`` and it may or may not
+                generate the optional output ``y``:
+
+                .. code-block:: cylc-graph
+
+                   foo => bar
+                   foo:x => x
+                   foo:y? => y
+
+                The default completion condition would be this:
+
+                .. code-block:: python
+
+                   # the task must succeed and generate the custom output "x"
+                   succeeded and x
+
+                You can override this default to suit your needs. E.g., in this
+                example, the task ``foo`` has three optional outputs, ``x``,
+                ``y`` and ``z``:
+
+                .. code-block:: cylc-graph
+
+                   foo:x? => x
+                   foo:y? => y
+                   foo:z? => z
+                   x | y | z => bar
+
+                Because all three of these outputs are optional, if none of
+                them are generated, the task's outputs will still be
+                considered complete.
+
+                If you wanted to require that at least one of these outputs is
+                generated you can configure the completion condition like so:
+
+                .. code-block:: python
+
+                   # the task must succeed and generate at least one of the
+                   # outputs "x" or "y" or "z":
+                   succeeded and (x or y or z)
+
+                .. note::
+
+                   For the completion expression, hyphens in task outputs
+                   must be replaced with underscores to allow evaluation by
+                   Python, e.g.:
+
+                   .. code-block:: cylc
+
+                      [runtime]
+                          [[foo]]
+                              completion = succeeded and my_output # underscore
+                              [[[outputs]]]
+                                  my-output = 'my custom task output' # hyphen
+
+                .. note::
+
+                   In some cases the ``succeeded`` output might not explicitly
+                   appear in the graph, e.g:
+
+                   .. code-block:: cylc-graph
+
+                      foo:x? => x
+
+                   In these cases succeess is presumed to be required unless
+                   explicitly stated otherwise, either in the graph e.g:
+
+                   .. code-block:: cylc-graph
+
+                      foo?
+                      foo:x? => x
+
+                   Or in the completion expression e.g:
+
+                   .. code-block:: cylc
+
+                      completion = x  # no reference to succeeded
+                      # or
+                      completion = succeeded or failed  # success is optional
+
+
+                .. hint::
+
+                   If task outputs are optional in the graph they must also
+                   be optional in the completion condition and vice versa.
+
+                   For example this graph conflicts with the completion
+                   statement:
+
+                   .. code-block:: cylc-graph
+
+                      # "a" must succeed
+                      a => b
+
+                   .. code-block:: cylc
+
+                      # "a" may either succeed or fail
+                      completion = succeeded or failed
+
+                   Which could be fixed by ammending the graph like so:
+
+                   .. code-block:: cylc-graph
+
+                      # "a" may either succeed or fail
+                      a? => b
+
+                .. rubric:: Examples
+
+                ``succeeded``
+                   The task must succeed.
+                ``succeeded or (failed and my_error)``
+                   The task can fail, but only if it also yields the custom
+                   output ``my_error``.
+                ``succeeded and (x or y or z)``
+                   The task must succeed and yield at least one of the
+                   custom outputs, x, y or z.
+                ``(a and b) or (c and d)``
+                   One pair of these outputs must be yielded for the task
+                   to be complete.
+
+                .. versionadded:: 8.3.0
+            ''')
             Conf('platform', VDR.V_STRING, desc='''
                 The name of a compute resource defined in
                 :cylc:conf:`global.cylc[platforms]` or

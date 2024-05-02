@@ -632,7 +632,7 @@ class WorkflowDatabaseManager:
         """Put UPDATE statement for task_outputs table."""
         set_args = {
             "outputs": json.dumps(
-                itask.state.outputs.get_completed_all()
+                list(itask.state.outputs.iter_completed_triggers())
             )
         }
         where_args = {
