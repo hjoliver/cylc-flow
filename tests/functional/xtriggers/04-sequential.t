@@ -81,6 +81,8 @@ cylc reload "${WORKFLOW_NAME}"
 
 cylc remove "${WORKFLOW_NAME}//3001/b"
 
+poll_grep_workflow_log 'Command "remove_tasks" actioned.'
+
 cylc show "${WORKFLOW_NAME}//3002/b" | grep -E 'state: ' > 3002.b.log
 cylc show "${WORKFLOW_NAME}//3003/b" 2>&1 >/dev/null \
     | grep -E 'No matching' > 3003.b.log
