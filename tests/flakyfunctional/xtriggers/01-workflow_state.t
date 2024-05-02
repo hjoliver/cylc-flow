@@ -45,12 +45,12 @@ WORKFLOW_LOG="$(cylc cat-log -m 'p' "${WORKFLOW_NAME}")"
 grep_ok 'WARNING - inactivity timer timed out after PT20S' "${WORKFLOW_LOG}"
 
 # ... with 2016/foo succeeded and 2016/FAM waiting.
-cylc workflow-state -p '2016' "${WORKFLOW_NAME}" >'workflow_state.out'
+cylc workflow-state --old-format -p '2016' "${WORKFLOW_NAME}" >'workflow_state.out'
 contains_ok 'workflow_state.out' << __END__
-foo, 2016, succeeded, [1]
-f3, 2016, waiting, [1]
-f1, 2016, waiting, [1]
-f2, 2016, waiting, [1]
+foo, 2016, succeeded
+f3, 2016, waiting
+f1, 2016, waiting
+f2, 2016, waiting
 __END__
 
 # Check broadcast of xtrigger outputs to dependent tasks.

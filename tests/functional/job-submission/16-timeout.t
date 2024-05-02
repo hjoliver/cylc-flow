@@ -51,12 +51,12 @@ ERROR - [jobs-submit cmd] cylc jobs-submit --debug ${DEFAULT_PATHS} -- '${JOB_LO
     [jobs-submit err] killed on timeout (PT10S)
 __END__
 
-cylc workflow-state "${WORKFLOW_NAME}" > workflow-state.log
+cylc workflow-state --old-format "${WORKFLOW_NAME}" > workflow-state.log
 
 # make sure foo submit failed and the stopper ran
 contains_ok workflow-state.log << __END__
-stopper, 1, succeeded, [1]
-foo, 1, submit-failed, [1]
+stopper, 1, succeeded
+foo, 1, submit-failed
 __END__
 
 purge

@@ -15,12 +15,14 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 import errno
+import json
 import os
 import sqlite3
 import sys
 from typing import Optional
 from textwrap import dedent
 
+from cylc.flow.flow_mgr import stringify_flow_nums
 from cylc.flow.pathutil import expand_path
 from cylc.flow.rundb import CylcWorkflowDAO
 from cylc.flow.task_state import (
@@ -71,25 +73,28 @@ class CylcWorkflowDBChecker:
 
         # Get workflow point format.
         try:
-            self.point_fmt = self._get_pt_fmt()
+            self.point_fmt = self._get_db_point_format()
             self.back_compat_mode = False
         except sqlite3.OperationalError as exc:
             # BACK COMPAT: Cylc 7 DB (see method below).
             try:
-                self.point_fmt = self._get_pt_fmt_compat()
+                self.point_fmt = self._get_db_point_format_compat()
                 self.back_compat_mode = True
             except sqlite3.OperationalError:
                 raise exc  # original error
 
     @staticmethod
-    def display_maps(res):
+    def display_maps(res, old_format=False):
         if not res:
             sys.stderr.write("INFO: No results to display.\n")
         else:
             for row in res:
-                sys.stdout.write((", ").join([str(s) for s in row]) + "\n")
+                if old_format:
+                    sys.stdout.write(', '.join(row) + '\n')
+                else:
+                    sys.stdout.write(f"{row[1]}/{row[0]}:{''.join(row[2:])}\n")
 
-    def _get_pt_fmt(self):
+    def _get_db_point_format(self):
         """Query a workflow database for a 'cycle point format' entry"""
         for row in self.conn.execute(dedent(
             rf'''
@@ -104,7 +109,7 @@ class CylcWorkflowDBChecker:
         ):
             return row[0]
 
-    def _get_pt_fmt_compat(self):
+    def _get_db_point_format_compat(self):
         """Query a Cylc 7 suite database for 'cycle point format'."""
         # BACK COMPAT: Cylc 7 DB
         # Workflows parameters table name change.
@@ -139,12 +144,14 @@ class CylcWorkflowDBChecker:
         task: Optional[str] = None,
         cycle: Optional[str] = None,
         status: Optional[str] = None,
-        output: Optional[str] = None,
-        flow_num: Optional[int] = None
+        trigger: Optional[str] = None,
+        message: Optional[str] = None,
+        flow_num: Optional[int] = None,
+        print_outputs: bool = False
     ):
         """Query task status or outputs in workflow database.
 
-        Returns a list of data for tasks with matching status or output:
+        Return a list of data for tasks with matching status or output:
         For a status query:
            [(name, cycle, status, serialised-flows), ...]
         For an output query:
@@ -168,7 +175,7 @@ class CylcWorkflowDBChecker:
         stmt_args = []
         stmt_wheres = []
 
-        if output:
+        if trigger or message or (status is None and print_outputs):
             target_table = CylcWorkflowDAO.TABLE_TASK_OUTPUTS
             mask = "name, cycle, outputs"
         else:
@@ -176,6 +183,7 @@ class CylcWorkflowDBChecker:
             mask = "name, cycle, status"
 
         if not self.back_compat_mode:
+            # Cylc 8 DBs only
             mask += ", flow_nums"
 
         stmt = dedent(rf'''
@@ -213,48 +221,43 @@ class CylcWorkflowDBChecker:
                     submit_num
             """)
 
-        # idx_status = 2
-        # idx_flow = 3
-
-        # TODO option to list outputs instead of status
-        # TODO if flows not specified, use the most recent for the task
-
-        res = []
+        # Query the DB and drop incompatible rows.
+        db_res = []
         for row in self.conn.execute(stmt, stmt_args):
+            # name, cycle, status_or_outputs, [flow_nums]
+            res = list(row[:3])
             if row[2] is None:
                 # status can be None in Cylc 7 DBs
                 continue
             if not self.back_compat_mode:
-                # (convert json list to set)
                 flow_nums = deserialise_set(row[3])
-                if flow_num is not None and flow_num not in flow_nums:
+                if flow_num not in flow_nums:
+                    # skip result, wrong flow
                     continue
-                res.append(list(row[:-1]) + [row[3]])
-            else:
-                res.append(list(row))
+                fstr = stringify_flow_nums(flow_nums)
+                if fstr:
+                    res.append(fstr)
+            db_res.append(res)
 
-        if output:
-            # Replace res with a task-states like result,
-            # [[foo, 2032, output], [foo, 2033, output]]
+        output = trigger or message
 
-            # DB outputs: serialised {trigger: message}
-            # Cylc 7: only custom outputs; Cylc 8 all outputs.
-            if self.back_compat_mode:
-                results = [
-                    [name, cycle, output]
-                    for name, cycle, outputs_str in res
-                    if output in deserialise_set(outputs_str).values()
-                ]
+        if (
+            status is not None
+            or (output is None and not print_outputs)
+        ):
+            return db_res
+
+        results = []
+        for row in db_res:
+            if message is not None:
+                outputs = str(list(json.loads(row[2]).values()))
             else:
-                results = []
-                for name, cycle, outputs_str, flows_str in res:
-                    flows = deserialise_set(flows_str)
-                    outputs = deserialise_set(outputs_str)
-                    if output not in outputs:
-                        continue
-                    results.append([name, cycle, output, flows])
-        else:
-            results = res
+                # trigger, and default
+                outputs = str(list(json.loads(row[2])))
+            if output is not None and output not in outputs:
+                continue
+            results.append(row[:2] + [outputs] + row[3:])
+
         return results
 
     def task_state_met(
@@ -262,7 +265,8 @@ class CylcWorkflowDBChecker:
         task: str,
         cycle: str,
         status: Optional[str] = None,
-        output: Optional[str] = None,
+        trigger: Optional[str] = None,
+        message: Optional[str] = None,
         flow_num: Optional[int] = None
     ):
         """Return True if cycle/task has achieved status or output.
@@ -271,5 +275,6 @@ class CylcWorkflowDBChecker:
 
         """
         return bool(
-            self.workflow_state_query(task, cycle, status, output, flow_num)
+            self.workflow_state_query(
+                task, cycle, status, trigger, message, flow_num)
         )

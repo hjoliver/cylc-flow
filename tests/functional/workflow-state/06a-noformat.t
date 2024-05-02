@@ -45,9 +45,9 @@ polling for 'succeeded': satisfied
 __OUT__
 
 TEST_NAME=${TEST_NAME_BASE}-cli-dump
-run_ok "${TEST_NAME}" cylc workflow-state "${WORKFLOW_NAME}" -p 2010-01-01T00:00Z
+run_ok "${TEST_NAME}" cylc workflow-state --old-format "${WORKFLOW_NAME}" -p 2010-01-01T00:00Z
 contains_ok "${TEST_NAME}.stdout" <<__OUT__
-foo, 20100101T0000Z, succeeded, [1]
+foo, 20100101T0000Z, succeeded
 __OUT__
 
 purge

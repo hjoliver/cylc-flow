@@ -33,10 +33,11 @@ def workflow_state(
     offset: Optional[str] = None,
     status: Optional[str] = None,
     output: Optional[str] = None,
-    flow_num: Optional[int] = None,
+    message: Optional[str] = None,
+    flow_num: Optional[int] = 1,
     cylc_run_dir: Optional[str] = None
 ) -> Tuple[bool, Dict[str, Optional[str]]]:
-    """Connect to a workflow DB and query the requested task state.
+    """Connect to a workflow DB and query a tasks status or output.
 
     * Reports satisfied only if the remote workflow state has been achieved.
     * Returns all workflow state args to pass on to triggering tasks.
@@ -55,7 +56,13 @@ def workflow_state(
         status:
             The task status required for this xtrigger to be satisfied.
         output:
-            The task output required for this xtrigger to be satisfied.
+            The task output trigger required for this xtrigger to be satisfied.
+
+            .. note::
+
+               This cannot be specified in conjunction with ``status``.
+        message:
+            The task output message required for this xtrigger to be satisfied.
             .. note::
 
                This cannot be specified in conjunction with ``status``.
@@ -103,11 +110,11 @@ def workflow_state(
             )
         )
 
-    if not output and not status:
+    if not status and not (output or message):
         status = "succeeded"
 
     satisfied: bool = checker.task_state_met(
-        task, point, output=output, status=status
+        task, point, trigger=output, status=status, flow_num=flow_num
     )
 
     results = {

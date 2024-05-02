@@ -43,11 +43,11 @@ ${LOG_INDENT}[(('event-handler-00', 'started'), 1) err] killed on timeout (PT10S
 WARNING - 1/foo/01 handler:event-handler-00 for task event:started failed
 __END__
 
-cylc workflow-state "${WORKFLOW_NAME}" >'workflow-state.log'
+cylc workflow-state --old-format "${WORKFLOW_NAME}" >'workflow-state.log'
 
 contains_ok 'workflow-state.log' << __END__
-stopper, 1, succeeded, [1]
-foo, 1, succeeded, [1]
+stopper, 1, succeeded
+foo, 1, succeeded
 __END__
 
 purge

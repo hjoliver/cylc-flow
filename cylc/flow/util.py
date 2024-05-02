@@ -148,7 +148,7 @@ def cli_format(cmd: List[str]):
     return ' '.join(cmd)
 
 
-def serialise_set(flow_nums: set):
+def serialise_set(flow_nums: set) -> str:
     """Convert set to json, sorted.
 
     For use when a sorted result is needed for consistency.
@@ -161,7 +161,7 @@ def serialise_set(flow_nums: set):
     return json.dumps(sorted(flow_nums))
 
 
-def deserialise_set(flow_num_str: str):
+def deserialise_set(flow_num_str: str) -> set:
     """Convert json string to set.
 
     Example:
