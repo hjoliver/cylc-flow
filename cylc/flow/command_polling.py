@@ -66,24 +66,29 @@ class Poller:
 
     async def poll(self):
         """Poll for the condition embodied by self.check().
-        Return True if condition met, or False if polling exhausted."""
 
+        Return True if condition met, or False if polling exhausted.
+
+        """
         if self.max_polls == 0:
             # exit 1 as we can't know if the condition is satisfied
             sys.exit("WARNING: nothing to do (--max-polls=0)")
         elif self.max_polls == 1:
-            sys.stdout.write("checking for '%s'" % self.condition)
+            sys.stdout.write(f"checking for {self.condition}: ")
         else:
-            sys.stdout.write("polling for '%s'" % self.condition)
+            sys.stdout.write(
+                f"polling ({self.interval} sec) for {self.condition}: ")
 
         while self.n_polls < self.max_polls:
+            sys.stdout.write(".")
+            sys.stdout.flush()
             self.n_polls += 1
             if await self.check():
-                sys.stdout.write(": satisfied\n")
+                sys.stdout.write(" satisfied\n")
                 return True
             if self.max_polls > 1:
-                sys.stdout.write(".")
                 sleep(self.interval)
+
         sys.stdout.write("\n")
         if self.max_polls > 1:
             sys.stderr.write(

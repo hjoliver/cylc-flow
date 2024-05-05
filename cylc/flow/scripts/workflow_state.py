@@ -18,7 +18,7 @@
 
 r"""cylc workflow-state [OPTIONS] ARGS
 
-Print or poll for task status or outputs in a workflow database.
+Print current task statuses or completed outputs from a workflow database.
 
 NOTE: workflow databases hold all completed outputs, but only the latest task
 statuses, so for transient states like "submitted" it is best to check for
@@ -39,6 +39,10 @@ This command can be used to script polling tasks that trigger off of tasks in
 other workflows, but the workflow_state xtrigger is recommended for that.
 
 NOTE: Cylc 7 DBs only recorded custom (not standard) outputs.
+
+IDs:
+  if selector is matches a standard output, check for outputs not status.
+  for --task-point just use CYLC_TASK_ID in the id.
 
 Examples:
 
@@ -77,16 +81,23 @@ from typing import TYPE_CHECKING
 from cylc.flow.exceptions import CylcError, InputError
 import cylc.flow.flags
 from cylc.flow.option_parsers import (
-    WORKFLOW_ID_ARG_DOC,
+    ID_MULTI_ARG_DOC,
     CylcOptionParser as COP,
 )
-from cylc.flow.dbstatecheck import CylcWorkflowDBChecker
 from cylc.flow.command_polling import Poller
-from cylc.flow.task_state import TASK_STATUSES_ORDERED
-from cylc.flow.terminal import cli_function
 from cylc.flow.cycling.util import add_offset
+from cylc.flow.dbstatecheck import CylcWorkflowDBChecker
+from cylc.flow.id_cli import parse_id
+from cylc.flow.task_outputs import (
+    TASK_OUTPUTS,
+    TASK_OUTPUT_STARTED
+)
+from cylc.flow.task_state import (
+    TASK_STATUSES_ORDERED,
+    TASK_STATUS_RUNNING
+)
+from cylc.flow.terminal import cli_function
 from cylc.flow.pathutil import get_cylc_run_dir
-from cylc.flow.workflow_files import infer_latest_run_from_id
 
 from metomi.isodatetime.parsers import TimePointParser
 
@@ -94,7 +105,11 @@ if TYPE_CHECKING:
     from optparse import Values
 
 
-MSG_DEPRECATED = "WARNING: --message is deprecated: use --output instead."
+statuses = [
+    *TASK_STATUSES_ORDERED,
+    *CylcWorkflowDBChecker.STATE_ALIASES,
+    "started", "finished"
+]
 
 
 class WorkflowPoller(Poller):
@@ -163,7 +178,7 @@ class WorkflowPoller(Poller):
 def get_option_parser() -> COP:
     parser = COP(
         __doc__,
-        argdoc=[WORKFLOW_ID_ARG_DOC]
+        argdoc=[ID_MULTI_ARG_DOC]
     )
 
     parser.add_option(
@@ -172,13 +187,13 @@ def get_option_parser() -> COP:
 
     parser.add_option(
         "-p", "--point", "-c", "--cycle", metavar="POINT",
-        help="Cycle point to query.",
+        help="Task cycle point (deprecated: use task ID).",
         action="store", dest="cycle", default=None)
 
     parser.add_option(
         "-T", "--task-point",
-        help="Short for --point=$CYLC_TASK_CYCLE_POINT, in job environments."
-             " Use instead of --cycle.",
+        help="Take cycle point from job environment (deprecated: just"
+             " use $CYLC_TASK_CYCLE_POINT explicitly in job scripting).",
         action="store_true", dest="use_task_point", default=False)
 
     parser.add_option(
@@ -189,7 +204,7 @@ def get_option_parser() -> COP:
 
     parser.add_option(
         "-s", "--offset",
-        help="Specify an offset from the target cycle point. Can be useful"
+        help="Offset from target cycle point. Can be used"
         " along with --task-point when polling one workflow from another."
         " For example, --offset=PT30M for a 30 minute offset.",
         action="store", dest="offset", metavar="OFFSET", default=None)
@@ -199,24 +214,21 @@ def get_option_parser() -> COP:
         help="Print results in legacy comma-separated format.",
         action="store_true", dest="old_format", default=False)
 
-    statuses = [
-        *TASK_STATUSES_ORDERED,
-        *CylcWorkflowDBChecker.STATE_ALIASES,
-        "started", "finished"
-    ]
     parser.add_option(
         "-S", "--status", metavar="STATUS",
-        help=f"Specify a task status. Choices: {', '.join(statuses)}.",
+        help="Task status (deprecated: use task ID)"
+             f" Choices: {', '.join(statuses)}.",
         action="store", dest="status", default=None, choices=statuses)
 
     parser.add_option(
         "-O", "--output", metavar="OUTPUT",
-        help="Specify a task output (by trigger name).",
-        action="store", dest="trigger", default=None)
+        help="Task output (by trigger name, not task message)"
+             " (deprecated: use task ID).",
+             action="store", dest="trigger", default=None)
 
     parser.add_option(
         "-m", "--message", metavar="MESSAGE",
-        help=f"Specify a task output (by task message).\n{MSG_DEPRECATED}",
+        help="Task output message (deprecated: use task trigger).",
         action="store", dest="message", default=None)
 
     parser.add_option(
@@ -236,16 +248,19 @@ def get_option_parser() -> COP:
 
 
 @cli_function(get_option_parser, remove_opts=["--db"])
-def main(parser: COP, options: 'Values', workflow_id: str) -> None:
+def main(parser: COP, options: 'Values', ids: str) -> None:
 
     if options.use_task_point and options.cycle:
         raise InputError("Use --task-point or --point, not both.")
 
     if options.status and (options.trigger or options.message):
-        raise InputError("You can't poll a status and an output at once.")
+        raise InputError("Use --output or --message, not both.")
 
     if options.message:
-        print(MSG_DEPRECATED, file=sys.stderr)
+        print(
+            "WARNING: --message is deprecated;"
+            " select by output trigger, not task message."
+        )
 
     if options.use_task_point:
         if "CYLC_TASK_CYCLE_POINT" not in os.environ:
@@ -255,19 +270,68 @@ def main(parser: COP, options: 'Values', workflow_id: str) -> None:
     if options.offset and not options.cycle:
         raise InputError("A cycle point is required for --offset.")
 
+    if options.task or options.cycle or options.trigger:
+        print(
+            "WARNING: --task, --cycle, --status, and --output"
+            " are deprecated; use task ID.", file=sys.stderr
+        )
+
     # Attempt to apply specified offset to the targeted cycle
     if options.offset:
         options.cycle = str(add_offset(options.cycle, options.offset))
 
-    workflow_id = infer_latest_run_from_id(workflow_id, options.alt_run_dir)
+    workflow_id, tokens, _ = parse_id(
+        ids,
+        constraint='mixed',
+        max_workflows=1,
+        max_tasks=1,
+        alt_run_dir=options.alt_run_dir
+    )
+
+    cycle = options.cycle
+    task = options.task
+    status = options.status
+    trigger = options.trigger
+
+    if tokens is not None:
+        # Check for deprecated options along with task ID.
+        if tokens["cycle"] is not None:
+            if options.cycle:
+                raise InputError(
+                    "Use --cycle or WORKFLOW//cycle, not both.")
+            cycle = tokens["cycle"]
+
+        if tokens["task"] is not None:
+            if options.task:
+                raise InputError(
+                    "Use --task or WORKFLOW//CYCLE/task, not both.")
+            task = tokens["task"]
+
+        if tokens["task_sel"] is not None:
+            if options.status or options.trigger:
+                raise InputError(
+                    "Use --status/--outputor"
+                    "WORKFLOW//CYCLE/TASK:selector, not both.")
+            if tokens["task_sel"] == TASK_STATUS_RUNNING:
+                trigger = TASK_OUTPUT_STARTED
+            elif tokens["task_sel"] in TASK_OUTPUTS:
+                # Standard outputs.
+                trigger = tokens["task_sel"]
+            elif tokens["task_sel"] in TASK_STATUSES_ORDERED:
+                # Task statuses with no corresponding output (waiting).
+                status = tokens["task_sel"]
+            else:
+                # Must be a custom output
+                # (--message is required for task message - deprecated)
+                trigger = tokens["task_sel"]
 
     pollargs = {
         'workflow_id': workflow_id,
         'run_dir': get_cylc_run_dir(alt_run_dir=options.alt_run_dir),
-        'task': options.task,
-        'cycle': options.cycle,
-        'status': options.status,
-        'trigger': options.trigger,
+        'task': task,
+        'cycle': cycle,
+        'status': status,
+        'trigger': trigger,
         'message': options.message,
         'flow_num': options.flow_num,
     }
@@ -284,21 +348,20 @@ def main(parser: COP, options: 'Values', workflow_id: str) -> None:
     if not connected:
         raise CylcError(f"Cannot connect to the {workflow_id} DB")
 
-    if options.status and options.task and options.cycle:
-        # poll for a task status
-        spoller.condition = options.status
+    if status and task and cycle:
+        spoller.condition = f'status "{status}"'
         if not asyncio.run(spoller.poll()):
             sys.exit(1)
 
-    elif options.trigger and options.task and options.cycle:
+    elif trigger and task and cycle:
         # poll for a task output
-        spoller.condition = "output: %s" % options.trigger
+        spoller.condition = f'output "{trigger}"'
         if not asyncio.run(spoller.poll()):
             sys.exit(1)
 
-    elif options.message and options.task and options.cycle:
+    elif options.message and task and cycle:
         # poll for a task message
-        spoller.condition = "message: %s" % options.message
+        spoller.condition = f'message "{options.message}"'
         if not asyncio.run(spoller.poll()):
             sys.exit(1)
 
@@ -306,10 +369,10 @@ def main(parser: COP, options: 'Values', workflow_id: str) -> None:
         # just display query results
         spoller.checker.display_maps(
             spoller.checker.workflow_state_query(
-                task=options.task,
+                task=task,
                 cycle=formatted_pt,
-                status=options.status,
-                trigger=options.trigger,
+                status=status,
+                trigger=trigger,
                 message=options.message,
                 flow_num=options.flow_num,
                 print_outputs=options.print_outputs,
