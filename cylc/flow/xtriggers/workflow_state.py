@@ -74,10 +74,6 @@ def workflow_state(
     workflow_id = infer_latest_run_from_id(
         tokens["workflow"], alt_cylc_run_dir)
 
-    print("W_ID", workflow_id)
-    print("ALT_C", alt_cylc_run_dir)
-    print("GET_C", get_cylc_run_dir(alt_cylc_run_dir))
-
     # Failure to connect could mean the target workflow has not started yet,
     # but it could also mean a bad workflow ID, say, so don't hide the error.
     checker = CylcWorkflowDBChecker(
