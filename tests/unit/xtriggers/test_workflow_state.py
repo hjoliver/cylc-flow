@@ -28,13 +28,15 @@ from ..conftest import MonkeyMock
 
 
 def test_inferred_run(tmp_run_dir: Callable, monkeymock: MonkeyMock):
-    """Test that the workflow_state xtrigger infers the run number"""
+    """Test that the workflow_state xtrigger infers the run number
 
+    For standard and other cylc-run dirs.
+
+    """
     id_ = 'isildur'
     expected_workflow_id = f'{id_}/run1'
-    cylc_run_dir = str(
-        tmp_run_dir(expected_workflow_id, installed=True, named=True)
-    )
+    cylc_run_dir = str(tmp_run_dir())
+    tmp_run_dir(expected_workflow_id, installed=True, named=True)
 
     mock_db_checker = monkeymock(
         'cylc.flow.xtriggers.workflow_state.CylcWorkflowDBChecker',
@@ -45,17 +47,16 @@ def test_inferred_run(tmp_run_dir: Callable, monkeymock: MonkeyMock):
 
     _, results = workflow_state(f"{id_}//3000/precious")
 
-    mock_db_checker.assert_called_once_with(None, expected_workflow_id)
+    mock_db_checker.assert_called_once_with(cylc_run_dir, expected_workflow_id)
     assert results['workflow_id'] == expected_workflow_id
 
     # Now test we can see workflows in alternate cylc-run directories
     # e.g. for `cylc workflow-state` or xtriggers targetting another user.
-    alt_cylc_run_dir = tmp_run_dir(expected_workflow_id, named=True)
+    alt_cylc_run_dir = cylc_run_dir + "alt"
 
     # copy the cylc-run dir to alt location and delete the original.
     copytree(cylc_run_dir, alt_cylc_run_dir, symlinks=True)
     rmtree(cylc_run_dir)
-    print(alt_cylc_run_dir)
 
     # It can no longer parse IDs in the original cylc-run location.
     with pytest.raises(InputError):
@@ -65,7 +66,7 @@ def test_inferred_run(tmp_run_dir: Callable, monkeymock: MonkeyMock):
     mock_db_checker.reset_mock()
 
     _, results = workflow_state(
-        f"{id_}/3000/precious",
+        f"{id_}//3000/precious",
         alt_cylc_run_dir=alt_cylc_run_dir
     )
 
@@ -114,14 +115,17 @@ def test_back_compat(tmp_run_dir, caplog):
         conn.close()
 
     # Test workflow_state function
-    satisfied, _ = workflow_state(id_, task='mithril', point='2012')
+
+    satisfied, _ = workflow_state(f"{id_}//2012/mithril")
     assert satisfied
-    satisfied, _ = workflow_state(id_, task='arkenstone', point='2012')
+
+    satisfied, _ = workflow_state(f"{id_}//2012/arkenstone")
     assert not satisfied
 
     # Test back-compat (old suite_state function)
     from cylc.flow.xtriggers.suite_state import suite_state
     satisfied, _ = suite_state(suite=id_, task='mithril', point='2012')
+
     assert satisfied
     satisfied, _ = suite_state(suite=id_, task='arkenstone', point='2012')
     assert not satisfied

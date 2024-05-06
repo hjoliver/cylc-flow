@@ -18,21 +18,19 @@ from typing import Dict, Optional, Tuple, Any
 
 from metomi.isodatetime.parsers import TimePointParser
 
+from cylc.flow import LOG
+from cylc.flow.pathutil import get_cylc_run_dir
 from cylc.flow.cycling.util import add_offset
 from cylc.flow.dbstatecheck import CylcWorkflowDBChecker
 from cylc.flow.workflow_files import infer_latest_run_from_id
 from cylc.flow.id import tokenise
 from cylc.flow.exceptions import WorkflowConfigError
+from cylc.flow.task_outputs import TASK_OUTPUT_STARTED
 from cylc.flow.task_state import (
     TASK_STATUS_RUNNING,
+    TASK_STATUS_SUCCEEDED,
     TASK_STATUSES_ORDERED
 )
-from cylc.flow.task_outputs import (
-    TASK_OUTPUT_STARTED,
-    TASK_OUTPUT_SUCCEEDED,
-    TASK_OUTPUTS
-)
-from cylc.flow import LOG
 
 
 def workflow_state(
@@ -73,18 +71,29 @@ def workflow_state(
 
     """
     tokens = tokenise(remote_id)
-    status, output = check_task_selector(tokens["task_sel"])
     workflow_id = infer_latest_run_from_id(
         tokens["workflow"], alt_cylc_run_dir)
+
+    print("W_ID", workflow_id)
+    print("ALT_C", alt_cylc_run_dir)
+    print("GET_C", get_cylc_run_dir(alt_cylc_run_dir))
+
+    # Failure to connect could mean the target workflow has not started yet,
+    # but it could also mean a bad workflow ID, say, so don't hide the error.
+    checker = CylcWorkflowDBChecker(
+        get_cylc_run_dir(alt_cylc_run_dir),
+        workflow_id
+    )
+
+    status, output = check_task_selector(
+        tokens["task_sel"],
+        checker.back_compat_mode
+    )
 
     if offset is not None:
         cycle = str(add_offset(tokens["cycle"], offset))
     else:
         cycle = tokens["cycle"]
-
-    # Failure to connect could mean the target workflow has not started yet,
-    # but it could also mean a bad workflow ID, say, so don't hide the error.
-    checker = CylcWorkflowDBChecker(alt_cylc_run_dir, workflow_id)
 
     # Point validity can only be checked at run time.
     # Bad function arg templating can cause a syntax error.
@@ -122,7 +131,7 @@ def workflow_state(
     )
 
 
-def check_task_selector(task_sel):
+def check_task_selector(task_sel, back_compat=False):
     """Determine whether to poll for a status or an output.
 
     For standard task statuses, poll for the corresponding output instead
@@ -131,28 +140,33 @@ def check_task_selector(task_sel):
     """
     status = None
     output = None
+
     if task_sel is None:
         # Default to succeeded
-        output = TASK_OUTPUT_SUCCEEDED
-    elif task_sel in TASK_OUTPUTS:
-        # Standard outputs.
-        output = task_sel
+        status = TASK_STATUS_SUCCEEDED
+
     elif task_sel == TASK_STATUS_RUNNING:
-        # transient running status: corresponding output is "started".
-        output = TASK_OUTPUT_STARTED
+        # transient running status: use corresponding output "started".
+        if back_compat:
+            # Cylc 7 only stored custom outputs.
+            status = TASK_STATUS_RUNNING
+        else:
+            output = TASK_OUTPUT_STARTED
+
     elif task_sel in TASK_STATUSES_ORDERED:
-        # Task statuses with no corresponding output (waiting).
         status = task_sel
+
     else:
-        # Must be a custom output
+        # Custom output
         output = task_sel
+
     return (status, output)
 
 
 def validate(args: Dict[str, Any], Err=WorkflowConfigError):
     """Validate workflow_state xtrigger function args.
 
-    * remote_id: must be full workflow//cycle/task/selector
+    * remote_id: full workflow//cycle/task[:selector]
     * flow_num: must be an integer
     * status: must be a valid status
 
@@ -160,10 +174,10 @@ def validate(args: Dict[str, Any], Err=WorkflowConfigError):
     tokens = tokenise(args["remote_id"])
     if any(
         tokens[token] is None
-        for token in ("workflow", "cycle", "task", "task_sel")
+        for token in ("workflow", "cycle", "task")
     ):
         raise WorkflowConfigError(
-            "Full workflow//cycle/task:selector ID needed.")
+            "Full ID needed: workflow//cycle/task[:selector].")
 
     try:
         int(args["flow_num"])
