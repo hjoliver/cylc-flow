@@ -14,28 +14,40 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+import sys
 from typing import Dict, Optional, Tuple, Any
 
 from metomi.isodatetime.parsers import TimePointParser
 
 from cylc.flow.cycling.util import add_offset
 from cylc.flow.dbstatecheck import CylcWorkflowDBChecker
+from cylc.flow.id_cli import parse_id
 from cylc.flow.pathutil import get_cylc_run_dir
 from cylc.flow.workflow_files import infer_latest_run_from_id
 from cylc.flow.exceptions import WorkflowConfigError
-from cylc.flow.task_state import TASK_STATUSES_ALL
+from cylc.flow.task_state import (
+    TASK_STATUS_RUNNING,
+    TASK_STATUSES_ORDERED
+)
+from cylc.flow.task_outputs import (
+    TASK_OUTPUT_STARTED,
+    TASK_OUTPUTS
+)
 
 
+# pre-8.3.0 xtrigger had "message" and "status"
+#     CLI had --message and --output, but the latter was not trigger
 def workflow_state(
-    workflow: str,
-    task: str,
-    point: str,
+    workflow: Optional[str] = None,
+    task: Optional[str] = None,
+    point: Optional[str] = None,
     offset: Optional[str] = None,
     status: Optional[str] = None,
     output: Optional[str] = None,
     message: Optional[str] = None,
     flow_num: Optional[int] = 1,
-    cylc_run_dir: Optional[str] = None
+    cylc_run_dir: Optional[str] = None,
+    task_id: Optional [str] = None,
 ) -> Tuple[bool, Dict[str, Optional[str]]]:
     """Connect to a workflow DB and query a tasks status or output.
 
@@ -130,8 +142,8 @@ def workflow_state(
     return satisfied, results
 
 
-def validate(args: Dict[str, Any]):
-    """Validate workflow_state function args from the workflow config.
+def validate(args: Dict[str, Any], Err=WorkflowConfigError):
+    """Validate workflow_state xtrigger function args.
 
     The rules for are:
     * output/status: one at most (defaults to succeeded status)
@@ -139,21 +151,70 @@ def validate(args: Dict[str, Any]):
     * status: Must be a valid status
 
     """
-    output = args['output']
-    status = args['status']
-    flow_num = args['flow_num']
+    if (
+        args["status"] is not None and
+        (args["trigger"] is not None or args["message"] is not None)
+    ):
+        raise Err("Specify output or message, not both.")
 
-    if output is not None and status is not None:
-        raise WorkflowConfigError(
-            "Give `status` or `output`, not both"
+    if args["message"] is not None:
+        print(
+            "WARNING: message is deprecated;"
+            " specify outputs by trigger, not task message.", file=sys.stderr
         )
 
-    if status is not None and status not in TASK_STATUSES_ALL:
-        raise WorkflowConfigError(
-            f"Invalid tasks status '{status}'"
+    if args["offset"] is not None and args["cycle"] is None:
+        raise Err("A cycle point is required for offset.")
+
+    for arg in ("task", "cycle", "trigger"):
+        if args[arg] is not None:
+            print(
+                f"WARNING: {arg} is deprecated; use task ID.", file=sys.stderr
+            )
+
+    if args["task_id"] is not None:
+        workflow_id, tokens, _ = parse_id(
+            args["task_id"],
+            constraint='mixed',
+            max_workflows=1,
+            max_tasks=1,
+            alt_run_dir=args["alt_run_dir"]
         )
 
-    if flow_num is not None and not isinstance(flow_num, int):
-        raise WorkflowConfigError(
-            "flow_num must be an integer"
-        )
+        if tokens is not None:
+            # Check for deprecated options along with task ID.
+            if tokens["cycle"] is not None:
+                if args["cycle"] is not None:
+                    raise Err(
+                        "Use --cycle or WORKFLOW//cycle, not both.")
+                args["cycle"] = tokens["cycle"]
+
+            if tokens["task"] is not None:
+                if args["task"]:
+                    raise Err(
+                        "Use --task or WORKFLOW//CYCLE/task, not both.")
+                args["task"] = tokens["task"]
+
+            if tokens["task_sel"] is not None:
+                if args["status"] is not None or args["trigger"] is not None:
+                    raise Err(
+                        "Use --status/--outputor"
+                        "WORKFLOW//CYCLE/TASK:selector, not both.")
+                if tokens["task_sel"] == TASK_STATUS_RUNNING:
+                    args["trigger"] = TASK_OUTPUT_STARTED
+                elif tokens["task_sel"] in TASK_OUTPUTS:
+                    # Standard outputs.
+                    args["trigger"] = tokens["task_sel"]
+                elif tokens["task_sel"] in TASK_STATUSES_ORDERED:
+                    # Task statuses with no corresponding output (waiting).
+                    args["status"] = tokens["task_sel"]
+                else:
+                    # Must be a custom output
+                    # (--message is required for task message - deprecated)
+                    args["trigger"] = tokens["task_sel"]
+
+        if (
+            args["flow_num"] is not None
+            and not isinstance(args["flow_num"], int)
+        ):
+            raise Err("flow_num must be an integer")

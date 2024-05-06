@@ -87,7 +87,6 @@ from cylc.flow.option_parsers import (
 from cylc.flow.command_polling import Poller
 from cylc.flow.cycling.util import add_offset
 from cylc.flow.dbstatecheck import CylcWorkflowDBChecker
-from cylc.flow.id_cli import parse_id
 from cylc.flow.task_outputs import (
     TASK_OUTPUTS,
     TASK_OUTPUT_STARTED
@@ -105,11 +104,7 @@ if TYPE_CHECKING:
     from optparse import Values
 
 
-statuses = [
-    *TASK_STATUSES_ORDERED,
-    *CylcWorkflowDBChecker.STATE_ALIASES,
-    "started", "finished"
-]
+TODO: "finished" (output?)
 
 
 class WorkflowPoller(Poller):
@@ -216,9 +211,8 @@ def get_option_parser() -> COP:
 
     parser.add_option(
         "-S", "--status", metavar="STATUS",
-        help="Task status (deprecated: use task ID)"
-             f" Choices: {', '.join(statuses)}.",
-        action="store", dest="status", default=None, choices=statuses)
+        help="Task status (deprecated: use task ID)",
+        action="store", dest="status", default=None)
 
     parser.add_option(
         "-O", "--output", metavar="OUTPUT",
@@ -252,15 +246,6 @@ def main(parser: COP, options: 'Values', ids: str) -> None:
 
     if options.use_task_point and options.cycle:
         raise InputError("Use --task-point or --point, not both.")
-
-    if options.status and (options.trigger or options.message):
-        raise InputError("Use --output or --message, not both.")
-
-    if options.message:
-        print(
-            "WARNING: --message is deprecated;"
-            " select by output trigger, not task message."
-        )
 
     if options.use_task_point:
         if "CYLC_TASK_CYCLE_POINT" not in os.environ:
