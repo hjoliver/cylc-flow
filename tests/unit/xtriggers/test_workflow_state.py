@@ -21,8 +21,7 @@ from typing import Callable
 from unittest.mock import Mock
 from shutil import copytree, rmtree
 
-from cylc.flow.exceptions import InputError
-from cylc.flow.pathutil import get_cylc_run_dir
+from cylc.flow.exceptions import InputError, WorkflowConfigError
 from cylc.flow.workflow_files import WorkflowFiles
 from cylc.flow.xtriggers.workflow_state import workflow_state
 from ..conftest import MonkeyMock
@@ -30,10 +29,13 @@ from ..conftest import MonkeyMock
 
 def test_inferred_run(tmp_run_dir: Callable, monkeymock: MonkeyMock):
     """Test that the workflow_state xtrigger infers the run number"""
+
     id_ = 'isildur'
     expected_workflow_id = f'{id_}/run1'
-    cylc_run_dir = str(tmp_run_dir())
-    tmp_run_dir(expected_workflow_id, installed=True, named=True)
+    cylc_run_dir = str(
+        tmp_run_dir(expected_workflow_id, installed=True, named=True)
+    )
+
     mock_db_checker = monkeymock(
         'cylc.flow.xtriggers.workflow_state.CylcWorkflowDBChecker',
         return_value=Mock(
@@ -41,29 +43,36 @@ def test_inferred_run(tmp_run_dir: Callable, monkeymock: MonkeyMock):
         )
     )
 
-    _, results = workflow_state(id_, task='precious', point='3000')
-    mock_db_checker.assert_called_once_with(cylc_run_dir, expected_workflow_id)
-    assert results['workflow'] == expected_workflow_id
+    _, results = workflow_state(f"{id_}//3000/precious")
+
+    mock_db_checker.assert_called_once_with(None, expected_workflow_id)
+    assert results['workflow_id'] == expected_workflow_id
 
     # Now test we can see workflows in alternate cylc-run directories
     # e.g. for `cylc workflow-state` or xtriggers targetting another user.
-    alt_cylc_run_dir = cylc_run_dir + "_alt"
+    alt_cylc_run_dir = tmp_run_dir(expected_workflow_id, named=True)
 
     # copy the cylc-run dir to alt location and delete the original.
     copytree(cylc_run_dir, alt_cylc_run_dir, symlinks=True)
     rmtree(cylc_run_dir)
+    print(alt_cylc_run_dir)
 
     # It can no longer parse IDs in the original cylc-run location.
     with pytest.raises(InputError):
-        _, results = workflow_state(id_, task='precious', point='3000')
+        _, results = workflow_state(f"{id_}//3000/precious")
 
     # But it can via an explicit alternate run directory.
     mock_db_checker.reset_mock()
+
     _, results = workflow_state(
-        id_, task='precious', point='3000', cylc_run_dir=alt_cylc_run_dir)
+        f"{id_}/3000/precious",
+        alt_cylc_run_dir=alt_cylc_run_dir
+    )
+
     mock_db_checker.assert_called_once_with(
         alt_cylc_run_dir, expected_workflow_id)
-    assert results['workflow'] == expected_workflow_id
+
+    assert results['workflow_id'] == expected_workflow_id
 
 
 def test_back_compat(tmp_run_dir, caplog):
