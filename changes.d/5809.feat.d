@@ -1,1 +1,1 @@
-The workflow-state command and xtrigger is now flow-specific.
+The workflow-state command (and corresponding xtrigger) is now flow-aware.

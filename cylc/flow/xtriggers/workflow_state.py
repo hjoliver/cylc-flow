@@ -127,17 +127,20 @@ def workflow_state(
     )
 
 
-def check_task_selector(task_sel, back_compat=False):
+def check_task_selector(
+    task_sel, back_compat=False, default_succeeded=True
+):
     """Determine whether to poll for a status or an output.
 
     For standard task statuses, poll for the corresponding output instead
     to avoid missing transient statuses between polls.
 
+    xtrigger defaults to succeeded, CLI not (allow non-specific queries)
     """
     status = None
     output = None
 
-    if task_sel is None:
+    if default_succeeded and task_sel is None:
         # Default to succeeded
         status = TASK_STATUS_SUCCEEDED
 

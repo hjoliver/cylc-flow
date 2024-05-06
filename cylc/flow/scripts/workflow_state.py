@@ -80,8 +80,7 @@ import sys
 from time import sleep
 from typing import TYPE_CHECKING
 
-from cylc.flow.exceptions import CylcError, InputError
-import cylc.flow.flags
+from cylc.flow.exceptions import InputError
 from cylc.flow.option_parsers import (
     ID_MULTI_ARG_DOC,
     CylcOptionParser as COP,
@@ -172,15 +171,11 @@ def get_option_parser() -> COP:
 
 
 @cli_function(get_option_parser, remove_opts=["--db"])
-def main(parser: COP, options: 'Values', ids: str) -> None:
+def main(parser: COP, options: 'Values', *ids: str) -> None:
 
-    workflow_id, tokens, _ = parse_id(
-        ids,
-        constraint='mixed',
-        max_workflows=1,
-        max_tasks=1,
-        alt_run_dir=options.alt_run_dir
-    )
+    if len(ids) != 1:
+        raise InputError("Please give a single ID on the command line")
+    id_ = ids[0]
 
     # Attempt db connection even if no polls for condition are
     # requested, as failure to connect is useful information.
@@ -193,34 +188,50 @@ def main(parser: COP, options: 'Values', ids: str) -> None:
 
     cylc_run_dir = get_cylc_run_dir(options.alt_run_dir)
 
-    sys.stderr.write(f"Connecting to {workflow_id} DB: ")
+    sys.stderr.write("Connecting ")
+    sys.stderr.flush()
+
     while not connected:
         n_attempts += 1
+
         try:
+            # raise InputError if DB doesn't exit yet.
+            workflow_id, tokens, _ = parse_id(
+                id_,
+                constraint='mixed',
+                max_workflows=1,
+                max_tasks=1,
+                alt_run_dir=options.alt_run_dir
+            )
+
             db_checker = CylcWorkflowDBChecker(
                 cylc_run_dir, workflow_id)
-        except (OSError, sqlite3.Error):
+
+        except (OSError, sqlite3.Error, InputError):
             if n_attempts >= max_polls:
-                raise
+                sys.stderr.write(f"\nDid not connect in {max_polls} polls")
+                return
             sys.stderr.write(".")
             sys.stderr.flush()
-            sleep(options.interval)
+            sleep(int(options.interval))
         else:
             connected = True
             # ... but ensure at least one poll after connection:
             n_attempts -= 1
 
-    if not connected:
-        raise CylcError(f"Did not in {max_polls} polls")
-
     if tokens:
         cycle = tokens["cycle"]
         task = tokens["task"]
         status, output = check_task_selector(
-            tokens["task_sel"], db_checker.back_compat_mode)
+            tokens["task_sel"],
+            db_checker.back_compat_mode,
+            default_succeeded=False
+        )
     else:
         cycle = None
         task = None
+        status = None
+        output = None
 
     # Attempt to apply specified offset to the targeted cycle
     if options.offset:
@@ -236,19 +247,19 @@ def main(parser: COP, options: 'Values', ids: str) -> None:
             'task': task,
             'cycle': cycle,
             'status': status,
-            'trigger': output,
+            'output': output,
             'flow_num': options.flow_num,
         }
     )
 
     formatted_pt = spoller.format_pt_for_db(db_checker)
 
-    if status and tokens["task"] is not None and tokens["cycle"] is not None:
+    if status is not None and task is not None and cycle is not None:
         spoller.condition = f'status "{status}"'
         if not asyncio.run(spoller.poll()):
             sys.exit(1)
 
-    elif output and tokens["task"] is not None and tokens["cycle"] is not None:
+    elif output is not None and task is not None and cycle is not None:
         spoller.condition = f'output "{output}"'
         if not asyncio.run(spoller.poll()):
             sys.exit(1)
@@ -257,7 +268,7 @@ def main(parser: COP, options: 'Values', ids: str) -> None:
         # just display query results
         spoller.checker.display_maps(
             spoller.checker.workflow_state_query(
-                task=tokens["task"],
+                task=task,
                 cycle=formatted_pt,
                 status=status,
                 output=output,

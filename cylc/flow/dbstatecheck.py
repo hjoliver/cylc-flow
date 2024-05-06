@@ -144,8 +144,7 @@ class CylcWorkflowDBChecker:
         task: Optional[str] = None,
         cycle: Optional[str] = None,
         status: Optional[str] = None,
-        trigger: Optional[str] = None,
-        message: Optional[str] = None,
+        output: Optional[str] = None,
         flow_num: Optional[int] = None,
         print_outputs: bool = False
     ):
@@ -175,7 +174,7 @@ class CylcWorkflowDBChecker:
         stmt_args = []
         stmt_wheres = []
 
-        if trigger or message or (status is None and print_outputs):
+        if output or (status is None and print_outputs):
             target_table = CylcWorkflowDAO.TABLE_TASK_OUTPUTS
             mask = "name, cycle, outputs"
         else:
@@ -239,8 +238,6 @@ class CylcWorkflowDBChecker:
                     res.append(fstr)
             db_res.append(res)
 
-        output = trigger or message
-
         if (
             status is not None
             or (output is None and not print_outputs)
@@ -249,11 +246,7 @@ class CylcWorkflowDBChecker:
 
         results = []
         for row in db_res:
-            if message is not None:
-                outputs = str(list(json.loads(row[2]).values()))
-            else:
-                # trigger, and default
-                outputs = str(list(json.loads(row[2])))
+            outputs = str(list(json.loads(row[2])))
             if output is not None and output not in outputs:
                 continue
             results.append(row[:2] + [outputs] + row[3:])
@@ -265,8 +258,7 @@ class CylcWorkflowDBChecker:
         task: str,
         cycle: str,
         status: Optional[str] = None,
-        trigger: Optional[str] = None,
-        message: Optional[str] = None,
+        output: Optional[str] = None,
         flow_num: Optional[int] = None
     ):
         """Return True if cycle/task has achieved status or output.
@@ -276,5 +268,5 @@ class CylcWorkflowDBChecker:
         """
         return bool(
             self.workflow_state_query(
-                task, cycle, status, trigger, message, flow_num)
+                task, cycle, status, output, flow_num)
         )
