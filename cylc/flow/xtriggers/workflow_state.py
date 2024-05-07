@@ -21,16 +21,13 @@ from metomi.isodatetime.parsers import TimePointParser
 from cylc.flow import LOG
 from cylc.flow.pathutil import get_cylc_run_dir
 from cylc.flow.cycling.util import add_offset
-from cylc.flow.dbstatecheck import CylcWorkflowDBChecker
+from cylc.flow.dbstatecheck import (
+    CylcWorkflowDBChecker,
+    check_task_selector
+)
 from cylc.flow.workflow_files import infer_latest_run_from_id
 from cylc.flow.id import tokenise
 from cylc.flow.exceptions import WorkflowConfigError
-from cylc.flow.task_outputs import TASK_OUTPUT_STARTED
-from cylc.flow.task_state import (
-    TASK_STATUS_RUNNING,
-    TASK_STATUS_SUCCEEDED,
-    TASK_STATUSES_ORDERED
-)
 
 
 def workflow_state(
@@ -81,7 +78,7 @@ def workflow_state(
         workflow_id
     )
 
-    status, output = checker.check_task_selector(
+    status, output = check_task_selector(
         tokens["task_sel"],
         checker.back_compat_mode
     )

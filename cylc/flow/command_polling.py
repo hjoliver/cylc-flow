@@ -25,9 +25,7 @@ class Poller:
 
     @classmethod
     def add_to_cmd_options(cls, parser, d_interval=60, d_max_polls=10):
-        """Add command line options for commands that can do polling
-        
-        """
+        """Add command line options for commands that can do polling."""
         parser.add_option(
             "--max-polls",
             help=r"Maximum number of polls (default: %default).",
@@ -77,8 +75,10 @@ class Poller:
         if self.max_polls == 0:
             # exit 1 as we can't know if the condition is satisfied
             sys.exit("WARNING: nothing to do (--max-polls=0)")
+
         elif self.max_polls == 1:
             sys.stdout.write(f"checking for {self.condition}: ")
+
         else:
             sys.stdout.write(
                 f"polling ({self.interval} sec) for {self.condition}: ")

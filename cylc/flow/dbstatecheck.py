@@ -25,13 +25,50 @@ from textwrap import dedent
 from cylc.flow.flow_mgr import stringify_flow_nums
 from cylc.flow.pathutil import expand_path
 from cylc.flow.rundb import CylcWorkflowDAO
+from cylc.flow.task_outputs import TASK_OUTPUT_STARTED
 from cylc.flow.task_state import (
     TASK_STATUS_SUBMITTED,
     TASK_STATUS_RUNNING,
     TASK_STATUS_SUCCEEDED,
-    TASK_STATUS_FAILED
+    TASK_STATUS_FAILED,
+    TASK_STATUSES_ORDERED
 )
 from cylc.flow.util import deserialise_set
+
+
+def check_task_selector(
+    task_sel, back_compat=False, default_succeeded=True
+):
+    """Determine whether to poll for a status or an output.
+
+    For standard task statuses, poll for the corresponding output instead
+    to avoid missing transient statuses between polls.
+
+    xtrigger defaults to succeeded, CLI not (allow non-specific queries)
+    """
+    status = None
+    output = None
+
+    if default_succeeded and task_sel is None:
+        # Default to succeeded
+        status = TASK_STATUS_SUCCEEDED
+
+    elif task_sel == TASK_STATUS_RUNNING:
+        # transient running status: use corresponding output "started".
+        if back_compat:
+            # Cylc 7 only stored custom outputs.
+            status = TASK_STATUS_RUNNING
+        else:
+            output = TASK_OUTPUT_STARTED
+
+    elif task_sel in TASK_STATUSES_ORDERED:
+        status = task_sel
+
+    else:
+        # Custom output
+        output = task_sel
+
+    return (status, output)
 
 
 class CylcWorkflowDBChecker:
@@ -60,7 +97,12 @@ class CylcWorkflowDBChecker:
         ],
     }
 
-    def __init__(self, rund, workflow, db_path=None):
+    def __init__(
+        self,
+        rund,
+        workflow,
+        db_path=None,
+    ):
         # (Explicit dp_path arg is to make testing easier).
         if db_path is None:
             # Infer DB path from workflow name and run dir.
@@ -138,42 +180,6 @@ class CylcWorkflowDBChecker:
             return self.STATE_ALIASES[state]
         else:
             return [state]
-
-
-    def check_task_selector(
-        self, task_sel, back_compat=False, default_succeeded=True
-    ):
-        """Determine whether to poll for a status or an output.
-
-        For standard task statuses, poll for the corresponding output instead
-        to avoid missing transient statuses between polls.
-
-        xtrigger defaults to succeeded, CLI not (allow non-specific queries)
-        """
-        status = None
-        output = None
-
-        if default_succeeded and task_sel is None:
-            # Default to succeeded
-            status = TASK_STATUS_SUCCEEDED
-
-        elif task_sel == TASK_STATUS_RUNNING:
-            # transient running status: use corresponding output "started".
-            if back_compat:
-                # Cylc 7 only stored custom outputs.
-                status = TASK_STATUS_RUNNING
-            else:
-                output = TASK_OUTPUT_STARTED
-
-        elif task_sel in TASK_STATUSES_ORDERED:
-            status = task_sel
-
-        else:
-            # Custom output
-            output = task_sel
-
-        return (status, output)
-
 
     def workflow_state_query(
         self,

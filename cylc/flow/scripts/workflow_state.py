@@ -88,49 +88,43 @@ from cylc.flow.option_parsers import (
 from cylc.flow.id_cli import parse_id
 from cylc.flow.command_polling import Poller
 from cylc.flow.cycling.util import add_offset
-from cylc.flow.dbstatecheck import CylcWorkflowDBChecker
+from cylc.flow.dbstatecheck import (
+    CylcWorkflowDBChecker,
+    check_task_selector
+)
 from cylc.flow.terminal import cli_function
 from cylc.flow.pathutil import get_cylc_run_dir
-
-from metomi.isodatetime.parsers import TimePointParser
 
 if TYPE_CHECKING:
     from optparse import Values
 
 
 # TODO: "finished" (output?)
+# TODO: flow=all, none
 
 
 class WorkflowPoller(Poller):
-    """A polling object that checks workflow state."""
+    """A polling object that checks workflow state from DB."""
 
-    def __init__(self, db_checker, *args, **kwargs):
+    def __init__(self, *args, **kwargs):
         self.checker = db_checker
+        self.db_exists = False
         super().__init__(*args, **kwargs)
 
-    def format_pt_for_db(self):
-        """Convert cycle point to target DB format."""
-        if self.args['cycle']:
-            fmt = self.checker.point_fmt
-            if fmt:
-                # convert cycle point to DB format
-                self.args['cycle'] = str(
-                    TimePointParser().parse(
-                        self.args['cycle'], fmt
-                    )
-                )
-        return self.args['cycle']
-
     async def check(self):
-        """Return True if desired workflow state achieved, else False"""
-        res = self.checker.task_state_met(
+        """Return True if desired workflow state achieved, else False.
+
+        """
+        res = self.checker.workflow_state_query(
             self.args['task'],
             self.args['cycle'],
             status=self.args['status'],
             output=self.args['output'],
             flow_num=self.args['flow_num']
         )
-        return res
+        if self.max_polls == 1:
+            self.checker.display_maps(res)
+        return bool(res)
 
 
 def get_option_parser() -> COP:
@@ -146,19 +140,19 @@ def get_option_parser() -> COP:
 
     parser.add_option(
         "-s", "--offset",
-        help="Offset from given cycle point as an ISO8601 duration."
-        " For example, --offset=PT30M for a 30 minute offset.",
-        action="store", dest="offset", metavar="OFFSET", default=None)
+        help="Offset from given cycle point, e.g. PT30M for 30 min. Useful"
+        " for tasks in cycling workflows that poll tasks in other workflows"
+        " (however, see also the workflow_state xtrigger for that purpose).",
+        action="store",
+        dest="offset",
+        metavar="ISO8601_DURATION",
+        default=None
+    )
 
     parser.add_option(
         "--flow",
-        help="Specify a flow number",
+        help="Flow number, for target tasks.",
         action="store", type="int", dest="flow_num", default=None)
-
-    parser.add_option(
-        "--poll",
-        help="Poll (repeatedly check) until the result is achieved.",
-        action="store_true", dest="poll", default=False)
 
     parser.add_option(
         "--print-outputs",
@@ -171,7 +165,7 @@ def get_option_parser() -> COP:
         help="Print results in legacy comma-separated format.",
         action="store_true", dest="old_format", default=False)
 
-    WorkflowPoller.add_to_cmd_options(parser)
+    WorkflowPoller.add_to_cmd_options(parser, d_interval=5, d_max_polls=1)
 
     return parser
 
@@ -245,7 +239,7 @@ def main(parser: COP, options: 'Values', *ids: str) -> None:
         db_checker,
         "requested state",
         options.interval,
-        max_polls - n_attempts,  # subtract polls used to connect
+        int(max_polls) - n_attempts,  # subtract polls used to connect
         args={
             'workflow_id': workflow_id,
             'run_dir': cylc_run_dir,
@@ -257,27 +251,26 @@ def main(parser: COP, options: 'Values', *ids: str) -> None:
         }
     )
 
-    formatted_pt = spoller.format_pt_for_db()
+    #formatted_pt = spoller.format_pt_for_db()
 
-    if status is not None and task is not None and cycle is not None:
-        spoller.condition = f'status "{status}"'
-        if not asyncio.run(spoller.poll()):
-            sys.exit(1)
+    if status is not None:
+        spoller.condition = f'status "{id_}"'
 
-    elif output is not None and task is not None and cycle is not None:
-        spoller.condition = f'output "{output}"'
-        if not asyncio.run(spoller.poll()):
-            sys.exit(1)
+    elif output is not None:
+        spoller.condition = f'output "{id_}"'
 
-    else:
-        db_checker.display_maps(
-            db_checker.workflow_state_query(
-                task=task,
-                cycle=formatted_pt,
-                status=status,
-                output=output,
-                flow_num=options.flow_num,
-                print_outputs=options.print_outputs,
-            ),
-            old_format=options.old_format
-        )
+    if not asyncio.run(spoller.poll()):
+        sys.exit(1)
+
+    # else:
+    #   db_checker.display_maps(
+    #       db_checker.workflow_state_query(
+    #           task=task,
+    #           cycle=formatted_pt,
+    #           status=status,
+    #           output=output,
+    #           flow_num=options.flow_num,
+    #           print_outputs=options.print_outputs,
+    #       ),
+    #       old_format=options.old_format
+    #   )
