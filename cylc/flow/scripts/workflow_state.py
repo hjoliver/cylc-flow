@@ -91,7 +91,6 @@ from cylc.flow.cycling.util import add_offset
 from cylc.flow.dbstatecheck import CylcWorkflowDBChecker
 from cylc.flow.terminal import cli_function
 from cylc.flow.pathutil import get_cylc_run_dir
-from cylc.flow.xtriggers.workflow_state import check_task_selector
 
 from metomi.isodatetime.parsers import TimePointParser
 
@@ -124,14 +123,14 @@ class WorkflowPoller(Poller):
 
     async def check(self):
         """Return True if desired workflow state achieved, else False"""
-
-        return self.checker.task_state_met(
+        res = self.checker.task_state_met(
             self.args['task'],
             self.args['cycle'],
             status=self.args['status'],
             output=self.args['output'],
             flow_num=self.args['flow_num']
         )
+        return res
 
 
 def get_option_parser() -> COP:
@@ -271,7 +270,6 @@ def main(parser: COP, options: 'Values', *ids: str) -> None:
             sys.exit(1)
 
     else:
-        # just display query results
         db_checker.display_maps(
             db_checker.workflow_state_query(
                 task=task,

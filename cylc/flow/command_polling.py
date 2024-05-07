@@ -25,21 +25,25 @@ class Poller:
 
     @classmethod
     def add_to_cmd_options(cls, parser, d_interval=60, d_max_polls=10):
-        """Add command line options for commands that can do polling"""
+        """Add command line options for commands that can do polling
+        
+        """
         parser.add_option(
             "--max-polls",
             help=r"Maximum number of polls (default: %default).",
             metavar="INT",
             action="store",
             dest="max_polls",
-            default=d_max_polls)
+            default=d_max_polls
+        )
         parser.add_option(
             "--interval",
             help=r"Polling interval in seconds (default: %default).",
             metavar="SECS",
             action="store",
             dest="interval",
-            default=d_interval)
+            default=d_interval
+        )
 
     def __init__(self, condition, interval, max_polls, args):
 
@@ -49,7 +53,7 @@ class Poller:
         try:
             self.max_polls = int(max_polls)
         except ValueError:
-            sys.exit("max_polls must be an int")
+            sys.exit("max_polls must be an integer")
 
         # check interval is an int
         try:

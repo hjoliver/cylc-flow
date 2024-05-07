@@ -81,7 +81,7 @@ def workflow_state(
         workflow_id
     )
 
-    status, output = check_task_selector(
+    status, output = checker.check_task_selector(
         tokens["task_sel"],
         checker.back_compat_mode
     )
@@ -125,41 +125,6 @@ def workflow_state(
             'cylc_run_dir': alt_cylc_run_dir
         }
     )
-
-
-def check_task_selector(
-    task_sel, back_compat=False, default_succeeded=True
-):
-    """Determine whether to poll for a status or an output.
-
-    For standard task statuses, poll for the corresponding output instead
-    to avoid missing transient statuses between polls.
-
-    xtrigger defaults to succeeded, CLI not (allow non-specific queries)
-    """
-    status = None
-    output = None
-
-    if default_succeeded and task_sel is None:
-        # Default to succeeded
-        status = TASK_STATUS_SUCCEEDED
-
-    elif task_sel == TASK_STATUS_RUNNING:
-        # transient running status: use corresponding output "started".
-        if back_compat:
-            # Cylc 7 only stored custom outputs.
-            status = TASK_STATUS_RUNNING
-        else:
-            output = TASK_OUTPUT_STARTED
-
-    elif task_sel in TASK_STATUSES_ORDERED:
-        status = task_sel
-
-    else:
-        # Custom output
-        output = task_sel
-
-    return (status, output)
 
 
 def validate(args: Dict[str, Any], Err=WorkflowConfigError):
