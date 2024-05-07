@@ -105,10 +105,12 @@ if TYPE_CHECKING:
 class WorkflowPoller(Poller):
     """A polling object that checks workflow state."""
 
-    def format_pt_for_db(self, db_checker):
-        """Convert cycle point to target DB format."""
-
+    def __init__(self, db_checker, *args, **kwargs):
         self.checker = db_checker
+        super().__init__(*args, **kwargs)
+
+    def format_pt_for_db(self):
+        """Convert cycle point to target DB format."""
         if self.args['cycle']:
             fmt = self.checker.point_fmt
             if fmt:
@@ -151,8 +153,13 @@ def get_option_parser() -> COP:
 
     parser.add_option(
         "--flow",
-        help="Specify a flow number (default 1).",
-        action="store", type="int", dest="flow_num", default=1)
+        help="Specify a flow number",
+        action="store", type="int", dest="flow_num", default=None)
+
+    parser.add_option(
+        "--poll",
+        help="Poll (repeatedly check) until the result is achieved.",
+        action="store_true", dest="poll", default=False)
 
     parser.add_option(
         "--print-outputs",
@@ -188,8 +195,8 @@ def main(parser: COP, options: 'Values', *ids: str) -> None:
 
     cylc_run_dir = get_cylc_run_dir(options.alt_run_dir)
 
-    sys.stderr.write("Connecting ")
-    sys.stderr.flush()
+    # sys.stderr.write("Connecting ")
+    # sys.stderr.flush()
 
     while not connected:
         n_attempts += 1
@@ -204,9 +211,6 @@ def main(parser: COP, options: 'Values', *ids: str) -> None:
                 alt_run_dir=options.alt_run_dir
             )
 
-            db_checker = CylcWorkflowDBChecker(
-                cylc_run_dir, workflow_id)
-
         except (OSError, sqlite3.Error, InputError):
             if n_attempts >= max_polls:
                 sys.stderr.write(f"\nDid not connect in {max_polls} polls")
@@ -218,6 +222,8 @@ def main(parser: COP, options: 'Values', *ids: str) -> None:
             connected = True
             # ... but ensure at least one poll after connection:
             n_attempts -= 1
+
+    db_checker = CylcWorkflowDBChecker(cylc_run_dir, workflow_id)
 
     if tokens:
         cycle = tokens["cycle"]
@@ -233,11 +239,11 @@ def main(parser: COP, options: 'Values', *ids: str) -> None:
         status = None
         output = None
 
-    # Attempt to apply specified offset to the targeted cycle
     if options.offset:
         cycle = str(add_offset(cycle, options.offset))
 
     spoller = WorkflowPoller(
+        db_checker,
         "requested state",
         options.interval,
         max_polls - n_attempts,  # subtract polls used to connect
@@ -252,7 +258,7 @@ def main(parser: COP, options: 'Values', *ids: str) -> None:
         }
     )
 
-    formatted_pt = spoller.format_pt_for_db(db_checker)
+    formatted_pt = spoller.format_pt_for_db()
 
     if status is not None and task is not None and cycle is not None:
         spoller.condition = f'status "{status}"'
@@ -266,8 +272,8 @@ def main(parser: COP, options: 'Values', *ids: str) -> None:
 
     else:
         # just display query results
-        spoller.checker.display_maps(
-            spoller.checker.workflow_state_query(
+        db_checker.display_maps(
+            db_checker.workflow_state_query(
                 task=task,
                 cycle=formatted_pt,
                 status=status,

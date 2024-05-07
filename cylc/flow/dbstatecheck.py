@@ -195,7 +195,7 @@ class CylcWorkflowDBChecker:
         # * target_table is a code constant
 
         # Select from DB by name, cycle, status.
-        # (But not by output or flow - they are serialised lists).
+        # (Outputs and flow_nums are serialised).
         if task:
             stmt_wheres.append("name==?")
             stmt_args.append(task)
@@ -230,7 +230,7 @@ class CylcWorkflowDBChecker:
                 continue
             if not self.back_compat_mode:
                 flow_nums = deserialise_set(row[3])
-                if flow_num not in flow_nums:
+                if flow_num is not None and flow_num not in flow_nums:
                     # skip result, wrong flow
                     continue
                 fstr = stringify_flow_nums(flow_nums)
@@ -266,7 +266,10 @@ class CylcWorkflowDBChecker:
         Call when polling for a task status or output.
 
         """
+        # Default to flow 1 for polling a specific task.
+        if flow_num is None:
+            flow_num = 1
+
         return bool(
-            self.workflow_state_query(
-                task, cycle, status, output, flow_num)
+            self.workflow_state_query(task, cycle, status, output, flow_num)
         )

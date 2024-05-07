@@ -107,7 +107,7 @@ def workflow_state(
     satisfied: bool = checker.task_state_met(
         tokens["task"],
         cycle,
-        trigger=output,
+        output=output,
         status=status,
         flow_num=flow_num
     )
