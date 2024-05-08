@@ -77,18 +77,22 @@ class Poller:
             sys.exit("WARNING: nothing to do (--max-polls=0)")
 
         elif self.max_polls == 1:
-            sys.stdout.write(f"checking for {self.condition}: ")
+            sys.stderr.write(f"checking for {self.condition}: ")
 
         else:
-            sys.stdout.write(
-                f"polling ({self.interval} sec) for {self.condition}: ")
+            sys.stderr.write(
+                f"polling (max {self.max_polls} x {self.interval} sec)"
+                f" for {self.condition}: "
+            )
+        sys.stderr.flush()
 
         while self.n_polls < self.max_polls:
-            sys.stdout.write(".")
-            sys.stdout.flush()
+            sys.stderr.write(".")
+            sys.stderr.flush()
             self.n_polls += 1
             if await self.check():
-                sys.stdout.write(" satisfied\n")
+                sys.stderr.write("satisfied\n")
+                sys.stderr.flush()
                 return True
             if self.max_polls > 1:
                 sleep(self.interval)

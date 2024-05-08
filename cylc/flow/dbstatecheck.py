@@ -25,7 +25,10 @@ from textwrap import dedent
 from cylc.flow.flow_mgr import stringify_flow_nums
 from cylc.flow.pathutil import expand_path
 from cylc.flow.rundb import CylcWorkflowDAO
-from cylc.flow.task_outputs import TASK_OUTPUT_STARTED
+from cylc.flow.task_outputs import (
+    TASK_OUTPUT_SUBMITTED,
+    TASK_OUTPUT_STARTED,
+)
 from cylc.flow.task_state import (
     TASK_STATUS_SUBMITTED,
     TASK_STATUS_RUNNING,
@@ -36,66 +39,15 @@ from cylc.flow.task_state import (
 from cylc.flow.util import deserialise_set
 
 
-def check_task_selector(
-    task_sel, back_compat=False, default_succeeded=True
-):
-    """Determine whether to poll for a status or an output.
-
-    For standard task statuses, poll for the corresponding output instead
-    to avoid missing transient statuses between polls.
-
-    xtrigger defaults to succeeded, CLI not (allow non-specific queries)
-    """
-    status = None
-    output = None
-
-    if default_succeeded and task_sel is None:
-        # Default to succeeded
-        status = TASK_STATUS_SUCCEEDED
-
-    elif task_sel == TASK_STATUS_RUNNING:
-        # transient running status: use corresponding output "started".
-        if back_compat:
-            # Cylc 7 only stored custom outputs.
-            status = TASK_STATUS_RUNNING
-        else:
-            output = TASK_OUTPUT_STARTED
-
-    elif task_sel in TASK_STATUSES_ORDERED:
-        status = task_sel
-
-    else:
-        # Custom output
-        output = task_sel
-
-    return (status, output)
+# map transient states to outputs
+TRANSIENT_STATUSES = {
+    TASK_STATUS_SUBMITTED: TASK_OUTPUT_SUBMITTED,
+    TASK_STATUS_RUNNING: TASK_OUTPUT_STARTED
+}
 
 
 class CylcWorkflowDBChecker:
     """Object for querying a workflow database."""
-    STATE_ALIASES = {
-        'finish': [
-            TASK_STATUS_FAILED,
-            TASK_STATUS_SUCCEEDED
-        ],
-        'start': [
-            TASK_STATUS_RUNNING,
-            TASK_STATUS_SUCCEEDED,
-            TASK_STATUS_FAILED
-        ],
-        'submit': [
-            TASK_STATUS_SUBMITTED,
-            TASK_STATUS_RUNNING,
-            TASK_STATUS_SUCCEEDED,
-            TASK_STATUS_FAILED
-        ],
-        'fail': [
-            TASK_STATUS_FAILED
-        ],
-        'succeed': [
-            TASK_STATUS_SUCCEEDED
-        ],
-    }
 
     def __init__(
         self,
@@ -111,6 +63,7 @@ class CylcWorkflowDBChecker:
             )
         if not os.path.exists(db_path):
             raise OSError(errno.ENOENT, os.strerror(errno.ENOENT), db_path)
+
         self.conn = sqlite3.connect(db_path, timeout=10.0)
 
         # Get workflow point format.
@@ -181,6 +134,44 @@ class CylcWorkflowDBChecker:
         else:
             return [state]
 
+    def status_or_output(
+        self, task_sel, default_succeeded=True
+    ):
+        """Determine whether to query task status or outputs.
+
+        For transient statuses, query the corresponding output
+        instead to avoid missing it between polls.
+
+        xtrigger defaults to succeeded.
+        CLI does not, in order to allow non-specific queries.
+
+        """
+        status = None
+        output = None
+
+        if default_succeeded and task_sel is None:
+            # Default to succeeded
+            status = TASK_STATUS_SUCCEEDED
+
+        elif task_sel in TRANSIENT_STATUSES:
+            if self.back_compat_mode:
+                # Cylc 7 only stored custom outputs.
+                status = task_sel
+            else:
+                output = TRANSIENT_STATUSES[task_sel]
+
+        elif task_sel in TASK_STATUSES_ORDERED:
+            status = task_sel
+
+        elif task_sel in ("finished", "finish"):
+            status = "finished"  # handled by query construction
+
+        else:
+            # Custom output
+            output = task_sel
+
+        return (status, output)
+
     def workflow_state_query(
         self,
         task: Optional[str] = None,
@@ -239,19 +230,32 @@ class CylcWorkflowDBChecker:
         # Select from DB by name, cycle, status.
         # (Outputs and flow_nums are serialised).
         if task:
-            stmt_wheres.append("name==?")
+            if '*' in task:
+                # Replace Cylc ID wildcard with Sqlite query wildcard.
+                task = task.replace('*', '%')
+                stmt_wheres.append("name like ?")
+            else:
+                stmt_wheres.append("name==?")
             stmt_args.append(task)
 
         if cycle:
-            stmt_wheres.append("cycle==?")
+            if '*' in cycle:
+                cycle = cycle.replace('*', '%')
+                stmt_wheres.append("cycle like ?")
+            else:
+                stmt_wheres.append("cycle==?")
             stmt_args.append(cycle)
 
         if status:
             stmt_frags = []
-            for state in self.state_lookup(status):
-                stmt_args.append(state)
-                stmt_frags.append("status==?")
-            stmt_wheres.append("(" + (" OR ").join(stmt_frags) + ")")
+            if status == "finished":
+                for state in (TASK_STATUS_SUCCEEDED, TASK_STATUS_FAILED):
+                    stmt_args.append(state)
+                    stmt_frags.append("status==?")
+                stmt_wheres.append("(" + (" OR ").join(stmt_frags) + ")")
+            else:
+                stmt_wheres.append("status==?")
+                stmt_args.append(status)
 
         if stmt_wheres:
             stmt += "WHERE\n    " + (" AND ").join(stmt_wheres)
@@ -288,10 +292,10 @@ class CylcWorkflowDBChecker:
 
         results = []
         for row in db_res:
-            outputs = str(list(json.loads(row[2])))
+            outputs = list(json.loads(row[2]))
             if output is not None and output not in outputs:
                 continue
-            results.append(row[:2] + [outputs] + row[3:])
+            results.append(row[:2] + [str(outputs)] + row[3:])
 
         return results
 
