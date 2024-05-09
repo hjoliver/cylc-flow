@@ -1,0 +1,44 @@
+#!Jinja2
+
+{% set INTEGER_CYCLING = False %}
+
+{% if INTEGER_CYCLING %}
+[scheduling]
+    {% set RECURRENCE = "P1" %}
+    {% set CYCLE2 = 2 %}
+    cycling mode = integer
+    initial cycle point = 1
+    final cycle point = 3
+    #[[xtriggers]]
+    #    ws = workflow_state("%(workflow)s//3/foo:succeeded"):PT2S
+{% else %}
+    {% set RECURRENCE = "P1Y" %}
+    {% set CYCLE2 = 2002 %}
+[scheduler]
+    #cycle point format = CCYY
+[scheduling]
+    initial cycle point = 2001
+    final cycle point = 2003
+    #[[xtriggers]]
+    #    ws = workflow_state("%(workflow)s//2003/foo:succeeded"):PT2S
+{% endif %}
+    [[graph]]
+        {{RECURRENCE}} = """
+           foo[-{{RECURRENCE}}] => foo
+           foo:x => bar & baz
+           # @ws => baz
+        """
+[runtime]
+    [[foo]]
+        script = """
+           cylc message -- "xxx" 
+        """
+        [[[outputs]]]
+           x = xxx
+    [[bar]]
+        script = """
+          if ((CYLC_TASK_CYCLE_POINT == CYLC_WORKFLOW_FINAL_CYCLE_POINT && CYLC_TASK_SUBMIT_NUMBER == 1)); then
+              cylc trigger --flow=new $CYLC_WORKFLOW_ID//{{CYCLE2}}/foo
+          fi
+        """
+    [[baz]]
