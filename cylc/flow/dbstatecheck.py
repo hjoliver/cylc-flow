@@ -67,13 +67,15 @@ class CylcWorkflowDBChecker:
         self.conn = sqlite3.connect(db_path, timeout=10.0)
 
         # Get workflow point format.
+        self.db_point_fmt = None
+        self.back_compat_mode = False
         try:
-            self.point_fmt = self._get_db_point_format()
+            self.db_point_fmt = self._get_db_point_format()
             self.back_compat_mode = False
         except sqlite3.OperationalError as exc:
             # BACK COMPAT: Cylc 7 DB (see method below).
             try:
-                self.point_fmt = self._get_db_point_format_compat()
+                self.db_point_fmt = self._get_db_point_format_compat()
                 self.back_compat_mode = True
             except sqlite3.OperationalError:
                 raise exc  # original error
@@ -126,13 +128,6 @@ class CylcWorkflowDBChecker:
             ['cycle_point_format']
         ):
             return row[0]
-
-    def state_lookup(self, state):
-        """Allows for multiple states to be searched via a status alias."""
-        if state in self.STATE_ALIASES:
-            return self.STATE_ALIASES[state]
-        else:
-            return [state]
 
     def status_or_output(
         self, task_sel, default_succeeded=True
@@ -240,10 +235,12 @@ class CylcWorkflowDBChecker:
 
         if cycle:
             if '*' in cycle:
+                # Replace Cylc ID wildcard with Sqlite query wildcard.
                 cycle = cycle.replace('*', '%')
                 stmt_wheres.append("cycle like ?")
             else:
                 stmt_wheres.append("cycle==?")
+                                                
             stmt_args.append(cycle)
 
         if status:

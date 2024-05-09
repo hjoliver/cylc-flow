@@ -83,7 +83,7 @@ from cylc.flow.cycling.util import add_offset
 from cylc.flow.dbstatecheck import CylcWorkflowDBChecker
 from cylc.flow.terminal import cli_function
 from cylc.flow.workflow_files import infer_latest_run_from_id
-
+from metomi.isodatetime.parsers import TimePointParser
 
 if TYPE_CHECKING:
     from optparse import Values
@@ -124,16 +124,18 @@ class WorkflowPoller(Poller):
 
         Called once per poll by super().
 
+        We can't infer runN up front because the DB might not exist at first.
+
         """
         if self.workflow_id is None:
-            # Workflow not found yet (can't infer runN up front because
-            # the DB might not exist when polling commences).
+            # Workflow not found yet.
             try:
                 self.workflow_id = infer_latest_run_from_id(
                     self.tokens.workflow_id,
                     self.alt_cylc_run_dir
                 )
             except InputError:
+                print("DB NOT FOUND")
                 return False
 
         if self.db_checker is None:
@@ -144,15 +146,29 @@ class WorkflowPoller(Poller):
                     self.workflow_id
                 )
             except (OSError, sqlite3.Error):
+                print("DB NOT CONNECXTED")
                 return False
             else:
-                # Decide if we should check for a status or an output.
+                # Connected. At first connection:  
+                # TODO: do all this in the checker?
+                # 1. check for status or output? (requires DB compat mode)
                 self.status, self.output = self.db_checker.status_or_output(
                     self.tokens["task_sel"],
                     default_succeeded=False
                 )
-                if self.offset:
+                # 2. compute target cycle point (requires DB point format)
+                if self.offset is not None:
+                    # TODO: check integer offset
                     self.cycle = str(add_offset(self.cycle, self.offset))
+                self.cycle = str(TimePointParser().parse(self.cycle, dump_format=self.db_checker.db_point_fmt))
+                    # TODO: check integer cycling
+                    # TODO: check integer vs ISO8601 mix-up.
+
+                    #   sys.stderr.write(
+                    #       f'\nERROR: cycle point value "{cycle}" is not compatible'
+                    #       f' with the DB point format "{self.db_point_fmt}"'
+                    #   )
+                    #   sys.exit(1)
 
         res = self.db_checker.workflow_state_query(
             self.task, self.cycle, self.status, self.output, self.flow_num,
