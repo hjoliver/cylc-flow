@@ -160,7 +160,13 @@ class WorkflowPoller(Poller):
                 if self.offset is not None:
                     # TODO: check integer offset
                     self.cycle = str(add_offset(self.cycle, self.offset))
-                self.cycle = str(TimePointParser().parse(self.cycle, dump_format=self.db_checker.db_point_fmt))
+
+                if self.cycle:
+                    self.cycle = str(
+                        TimePointParser().parse(
+                            self.cycle, dump_format=self.db_checker.db_point_fmt
+                        )
+                    )
                     # TODO: check integer cycling
                     # TODO: check integer vs ISO8601 mix-up.
 
