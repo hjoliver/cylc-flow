@@ -316,15 +316,10 @@ class XtriggerManager:
 
         try:
             func = get_xtrig_func(fname, fname, fdir)
-        except ImportError:
-            raise XtriggerConfigError(
-                label, f"xtrigger module '{fname}' not found",
-            )
-        except AttributeError:
-            raise XtriggerConfigError(
-                label, f"'{fname}' not found in xtrigger module '{fname}'",
-            )
-
+        except (ImportError, AttributeError) as exc:
+            # xtrigger module itself not found, or it has internal import
+            #    or attribute errors..
+            raise XtriggerConfigError(label, exc)
         if not callable(func):
             raise XtriggerConfigError(
                 label, f"'{fname}' not callable in xtrigger module '{fname}'",

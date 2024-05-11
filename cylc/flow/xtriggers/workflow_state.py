@@ -23,7 +23,6 @@ from cylc.flow.pathutil import get_cylc_run_dir
 from cylc.flow.cycling.util import add_offset
 from cylc.flow.dbstatecheck import (
     CylcWorkflowDBChecker,
-    check_task_selector
 )
 from cylc.flow.workflow_files import infer_latest_run_from_id
 from cylc.flow.id import tokenise

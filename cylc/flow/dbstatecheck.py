@@ -22,6 +22,12 @@ import sys
 from typing import Optional
 from textwrap import dedent
 
+from cylc.flow.exceptions import InputError
+from cylc.flow.cycling.util import add_offset
+from cylc.flow.cycling.integer import (
+    IntegerPoint,
+    IntegerInterval
+)
 from cylc.flow.flow_mgr import stringify_flow_nums
 from cylc.flow.pathutil import expand_path
 from cylc.flow.rundb import CylcWorkflowDAO
@@ -37,6 +43,8 @@ from cylc.flow.task_state import (
     TASK_STATUSES_ORDERED
 )
 from cylc.flow.util import deserialise_set
+from metomi.isodatetime.parsers import TimePointParser
+from metomi.isodatetime.exceptions import ISO8601SyntaxError
 
 
 # map transient states to outputs
@@ -79,6 +87,41 @@ class CylcWorkflowDBChecker:
                 self.back_compat_mode = True
             except sqlite3.OperationalError:
                 raise exc  # original error
+
+    def tweak_cycle_point(self, cycle, offset):
+        """Adjust a cycle point (with offset) to the DB point format."""
+
+        if offset is not None:
+            if self.db_point_fmt is None:
+                # integer cycling
+                cycle = str(
+                    IntegerPoint(cycle) +
+                    IntegerInterval(offset)
+                )
+            else:
+                cycle = str(
+                    add_offset(cycle, offset)
+                )
+
+        if (
+            cycle is not None and "*" not in cycle
+            and self.db_point_fmt is not None
+        ):
+            # Convert cycle point to DB format.
+            try:
+                cycle = str(
+                    TimePointParser().parse(
+                        cycle,
+                        dump_format=self.db_point_fmt
+                    )
+                )
+            except ISO8601SyntaxError:
+                raise InputError(
+                    f'\ncycle point "{cycle}" is not compatible'
+                    ' with the DB point format'
+                    f' "{self.db_point_fmt}"'
+                )
+        return cycle
 
     @staticmethod
     def display_maps(res, old_format=False):
@@ -240,7 +283,6 @@ class CylcWorkflowDBChecker:
                 stmt_wheres.append("cycle like ?")
             else:
                 stmt_wheres.append("cycle==?")
-                                                
             stmt_args.append(cycle)
 
         if status:

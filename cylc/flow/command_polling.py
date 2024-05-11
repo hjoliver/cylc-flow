@@ -17,6 +17,7 @@
 
 import sys
 from time import sleep
+from cylc.flow import LOG
 
 
 class Poller:
@@ -74,34 +75,31 @@ class Poller:
         """
         if self.max_polls == 0:
             # exit 1 as we can't know if the condition is satisfied
-            sys.exit("WARNING: nothing to do (--max-polls=0)")
+            LOG.critical("nothing to do (--max-polls=0)")
+            sys.exit(1)
 
         elif self.max_polls == 1:
-            sys.stderr.write(f"checking for {self.condition}: ")
-
+            LOG.debug(
+                f"checking for {self.condition}: ")
         else:
-            sys.stderr.write(
+            LOG.debug(
                 f"polling (max {self.max_polls} x {self.interval} sec)"
-                f" for {self.condition}: "
+                f" for {self.condition}"
             )
-        sys.stderr.flush()
 
         while self.n_polls < self.max_polls:
             sys.stderr.write(".")
             sys.stderr.flush()
             self.n_polls += 1
             if await self.check():
-                sys.stderr.write("satisfied\n")
-                sys.stderr.flush()
                 return True
             if self.max_polls > 1:
                 sleep(self.interval)
 
-        sys.stdout.write("\n")
+        sys.stderr.write("\n")
+        sys.stderr.flush()
+        err = "condition not satisfied"
         if self.max_polls > 1:
-            sys.stderr.write(
-                "ERROR: condition not satisfied after %d polls\n" %
-                self.max_polls)
-        else:
-            sys.stderr.write("ERROR: condition not satisfied\n")
+            err += f" after {self.max_polls} polls"
+        LOG.critical(err)
         return False

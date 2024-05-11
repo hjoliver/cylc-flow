@@ -37,13 +37,16 @@ characters. Quote the ID to protect it from shell expansion.
 In task scripting, to poll the same cycle point in another workflow just use
 $CYLC_TASK_CYCLE_POINT in the ID (but see also the workflow_state xtrigger).
 
-NOTE:
+NOTES:
   - Tasks are only recorded in the DB once they enter the active window (n=0).
   - Flow numbers are only printed if not the original flow (i.e., if > 1).
 
-WARNING:
+WARNINGS:
  - Typos in the workflow or task ID will result in fruitless polling.
  - Avoid polling for "waiting" - it is transient and may be missed.
+ - If your system clock is running local time and the target database
+   cycle points are UTC, your command line cycle point will be converted
+   to UTC before the database is queried.
 
 Examples:
 
@@ -78,18 +81,19 @@ from cylc.flow.option_parsers import (
     ID_MULTI_ARG_DOC,
     CylcOptionParser as COP,
 )
+from cylc.flow import LOG
 from cylc.flow.command_polling import Poller
-from cylc.flow.cycling.util import add_offset
 from cylc.flow.dbstatecheck import CylcWorkflowDBChecker
 from cylc.flow.terminal import cli_function
 from cylc.flow.workflow_files import infer_latest_run_from_id
-from metomi.isodatetime.parsers import TimePointParser
 
 if TYPE_CHECKING:
     from optparse import Values
 
 
 # TODO: flow=all, none?  Useful for CLI if not xrigger, pt format.
+
+WILDCARD = "*"
 
 # polling defaults
 MAX_POLLS = 12
@@ -108,34 +112,42 @@ class WorkflowPoller(Poller):
         self.flow_num = flow_num
         self.alt_cylc_run_dir = alt_cylc_run_dir
 
-        self.workflow_id = None
         self.db_checker = None
 
-        self.tokens = Tokens(self.id_)
-        self.cycle = self.tokens["cycle"]
-        self.task = self.tokens["task"]
+        tokens = Tokens(self.id_)
+
+        self.workflow_id_raw = tokens.workflow_id
+        self.task_sel = tokens["task_sel"]
+        self.cycle = tokens["cycle"]
+        self.task = tokens["task"]
+
         self.status = None
-        self.output = None
+        self.outuput = None
+        self.workflow_id = None
+
+        if (
+            self.cycle is not None and
+            "*" in self.cycle and
+            self.offset is not None
+        ):
+            raise InputError(
+                f"Cycle point wildcard ({WILDCARD})"
+                " is not compatible with --offset")
 
         super().__init__(*args, **kwargs)
 
-    async def check(self):
-        """Return True if desired workflow state achieved, else False.
+    def _db_connect(self) -> bool:
+        """Find workflow and connect to Db, else return False."""
 
-        Called once per poll by super().
-
-        We can't infer runN up front because the DB might not exist at first.
-
-        """
         if self.workflow_id is None:
-            # Workflow not found yet.
+            # Workflow not found (maybe not installed or running yet).
+            # Can't infer runN until the run dir exists.
             try:
                 self.workflow_id = infer_latest_run_from_id(
-                    self.tokens.workflow_id,
+                    self.workflow_id_raw,
                     self.alt_cylc_run_dir
                 )
             except InputError:
-                print("DB NOT FOUND")
                 return False
 
         if self.db_checker is None:
@@ -146,35 +158,28 @@ class WorkflowPoller(Poller):
                     self.workflow_id
                 )
             except (OSError, sqlite3.Error):
-                print("DB NOT CONNECXTED")
                 return False
-            else:
-                # Connected. At first connection:  
-                # TODO: do all this in the checker?
-                # 1. check for status or output? (requires DB compat mode)
-                self.status, self.output = self.db_checker.status_or_output(
-                    self.tokens["task_sel"],
-                    default_succeeded=False
-                )
-                # 2. compute target cycle point (requires DB point format)
-                if self.offset is not None:
-                    # TODO: check integer offset
-                    self.cycle = str(add_offset(self.cycle, self.offset))
 
-                if self.cycle:
-                    self.cycle = str(
-                        TimePointParser().parse(
-                            self.cycle, dump_format=self.db_checker.db_point_fmt
-                        )
-                    )
-                    # TODO: check integer cycling
-                    # TODO: check integer vs ISO8601 mix-up.
+        # Connected. At first connection:
+        # 1. check for status or output? (requires DB compat mode)
+        self.status, self.output = self.db_checker.status_or_output(
+            self.task_sel,
+            default_succeeded=False
+        )
+        # 2. compute target cycle point (requires DB point format)
+        self.cycle = self.db_checker.tweak_cycle_point(self.cycle, self.offset)
 
-                    #   sys.stderr.write(
-                    #       f'\nERROR: cycle point value "{cycle}" is not compatible'
-                    #       f' with the DB point format "{self.db_point_fmt}"'
-                    #   )
-                    #   sys.exit(1)
+        return True
+
+    async def check(self):
+        """Return True if desired workflow state achieved, else False.
+
+        Called once per poll by super().
+
+        """
+        if self.db_checker is None and not self._db_connect():
+            LOG.debug("DB not connected")
+            return False
 
         res = self.db_checker.workflow_state_query(
             self.task, self.cycle, self.status, self.output, self.flow_num,
@@ -182,10 +187,10 @@ class WorkflowPoller(Poller):
         )
         if res:
             # End the polling dot stream and print inferred runN workflow ID.
-            sys.stderr.write(f"\n{self.workflow_id}\n")
+            sys.stderr.write(f" from {self.workflow_id}:\n")
             self.db_checker.display_maps(
-                res, old_format=self.args["old_format"])
-
+                res, old_format=self.args["old_format"]
+            )
         return bool(res)
 
 
@@ -202,9 +207,11 @@ def get_option_parser() -> COP:
 
     parser.add_option(
         "-s", "--offset",
-        help="Offset from given cycle point as an ISO8601 duration, e.g. PT30M"
-        " is 30 min. Use in task job scripts to poll offset cycle points in"
-        " other workflows (but see also the workflow_state xtrigger).",
+        help="Offset from ID cycle point as an ISO8601 duration, for datetime"
+        " cycling (e.g. PT30M for 30 minutes) or an integer interval, for"
+        " integer cycling (e.g. P2). Can be used in task job scripts to poll"
+        " offset cycle points without doing the cycle arithmetic yourself,"
+        " but see also the workflow_state xtrigger).",
         action="store", dest="offset", metavar="DURATION", default=None)
 
     parser.add_option(
