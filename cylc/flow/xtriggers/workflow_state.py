@@ -16,7 +16,6 @@
 
 from typing import Dict, Optional, Tuple, Any
 import asyncio
-import sys
 
 from cylc.flow.scripts.workflow_state import (
     WorkflowPoller,

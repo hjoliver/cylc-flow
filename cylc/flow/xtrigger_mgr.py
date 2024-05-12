@@ -319,7 +319,7 @@ class XtriggerManager:
         except (ImportError, AttributeError) as exc:
             # xtrigger module itself not found, or it has internal import
             #    or attribute errors..
-            raise XtriggerConfigError(label, exc)
+            raise XtriggerConfigError(label, str(exc))
         if not callable(func):
             raise XtriggerConfigError(
                 label, f"'{fname}' not callable in xtrigger module '{fname}'",

@@ -88,8 +88,9 @@ class Poller:
             )
 
         while self.n_polls < self.max_polls:
-            sys.stderr.write(".")
-            sys.stderr.flush()
+            if self.n_polls > 1:
+                sys.stderr.write(".")
+                sys.stderr.flush()
             self.n_polls += 1
             if await self.check():
                 return True

@@ -19,27 +19,30 @@
 r"""cylc workflow-state [OPTIONS] ARGS
 
 Poll a workflow database for task status or completed outputs until matching
-results are found or the maxumum number of polls is reached (see --max-polls
-and --interval).
+results are found, or polling is exhausted (see --max-polls and --interval).
 
 If the database does not exist at first, polls are consumed waiting for it.
 
-In cycle/task:selector the selector is interpreted as a status, except:
-  - transient statuses "submitted" and "running" are converted to the
+In ID cycle/task:selector, the selector is interpreted as a status, except:
+  - check the task outputs table instead if the --outputs option is given
+  - the transient statuses "submitted" and "running" are converted to the
     associated outputs "submitted" and "started", to avoid missing them.
-  - status "running" is converted to output "started" to avoid missing it
-  - "finished" is supported as an alias for "succeeded or failed"
   - if selector is not a known status it is assumed to be a custom output
+  - the "finished" psuedo-status is as an alias for "succeeded or failed"
 
 Both cycle and task can include "*" to match any sequence of zero or more
 characters. Quote the ID to protect it from shell expansion.
 
-In task scripting, to poll the same cycle point in another workflow just use
-$CYLC_TASK_CYCLE_POINT in the ID (but see also the workflow_state xtrigger).
+USE IN TASK SCRIPTING:
+  - To poll a task at the same cycle point in another workflow, just use
+    $CYLC_TASK_CYCLE_POINT in the ID (see also the workflow_state xtrigger).
+  - To poll a task at an offset cycle point, you can used the --offset option
+    instead of doing the datetime arithmetic yourself.
 
 NOTES:
   - Tasks are only recorded in the DB once they enter the active window (n=0).
   - Flow numbers are only printed if not the original flow (i.e., if > 1).
+  - Datetime cycle points are automatically converted to the DB point format.
 
 WARNINGS:
  - Typos in the workflow or task ID will result in fruitless polling.
@@ -67,6 +70,8 @@ Examples:
 
   # Print if task 2033/foo completed output file1:
   $ cylc workflow-state WORKFLOW//2033/foo:file1
+
+See also: the workflow_state xtrigger, for state polling within workflows.
 """
 
 import asyncio
@@ -189,7 +194,7 @@ class WorkflowPoller(Poller):
         )
         if self.result:
             # End the polling dot stream and print inferred runN workflow ID.
-            sys.stderr.write(f" from {self.workflow_id}:\n")
+            sys.stderr.write(f"{self.workflow_id}:\n")
             self.db_checker.display_maps(
                 self.result, old_format=self.args["old_format"]
             )
