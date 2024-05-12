@@ -124,6 +124,7 @@ class WorkflowPoller(Poller):
         self.status = None
         self.outuput = None
         self.workflow_id = None
+        self.results = None
 
         if (
             self.cycle is not None and
@@ -137,7 +138,7 @@ class WorkflowPoller(Poller):
         super().__init__(*args, **kwargs)
 
     def _db_connect(self) -> bool:
-        """Find workflow and connect to Db, else return False."""
+        # """Find workflow and connect to Db, else return False."""
 
         if self.workflow_id is None:
             # Workflow not found (maybe not installed or running yet).
@@ -175,23 +176,24 @@ class WorkflowPoller(Poller):
         """Return True if desired workflow state achieved, else False.
 
         Called once per poll by super().
+        Store self.result for access.
 
         """
         if self.db_checker is None and not self._db_connect():
             LOG.debug("DB not connected")
             return False
 
-        res = self.db_checker.workflow_state_query(
+        self.result = self.db_checker.workflow_state_query(
             self.task, self.cycle, self.status, self.output, self.flow_num,
             self.args["print_outputs"]
         )
-        if res:
+        if self.result:
             # End the polling dot stream and print inferred runN workflow ID.
             sys.stderr.write(f" from {self.workflow_id}:\n")
             self.db_checker.display_maps(
-                res, old_format=self.args["old_format"]
+                self.result, old_format=self.args["old_format"]
             )
-        return bool(res)
+        return bool(self.result)
 
 
 def get_option_parser() -> COP:
@@ -201,7 +203,7 @@ def get_option_parser() -> COP:
     )
 
     parser.add_option(
-        "-d", "--alt-run-dir",
+        "-d", "--alt-cylc-run-dir",
         help="Alternate cylc-run directory, e.g. for others' workflows.",
         metavar="DIR", action="store", dest="alt_cylc_run_dir", default=None)
 
