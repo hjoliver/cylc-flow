@@ -70,7 +70,7 @@ log_scan "${TEST_NAME}-shutdown-log-scan" "${FILE}" 20 1 \
     'Workflow shutting down - REQUEST(NOW-NOW)' \
     "Attempting to restart on \"${CYLC_TEST_HOST}\"" \
     "Workflow now running on \"${CYLC_TEST_HOST}\""
-LATEST_TASK=$(cylc workflow-state "${WORKFLOW_NAME}" -S succeeded \
+LATEST_TASK=$(cylc workflow-state --old-format "${WORKFLOW_NAME}" -S succeeded \
     | cut -d ',' -f 1 | sort | tail -n 1 | sed 's/task_foo//')
 
 # test restart procedure  - scan the second log file created on restart
