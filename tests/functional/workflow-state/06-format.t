@@ -38,14 +38,13 @@ TEST_NAME="${TEST_NAME_BASE}-run"
 workflow_run_ok "${TEST_NAME}" cylc play --debug --no-detach "${WORKFLOW_NAME}"
 
 TEST_NAME=${TEST_NAME_BASE}-cli-poll
-run_ok "${TEST_NAME}" cylc workflow-state "${WORKFLOW_NAME}" -p 20100101T0000Z \
-        --task=foo --status=succeeded
+run_ok "${TEST_NAME}" cylc workflow-state "${WORKFLOW_NAME}//20100101T0000Z/foo:succeeded" --max-polls=1
 contains_ok "${TEST_NAME}.stdout" <<__OUT__
-polling for 'succeeded': satisfied
+2010-01-01/foo:succeeded
 __OUT__
 
 TEST_NAME=${TEST_NAME_BASE}-cli-dump
-run_ok "${TEST_NAME}" cylc workflow-state --old-format "${WORKFLOW_NAME}" -p 20100101T0000Z
+run_ok "${TEST_NAME}" cylc workflow-state --old-format "${WORKFLOW_NAME}//20100101T0000Z" --max-polls=1
 contains_ok "${TEST_NAME}.stdout" <<__OUT__
 foo, 2010-01-01, succeeded
 __OUT__

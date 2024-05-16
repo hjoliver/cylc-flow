@@ -27,8 +27,7 @@ workflow_run_ok "${TEST_NAME_BASE}-run" \
     cylc play --debug --no-detach "${WORKFLOW_NAME}"
 
 TEST_NAME=${TEST_NAME_BASE}-query
-run_fail "${TEST_NAME}" cylc workflow-state "${WORKFLOW_NAME}" \
-    -p 2013 -t foo --max-polls=1 --output x
+run_fail "${TEST_NAME}" cylc workflow-state "${WORKFLOW_NAME}/2013/foo:x" --max-polls=1
 
 grep_ok "ERROR: condition not satisfied" "${TEST_NAME}.stderr"
 
