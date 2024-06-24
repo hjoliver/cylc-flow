@@ -1694,7 +1694,8 @@ class TaskPool:
             return None
 
         if (
-            prev_status is not None
+            not force
+            and prev_status is not None
             and not itask.state.outputs.get_completed_outputs()
         ):
             # If itask has any history in this flow but no completed outputs
@@ -1990,6 +1991,7 @@ class TaskPool:
         """
         if prereqs == ["all"]:
             itask.state.set_prerequisites_all_satisfied()
+
         else:
             # Attempt to set the given presrequisites.
             # Log any that aren't valid for the task.
@@ -2003,12 +2005,9 @@ class TaskPool:
             if len(unmatched) == len(prereqs):
                 # No prereqs matched.
                 return False
-        if (
-            self.runahead_limit_point is not None
-            and itask.point <= self.runahead_limit_point
-        ):
-            self.rh_release_and_queue(itask)
-        self.data_store_mgr.delta_task_prerequisite(itask)
+
+        self._force_trigger_if_ready(itask)
+
         return True
 
     def _set_prereqs_tdef(
@@ -2016,7 +2015,8 @@ class TaskPool:
     ):
         """Spawn a future task and set prerequisites on it."""
 
-        itask = self.spawn_task(taskdef.name, point, flow_nums, flow_wait)
+        itask = self.spawn_task(
+            taskdef.name, point, flow_nums, flow_wait=flow_wait, force=True)
         if itask is None:
             return
         if self._set_prereqs_itask(itask, prereqs, flow_nums):
@@ -2103,8 +2103,11 @@ class TaskPool:
         if itask.state_reset(TASK_STATUS_WAITING):
             # (could also be unhandled failed)
             self.data_store_mgr.delta_task_state(itask)
-        # (No need to set prerequisites satisfied here).
-        if itask.state.is_runahead:
+        if (
+            itask.state.is_runahead
+            and self.runahead_limit_point is not None
+            and itask.point <= self.runahead_limit_point
+        ):
             # Release from runahead, and queue it.
             self.rh_release_and_queue(itask)
             self.spawn_to_rh_limit(
@@ -2133,8 +2136,108 @@ class TaskPool:
             # De-queue it to run now.
             self.task_queue_mgr.force_release_task(itask)
 
+    def _force_trigger_if_ready(self, itask):
+        if not itask.is_task_prereqs_done():
+            return
+        itask.is_manual_submit = True
+        itask.reset_try_timers()
+
+        self.data_store_mgr.delta_task_prerequisite(itask)
+        self._force_trigger(itask)
+
+    def rerun_tasks(
+        self,
+        items: Iterable[str],
+        flow: List[str],
+        flow_wait: bool = False,
+        flow_descr: Optional[str] = None,
+        # ignore_deps: bool = True
+    ):
+        """(Re)run a selected group of tasks.
+
+        Set any off-flow prerequisites (all task proxies).
+        Unset any in-flow prerequisites (existing task proxies).
+
+        TODO - check triggering if waiting on xtrigger
+        TODO - CALL _force_trigger on the initial tasks?
+        TODO - get_resolved no longer reports "triggered off []" for manual
+               triggering because we now do it by setting prerequisites as if
+               naturally. Use is_manual_submit instead?
+        """
+        # Get flow numbers for the tasks to be triggered.
+        flow_nums = self._get_flow_nums(flow, flow_descr)
+        if flow_nums is None:
+            return
+
+        # if ignore_deps:  TODO
+        #    return self.force_trigger_tasks(
+        #       items, flow, flow_wait, flow_descr)
+
+        # Get matching tasks proxies, and matching future task IDs.
+        existing_tasks, future_ids, unmatched = self.filter_task_proxies(
+            items, future=True, warn=False,
+        )
+        all_ids = (
+            list(future_ids) +
+            [(itask.tdef.name, itask.point) for itask in existing_tasks]
+        )
+
+        for itask in existing_tasks:
+            if itask.state(TASK_STATUS_PREPARING, *TASK_STATUSES_ACTIVE):
+                LOG.warning(f"[{itask}] ignoring trigger - already active")
+                continue
+
+            self.merge_flows(itask, flow_nums)
+            for pre in itask.state.prerequisites:
+                for (
+                    p_point, p_name, p_out
+                ), p_state in pre._satisfied.items():
+                    if (
+                        not p_state and
+                        (p_name, get_point(p_point)) not in all_ids
+                    ):
+                        # set off-flow prerequisite
+                        itask.satisfy_me(
+                            [
+                                Tokens(
+                                    cycle=p_point,
+                                    task=p_name,
+                                    task_sel=p_out
+                                )
+                            ]
+                        )
+            # not in loop! we could trigger a task with no prereqs
+            self._force_trigger_if_ready(itask)
+
+        for name, point in future_ids:
+            tdef = self.config.taskdefs[name]
+            if tdef.is_parentless(point):
+                # parentless: promote to task pool
+                self.set_prereqs_and_outputs(
+                    [f"{point}/{name}"],
+                    [], ["all"],
+                    flow_nums,
+                    flow_wait,
+                    flow_descr
+                )
+            for pid in tdef.get_triggers(point):
+                p_point = pid.get_point(point)
+                p_name = pid.task_name
+                if (p_name, p_point) in all_ids:
+                    # in-flow
+                    continue
+                # set off-flow prerequisite
+                self.set_prereqs_and_outputs(
+                    [f"{point}/{name}"],
+                    [], [f"{p_point}/{p_name}"],
+                    flow_nums,
+                    flow_wait,
+                    flow_descr
+                )
+
     def force_trigger_tasks(
-        self, items: Iterable[str],
+        self,
+        items: Iterable[str],
         flow: List[str],
         flow_wait: bool = False,
         flow_descr: Optional[str] = None
@@ -2156,6 +2259,11 @@ class TaskPool:
               unless flow-wait is set.
 
         """
+        # TEMP: TESTING THE GROUP RERUN PROPOSAL
+        # TODO: ensure above description of triggering still works.
+        # TODO: AND ALL THE BELOW FUNCTIONALITY
+        return self.rerun_tasks(items, flow, flow_wait, flow_descr)
+
         # Get flow numbers for the tasks to be triggered.
         flow_nums = self._get_flow_nums(flow, flow_descr)
         if flow_nums is None:
@@ -2370,36 +2478,35 @@ class TaskPool:
 
             point_str = tokens['cycle']
             name_str = tokens['task']
-            if name_str not in self.config.taskdefs:
-                if self.config.find_taskdefs(name_str):
-                    # It's a family name; was not matched by active tasks
+            members = self.config.find_taskdefs(name_str)
+            if not members:
+                LOG.warning(self.ERR_TMPL_NO_TASKID_MATCH.format(name_str))
+                unmatched_tasks.append(id_)
+                continue
+            for name in [m.name for m in members]:
+                try:
+                    point_str = standardise_point_string(point_str)
+                except PointParsingError as exc:
                     LOG.warning(
-                        f"No active tasks in the family {name_str}"
-                        f' matching: {id_}'
-                    )
+                        f"{id_} - invalid cycle point: {point_str} ({exc})")
+                    unmatched_tasks.append(id_)
+                    continue
+                point = get_point(point_str)
+                try:
+                    taskdef = self.config.taskdefs[name]
+                except KeyError:
+                    # family name
+                    continue
+                if taskdef.is_valid_point(point):
+                    matched_tasks.add((taskdef.name, point))
                 else:
-                    LOG.warning(self.ERR_TMPL_NO_TASKID_MATCH.format(name_str))
-                unmatched_tasks.append(id_)
-                continue
-            try:
-                point_str = standardise_point_string(point_str)
-            except PointParsingError as exc:
-                LOG.warning(
-                    f"{id_} - invalid cycle point: {point_str} ({exc})")
-                unmatched_tasks.append(id_)
-                continue
-            point = get_point(point_str)
-            taskdef = self.config.taskdefs[name_str]
-            if taskdef.is_valid_point(point):
-                matched_tasks.add((taskdef.name, point))
-            else:
-                LOG.warning(
-                    self.ERR_PREFIX_TASK_NOT_ON_SEQUENCE.format(
-                        taskdef.name, point
+                    LOG.warning(
+                        self.ERR_PREFIX_TASK_NOT_ON_SEQUENCE.format(
+                            taskdef.name, point
+                        )
                     )
-                )
-                unmatched_tasks.append(id_)
-                continue
+                    unmatched_tasks.append(id_)
+                    continue
         return matched_tasks, unmatched_tasks
 
     def match_taskdefs(
