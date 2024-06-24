@@ -2122,6 +2122,65 @@ class TaskPool:
             # De-queue it to run now.
             self.task_queue_mgr.force_release_task(itask)
 
+    def rerun_tasks(
+        self, items: Iterable[str],
+    ):
+        """(Re)run a selected group of tasks.
+
+        Set any off-flow prerequisites (all task proxies).
+        Unset any in-flow prerequisites (existing task proxies).
+
+        """
+        FLOW =2  # TEMP
+        # Get matching tasks proxies, and matching future task IDs.
+        existing_tasks, future_ids, unmatched = self.filter_task_proxies(
+            items, future=True, warn=False,
+        )
+        all_ids = (
+            list(future_ids) +
+            [(itask.tdef.name, itask.point) for itask in existing_tasks]
+        )
+        for itask in existing_tasks:
+            for pre in itask.state.prerequisites:
+                for (
+                    p_point, p_name, p_out
+                ), satisfied in pre.satisfied.items():
+                    if (p_name, get_point(p_point)) in all_ids:
+                        # unset in-flow prerequisite
+                        print(f"UNSET existing {itask}: {p_point}/{p_name}:{p_out}")
+                        pre.satisfied[(p_point, p_name, p_out)] = False
+                    else:
+                        # set off-flow prerequisite
+                        print(f"set OFF existing {itask}: {p_point}/{p_name}:{p_out}")
+                        self.merge_flows(itask, [FLOW])
+                        pre.satisfied[
+                            (p_point, p_name, p_out)
+                        ] = "force satisfied"
+
+        for name, point in future_ids:
+            tdef = self.config.taskdefs[name]
+            if tdef.is_parentless(point):
+                # parentless: promote to task pool
+                print(f"PROMOTE {point}/{name}: {p_point}/{p_name}")
+                self.set_prereqs_and_outputs(
+                    [f"{point}/{name}"],
+                    [], ["all"],
+                    [FLOW],
+                )
+            for pid in tdef.get_triggers(point):
+                p_point = pid.get_point(point)
+                p_name = pid.task_name
+                if (p_name, p_point) in all_ids:
+                    # in-flow
+                    continue
+                # set off-flow prerequisite
+                print(f"SET OFF {point}/{name}: {p_point}/{p_name}")
+                self.set_prereqs_and_outputs(
+                    [f"{point}/{name}"],
+                    [], [f"{p_point}/{p_name}"],
+                    [FLOW],
+                )
+
     def force_trigger_tasks(
         self, items: Iterable[str],
         flow: List[str],
@@ -2145,6 +2204,10 @@ class TaskPool:
               unless flow-wait is set.
 
         """
+        # TEMP: TESTING THE GROUP RERUN PROPOSAL
+        # TODO: ensure above description of triggering still works.
+        return self.rerun_tasks(items)
+
         # Get flow numbers for the tasks to be triggered.
         flow_nums = self._get_flow_nums(flow, flow_descr)
         if flow_nums is None:
