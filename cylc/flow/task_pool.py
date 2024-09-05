@@ -1925,6 +1925,7 @@ class TaskPool:
             self.merge_flows(itask, flow_nums)
             if prereqs:
                 self._set_prereqs_itask(itask, prereqs, flow_nums)
+                self._force_trigger_if_ready(itask)
             else:
                 self._set_outputs_itask(itask, outputs)
 
@@ -1991,6 +1992,7 @@ class TaskPool:
         """
         if prereqs == ["all"]:
             itask.state.set_prerequisites_all_satisfied()
+            self._force_trigger_if_ready(itask)
 
         else:
             # Attempt to set the given presrequisites.
@@ -2005,8 +2007,8 @@ class TaskPool:
             if len(unmatched) == len(prereqs):
                 # No prereqs matched.
                 return False
+            self._force_trigger_if_ready(itask)
 
-        self._force_trigger_if_ready(itask)
 
         return True
 
