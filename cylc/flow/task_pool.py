@@ -2189,6 +2189,7 @@ class TaskPool:
         itask.is_manual_submit = True
         itask.reset_try_timers()
 
+        LOG.critical(f"FORCE TRIGGER {itask}")
         if itask.state_reset(TASK_STATUS_WAITING):
             # (could also be unhandled failed)
             self.data_store_mgr.delta_task_state(itask)
@@ -2300,6 +2301,7 @@ class TaskPool:
                         not p_state and
                         (p_name, get_point(p_point)) not in all_ids
                     ):
+                        LOG.critical(f"SATISFY {p_point}/{p_name} in {itask}")
                         # off-group
                         itask.satisfy_me(
                             [
@@ -2332,6 +2334,8 @@ class TaskPool:
                     p_name = pid.task_name
                     if (p_name, get_point(p_point)) not in all_ids:
                         off_flow_prereqs.append(f"{p_point}/{p_name}")
+
+                    LOG.critical(f"SATISFY {p_point}/{p_name} in {point}/{tdef.name}")
                 jtask = self._set_prereqs_tdef(
                     point, tdef, off_flow_prereqs, flow_nums, flow_wait
                 )
