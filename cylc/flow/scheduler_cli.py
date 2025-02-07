@@ -23,9 +23,9 @@ from itertools import zip_longest
 from pathlib import Path
 from shlex import quote
 import sys
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Tuple
 
-from pkg_resources import parse_version
+from packaging.version import Version
 
 from cylc.flow import LOG, __version__
 from cylc.flow.exceptions import (
@@ -37,7 +37,7 @@ import cylc.flow.flags
 from cylc.flow.id import upgrade_legacy_ids
 from cylc.flow.host_select import select_workflow_host
 from cylc.flow.hostuserutil import is_remote_host
-from cylc.flow.id_cli import parse_ids
+from cylc.flow.id_cli import parse_ids_async
 from cylc.flow.loggingutil import (
     close_log,
     RotatingLogFileHandler,
@@ -54,6 +54,7 @@ from cylc.flow.pathutil import get_workflow_run_scheduler_log_path
 from cylc.flow.remote import cylc_server_cmd
 from cylc.flow.scheduler import Scheduler, SchedulerError
 from cylc.flow.scripts.common import cylc_header
+from cylc.flow.run_modes import WORKFLOW_RUN_MODES
 from cylc.flow.workflow_db_mgr import WorkflowDatabaseManager
 from cylc.flow.workflow_files import (
     SUITERC_DEPR_MSG,
@@ -128,9 +129,16 @@ PLAY_ICP_OPTION.sources = {'play'}
 
 RUN_MODE = OptionSettings(
     ["-m", "--mode"],
-    help="Run mode: live, dummy, simulation (default live).",
+    help=(
+        f"Run mode: {sorted(WORKFLOW_RUN_MODES)} (default live)."
+        " Live mode executes the tasks as defined in the runtime"
+        " section."
+        " Simulation and dummy modes ignore task 'script'"
+        " items and related job settings. They are"
+        " designed for testing."
+    ),
     metavar="STRING", action='store', dest="run_mode",
-    choices=['live', 'dummy', 'simulation'],
+    choices=list(WORKFLOW_RUN_MODES),
 )
 
 PLAY_RUN_MODE = deepcopy(RUN_MODE)
@@ -188,12 +196,13 @@ PLAY_OPTIONS = [
     OptionSettings(
         ["--start-task", "--starttask", "-t"],
         help=(
-            "Start from this task instance, given by '<cycle>/<name>'."
-            " This can be used multiple times to start from multiple"
-            " tasks at once. Dependence on tasks with cycle points earlier"
-            " than the earliest start-task will be ignored. A"
-            " sub-graph of the workflow will run if selected tasks do"
-            " not lead on to the full graph."),
+            "Start from this task instance instead of the beginning of the"
+            " graph. Dependence on other tasks is ignored but clock and"
+            " xtriggers are respected. Reuse the option for multiple start"
+            " tasks. Any dependence on cycle points prior to the earliest"
+            " start task will be ignored throughout the graph. Check that"
+            " start tasks flow into the full downstream graph, if needed."
+        ),
         metavar="TASK_ID",
         action='append',
         dest="starttask",
@@ -308,12 +317,8 @@ def get_option_parser(add_std_opts: bool = False) -> COP:
         argdoc=[WORKFLOW_ID_ARG_DOC]
     )
 
-    options = parser.get_cylc_rose_options() + PLAY_OPTIONS
-    for option in options:
-        if isinstance(option, OptionSettings):
-            parser.add_option(*option.args, **option.kwargs)
-        else:
-            parser.add_option(*option['args'], **option['kwargs'])
+    for option in PLAY_OPTIONS:
+        parser.add_option(*option.args, **option.kwargs)
 
     if add_std_opts:
         # This is for the API wrapper for integration tests. Otherwise (CLI
@@ -354,8 +359,12 @@ def _open_logs(id_: str, no_detach: bool, restart_num: int) -> None:
     )
 
 
-def scheduler_cli(options: 'Values', workflow_id_raw: str) -> None:
-    """Run the workflow.
+async def _scheduler_cli_1(
+    options: 'Values',
+    workflow_id_raw: str,
+    parse_workflow_id: bool = True
+) -> Tuple[Scheduler, str]:
+    """Run the workflow (part 1 - async).
 
     This function should contain all of the command line facing
     functionality of the Scheduler, exit codes, logging, etc.
@@ -365,45 +374,56 @@ def scheduler_cli(options: 'Values', workflow_id_raw: str) -> None:
     functionality.
 
     """
+    if options.starttask:
+        options.starttask = upgrade_legacy_ids(
+            *options.starttask,
+            relative=True,
+        )
+
     # Parse workflow name but delay Cylc 7 suite.rc deprecation warning
     # until after the start-up splash is printed.
     # TODO: singleton
-    (workflow_id,), _ = parse_ids(
-        workflow_id_raw,
-        constraint='workflows',
-        max_workflows=1,
-        # warn_depr=False,  # TODO
-    )
+    if parse_workflow_id:
+        (workflow_id,), _ = await parse_ids_async(
+            workflow_id_raw,
+            constraint='workflows',
+            max_workflows=1,
+            # warn_depr=False,  # TODO
+        )
+    else:
+        workflow_id = workflow_id_raw
 
     # resume the workflow if it is already running
-    _resume(workflow_id, options)
+    await _resume(workflow_id, options)
 
     # check the workflow can be safely restarted with this version of Cylc
     db_file = Path(get_workflow_srv_dir(workflow_id), 'db')
-    if not _version_check(
-        db_file,
-        options.upgrade,
-        options.downgrade,
-    ):
+    if not _version_check(db_file, options):
         sys.exit(1)
 
     # upgrade the workflow DB (after user has confirmed upgrade)
     _upgrade_database(db_file)
 
-    # re-execute on another host if required
-    _distribute(options.host, workflow_id_raw, workflow_id, options.color)
-
     # print the start message
     _print_startup_message(options)
+
+    # re-execute on another host if required
+    _distribute(workflow_id_raw, workflow_id, options)
 
     # setup the scheduler
     # NOTE: asyncio.run opens an event loop, runs your coro,
     #       then shutdown async generators and closes the event loop
     scheduler = Scheduler(workflow_id, options)
-    asyncio.run(
-        _setup(scheduler)
-    )
+    await _setup(scheduler)
 
+    return scheduler, workflow_id
+
+
+def _scheduler_cli_2(
+    options: 'Values',
+    scheduler: Scheduler,
+) -> None:
+    """Run the workflow (part 2 - sync)."""
     # daemonize if requested
     # NOTE: asyncio event loops cannot persist across daemonization
     #       ensure you have tidied up all threads etc before daemonizing
@@ -411,6 +431,13 @@ def scheduler_cli(options: 'Values', workflow_id_raw: str) -> None:
         from cylc.flow.daemonize import daemonize
         daemonize(scheduler)
 
+
+async def _scheduler_cli_3(
+    options: 'Values',
+    workflow_id: str,
+    scheduler: Scheduler,
+) -> None:
+    """Run the workflow (part 3 - async)."""
     # setup loggers
     _open_logs(
         workflow_id,
@@ -419,9 +446,7 @@ def scheduler_cli(options: 'Values', workflow_id_raw: str) -> None:
     )
 
     # run the workflow
-    ret = asyncio.run(
-        _run(scheduler)
-    )
+    ret = await _run(scheduler)
 
     # exit
     # NOTE: we must clean up all asyncio / threading stuff before exiting
@@ -432,7 +457,7 @@ def scheduler_cli(options: 'Values', workflow_id_raw: str) -> None:
     sys.exit(ret)
 
 
-def _resume(workflow_id, options):
+async def _resume(workflow_id, options):
     """Resume the workflow if it is already running."""
     try:
         detect_old_contact_file(workflow_id)
@@ -448,7 +473,7 @@ def _resume(workflow_id, options):
                 'wFlows': [workflow_id]
             }
         }
-        pclient('graphql', mutation_kwargs)
+        await pclient.async_request('graphql', mutation_kwargs)
         sys.exit(0)
     except CylcError as exc:
         LOG.error(exc)
@@ -461,14 +486,13 @@ def _resume(workflow_id, options):
 
 def _version_check(
     db_file: Path,
-    can_upgrade: bool,
-    can_downgrade: bool
+    options: 'Values',
 ) -> bool:
     """Check the workflow can be safely restarted with this version of Cylc."""
     if not db_file.is_file():
         # not a restart
         return True
-    this_version = parse_version(__version__)
+    this_version = Version(__version__)
     last_run_version = WorkflowDatabaseManager.check_db_compatibility(db_file)
 
     for itt, (this, that) in enumerate(zip_longest(
@@ -478,7 +502,7 @@ def _version_check(
     )):
         if this < that:
             # restart would REDUCE the Cylc version
-            if can_downgrade:
+            if options.downgrade:
                 # permission to downgrade given in CLI flags
                 LOG.warning(
                     'Restarting with an older version of Cylc'
@@ -504,7 +528,7 @@ def _version_check(
             return False
         elif itt < 2 and this > that:
             # restart would INCREASE the Cylc version in a big way
-            if can_upgrade:
+            if options.upgrade:
                 # permission to upgrade given in CLI flags
                 LOG.warning(
                     'Restarting with a newer version of Cylc'
@@ -518,7 +542,7 @@ def _version_check(
             ))
             if is_terminal():
                 # we are in interactive mode, ask the user if this is ok
-                return prompt(
+                options.upgrade = prompt(
                     cparse(
                         'Are you sure you want to upgrade from'
                         f' <yellow>{last_run_version}</yellow>'
@@ -527,6 +551,7 @@ def _version_check(
                     {'y': True, 'n': False},
                     process=str.lower,
                 )
+                return options.upgrade
             # we are in non-interactive mode, abort abort abort
             print('Use "--upgrade" to upgrade the workflow.', file=sys.stderr)
             return False
@@ -548,10 +573,14 @@ def _upgrade_database(db_file: Path) -> None:
 
 
 def _print_startup_message(options):
-    """Print the Cylc header including the CLI logo."""
+    """Print the Cylc header including the CLI logo to the user's terminal."""
     if (
         cylc.flow.flags.verbosity > -1
         and (options.no_detach or options.format == 'plain')
+        # don't print the startup message on reinvocation (note
+        # --host=localhost is the best indication we have that reinvokation has
+        # happened)
+        and options.host != 'localhost'
     ):
         print(
             cparse(
@@ -563,22 +592,23 @@ def _print_startup_message(options):
         LOG.warning(SUITERC_DEPR_MSG)
 
 
-def _distribute(host, workflow_id_raw, workflow_id, color):
+def _distribute(
+    workflow_id_raw: str, workflow_id: str, options: 'Values'
+) -> None:
     """Re-invoke this command on a different host if requested.
 
     Args:
-        host:
-            The remote host to re-invoke on.
         workflow_id_raw:
             The workflow ID as it appears in the CLI arguments.
         workflow_id:
             The workflow ID after it has gone through the CLI.
             This may be different (i.e. the run name may have been inferred).
+        options:
+            The CLI options.
 
     """
     # Check whether a run host is explicitly specified, else select one.
-    if not host:
-        host = select_workflow_host()[0]
+    host = options.host or select_workflow_host()[0]
     if is_remote_host(host):
         # Protect command args from second shell interpretation
         cmd = list(map(quote, sys.argv[1:]))
@@ -595,8 +625,12 @@ def _distribute(host, workflow_id_raw, workflow_id, color):
         # Prevent recursive host selection
         cmd.append("--host=localhost")
 
+        # Ensure interactive upgrade carries over:
+        if options.upgrade and '--upgrade' not in cmd:
+            cmd.append('--upgrade')
+
         # Preserve CLI colour
-        if is_terminal() and color != 'never':
+        if is_terminal() and options.color != 'never':
             # the detached process doesn't pass the is_terminal test
             # so we have to explicitly tell Cylc to use color
             cmd.append('--color=always')
@@ -629,8 +663,6 @@ async def _run(scheduler: Scheduler) -> int:
     # stop cylc stop
     except SchedulerError:
         ret = 1
-    except (KeyboardInterrupt, asyncio.CancelledError):
-        ret = 2
     except Exception:
         ret = 3
 
@@ -640,15 +672,36 @@ async def _run(scheduler: Scheduler) -> int:
 
 @cli_function(get_option_parser)
 def play(parser: COP, options: 'Values', id_: str):
-    """Implement cylc play."""
-    return _play(parser, options, id_)
+    cylc_play(options, id_)
 
 
-def _play(parser: COP, options: 'Values', id_: str):
-    """Allows compound scripts to import play, but supply their own COP."""
-    if options.starttask:
-        options.starttask = upgrade_legacy_ids(
-            *options.starttask,
-            relative=True,
+def cylc_play(options: 'Values', id_: str, parse_workflow_id=True) -> None:
+    """Implement cylc play.
+
+    Raises:
+        CylcError:
+            If this function is called whilst an asyncio event loop is running.
+
+            Because the scheduler process can be daemonised, this must not be
+            called whilst an asyncio event loop is active as memory associated
+            with this event loop will also exist in the new fork leading to
+            potentially strange problems.
+
+            See https://github.com/cylc/cylc-flow/issues/6291
+
+    """
+    try:
+        # try opening an event loop to make sure there isn't one already open
+        asyncio.get_running_loop()
+    except RuntimeError:
+        # start/restart/resume the workflow
+        scheduler, workflow_id = asyncio.run(
+            _scheduler_cli_1(options, id_, parse_workflow_id=parse_workflow_id)
         )
-    return scheduler_cli(options, id_)
+        _scheduler_cli_2(options, scheduler)
+        asyncio.run(_scheduler_cli_3(options, workflow_id, scheduler))
+    else:
+        # if this line every gets hit then there is a bug within Cylc
+        raise CylcError(
+            'cylc_play called whilst asyncio event loop is running'
+        ) from None

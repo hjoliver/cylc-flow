@@ -17,12 +17,15 @@
 
 import pytest
 
+from cylc.flow.cycling.integer import IntegerPoint
+from cylc.flow.cycling.iso8601 import ISO8601Point
 from cylc.flow.id import (
     LEGACY_CYCLE_SLASH_TASK,
     LEGACY_TASK_DOT_CYCLE,
     RELATIVE_ID,
-    Tokens,
     UNIVERSAL_ID,
+    Tokens,
+    quick_relative_id,
 )
 
 
@@ -186,7 +189,7 @@ def test_universal_id_matches_hierarchical(identifier):
         '//~',
         '//:',
         '//workflow//cycle',
-        '//task:task_sel:task_sel'
+        '//cycle/task:task_sel:task_sel'
     ]
 )
 def test_relative_id_illegal(identifier):
@@ -316,9 +319,9 @@ def test_tokens():
     with pytest.raises(ValueError):
         Tokens(foo='a')
 
-    Tokens()['cycle'] = 'a'
+    Tokens().duplicate(cycle='a')
     with pytest.raises(ValueError):
-        Tokens()['foo'] = 'a'
+        Tokens(foo='a')
 
     # test equality
     assert Tokens('a') == Tokens('a')
@@ -335,10 +338,24 @@ def test_tokens():
     assert not Tokens('a') == 1
 
     tokens = Tokens('a//b')
-    tokens.update({'cycle': 'c', 'task': 'd'})
-    assert tokens == Tokens('a//c/d')
-    with pytest.raises(ValueError):
+    new_tokens = tokens.duplicate(cycle='c', task='d')
+    assert new_tokens == Tokens('a//c/d')
+    with pytest.raises(Exception):
         tokens.update({'foo': 'c'})
+    with pytest.raises(Exception):
+        tokens['cycle'] = 'a'
+
+    # test gt/lt
+    assert sorted(
+        tokens.id
+        for tokens in [
+            Tokens('~u/c'),
+            Tokens('~u/b//1'),
+            Tokens('~u/a'),
+            Tokens('~u/b'),
+            Tokens('~u/b//2'),
+        ]
+    ) == ['~u/a', '~u/b', '~u/b//1', '~u/b//2', '~u/c']
 
 
 def test_no_look_behind():
@@ -378,3 +395,14 @@ def test_task_property():
     ) == (
         Tokens('//c:cs/t:ts/j:js', relative=True)
     )
+
+
+@pytest.mark.parametrize('cycle, expected', [
+    ('2000', '2000/foo'),
+    (2001, '2001/foo'),
+    (IntegerPoint('3'), '3/foo'),
+    # NOTE: ISO8601Points are not standardised by this function:
+    (ISO8601Point('2002'), '2002/foo'),
+])
+def test_quick_relative_id(cycle, expected):
+    assert quick_relative_id(cycle, 'foo') == expected

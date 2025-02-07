@@ -37,6 +37,7 @@ create_test_global_config "" "
         [[[${CYLC_TEST_INSTALL_TARGET}]]]
             run = ${TEST_DIR}/${SYM_NAME}/run
             log = ${TEST_DIR}/${SYM_NAME}/other
+            log/job = ${TEST_DIR}/${SYM_NAME}/job
             share = ${TEST_DIR}/${SYM_NAME}/other
             share/cycle = ${TEST_DIR}/${SYM_NAME}/cycle
             work = ${TEST_DIR}/${SYM_NAME}/other
@@ -80,17 +81,24 @@ ${TEST_DIR}/${SYM_NAME}/cycle/cylc-run/${CYLC_TEST_REG_BASE}
 |       \`-- ${TEST_NAME_BASE}
 |           \`-- share
 |               \`-- cycle
+|                   \`-- 1
 \`-- leave-me-alone
+${TEST_DIR}/${SYM_NAME}/job/cylc-run/${CYLC_TEST_REG_BASE}
+\`-- ${FUNCTIONAL_DIR}
+    \`-- cylc-clean
+        \`-- ${TEST_NAME_BASE}
+            \`-- log
+                \`-- job
+                    \`-- 1
+                        \`-- santa
+                            |-- 01
+                            \`-- NN -> 01
 ${TEST_DIR}/${SYM_NAME}/other/cylc-run/${CYLC_TEST_REG_BASE}
 \`-- ${FUNCTIONAL_DIR}
     \`-- cylc-clean
         \`-- ${TEST_NAME_BASE}
             |-- log
-            |   \`-- job
-            |       \`-- 1
-            |           \`-- santa
-            |               |-- 01
-            |               \`-- NN -> 01
+            |   \`-- job -> ${TEST_DIR}/${SYM_NAME}/job/cylc-run/${WORKFLOW_NAME}/log/job
             |-- share
             |   \`-- cycle -> ${TEST_DIR}/${SYM_NAME}/cycle/cylc-run/${WORKFLOW_NAME}/share/cycle
             \`-- work
@@ -108,8 +116,9 @@ __TREE__
 
 # -----------------------------------------------------------------------------
 
-TEST_NAME="cylc-clean"
-run_ok "$TEST_NAME" cylc clean "$WORKFLOW_NAME"
+TEST_NAME="cylc-clean-ok"
+run_ok "$TEST_NAME" cylc clean "$WORKFLOW_NAME" --timeout PT2M
+# (timeout opt is covered by unit tests but no harm double-checking here)
 dump_std "$TEST_NAME"
 
 TEST_NAME="run-dir-not-exist-post-clean.local"

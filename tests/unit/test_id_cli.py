@@ -18,7 +18,9 @@ import logging
 import os
 from pathlib import Path
 import pytest
+from shutil import copytree, rmtree
 
+from cylc.flow import CYLC_LOG
 from cylc.flow.async_util import pipe
 from cylc.flow.exceptions import InputError, WorkflowFilesError
 from cylc.flow.id import detokenise, tokenise, Tokens
@@ -28,6 +30,7 @@ from cylc.flow.id_cli import (
     _validate_constraint,
     _validate_workflow_ids,
     _validate_number,
+    cli_tokenise,
     parse_ids_async,
 )
 from cylc.flow.pathutil import get_cylc_run_dir
@@ -35,9 +38,8 @@ from cylc.flow.workflow_files import WorkflowFiles
 
 
 @pytest.fixture
-def mock_exists(mocker):
-    mock_exists = mocker.patch('pathlib.Path.exists')
-    mock_exists.return_value = True
+def mock_exists(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr('pathlib.Path.exists', lambda *a, **k: True)
 
 
 @pytest.fixture(scope='module')
@@ -247,6 +249,32 @@ async def test_parse_ids_infer_run_name(tmp_run_dir):
         infer_latest_runs=False,
     )
     assert list(workflows) == ['bar']
+
+    # Now test we can see workflows in alternate cylc-run directories
+    # e.g. for `cylc workflow-state` or xtriggers targetting another user.
+    cylc_run_dir = get_cylc_run_dir()
+    alt_cylc_run_dir = cylc_run_dir + "_alt"
+
+    # copy the cylc-run dir to alt location and delete the original.
+    copytree(cylc_run_dir, alt_cylc_run_dir, symlinks=True)
+    rmtree(cylc_run_dir)
+
+    # It can no longer parse IDs in the original cylc-run location.
+    with pytest.raises(InputError):
+        workflows, *_ = await parse_ids_async(
+            'bar//',
+            constraint='workflows',
+            infer_latest_runs=True,
+        )
+
+    # But it can if we specify the alternate location.
+    workflows, *_ = await parse_ids_async(
+        'bar//',
+        constraint='workflows',
+        infer_latest_runs=True,
+        alt_run_dir=alt_cylc_run_dir
+    )
+    assert list(workflows) == ['bar/run2']
 
 
 @pytest.fixture
@@ -538,7 +566,7 @@ def test_validate_workflow_ids_basic(tmp_run_dir):
 
 def test_validate_workflow_ids_warning(caplog):
     """It should warn when the run number is provided as a cycle point."""
-    caplog.set_level(logging.WARN)
+    caplog.set_level(logging.WARN, CYLC_LOG)
     _validate_workflow_ids(Tokens('workflow/run1//cycle/task'), src_path='')
     assert caplog.messages == []
 
@@ -559,7 +587,12 @@ def test_validate_number():
     _validate_number(t1, max_tasks=1)
     with pytest.raises(InputError):
         _validate_number(t1, t2, max_tasks=1)
-
+    _validate_number(t1, max_tasks=1)
+    _validate_number(Tokens('a//1'), Tokens('a//2'), max_workflows=1)
+    _validate_number(Tokens('a'), Tokens('//2'), Tokens('//3'), max_workflows=1)
+    with pytest.raises(InputError):
+        _validate_number(Tokens('a//1'), Tokens('b//1'), max_workflows=1)
+    _validate_number(Tokens('a//1'), Tokens('b//1'), max_workflows=2)
 
 @pytest.fixture
 def no_scan(monkeypatch):
@@ -570,13 +603,47 @@ def no_scan(monkeypatch):
         # something that looks like scan but doesn't do anything
         yield
 
-    monkeypatch.setattr('cylc.flow.id_cli.scan', _scan)
+    monkeypatch.setattr('cylc.flow.network.scan.scan', _scan)
 
 
 async def test_expand_workflow_tokens_impl_selector(no_scan):
     """It should reject filters it can't handle."""
     tokens = tokenise('~user/*')
     await _expand_workflow_tokens([tokens])
-    tokens['workflow_sel'] = 'stopped'
+    tokens = tokens.duplicate(workflow_sel='stopped')
     with pytest.raises(InputError):
         await _expand_workflow_tokens([tokens])
+
+
+@pytest.mark.parametrize('identifier, expected', [
+    (
+        '//2024-01-01T00:fail/a',
+        {'cycle': '2024-01-01T00', 'cycle_sel': 'fail', 'task': 'a'}
+    ),
+    (
+        '//2024-01-01T00:00Z/a',
+        {'cycle': '2024-01-01T00:00Z', 'task': 'a'}
+    ),
+    (
+        '//2024-01-01T00:00Z:fail/a',
+        {'cycle': '2024-01-01T00:00Z', 'cycle_sel': 'fail', 'task': 'a'}
+    ),
+    (
+        '//2024-01-01T00:00:00+05:30/a',
+        {'cycle': '2024-01-01T00:00:00+05:30', 'task': 'a'}
+    ),
+    (
+        '//2024-01-01T00:00:00+05:30:f/a',
+        {'cycle': '2024-01-01T00:00:00+05:30', 'cycle_sel': 'f', 'task': 'a'}
+    ),
+    (
+        # Nonsensical example, but whatever...
+        '//2024-01-01T00:00Z:00Z/a',
+        {'cycle': '2024-01-01T00:00Z', 'cycle_sel': '00Z', 'task': 'a'}
+    )
+])
+def test_iso_long_fmt(identifier, expected):
+    assert {
+        k: v for k, v in cli_tokenise(identifier).items()
+        if v is not None
+    } == expected

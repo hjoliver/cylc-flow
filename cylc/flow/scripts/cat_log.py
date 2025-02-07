@@ -74,10 +74,10 @@ from cylc.flow.exceptions import InputError
 import cylc.flow.flags
 from cylc.flow.hostuserutil import is_remote_platform
 from cylc.flow.id_cli import parse_id
+from cylc.flow.log_level import verbosity_to_opts
 from cylc.flow.option_parsers import (
     ID_MULTI_ARG_DOC,
     CylcOptionParser as COP,
-    verbosity_to_opts,
 )
 from cylc.flow.pathutil import (
     expand_path,
@@ -211,20 +211,16 @@ def _check_fs_path(path):
         # bad paths
         >>> _check_fs_path('/a')
         Traceback (most recent call last):
-         ...
-        InputError: ...
+        cylc.flow.exceptions.InputError: ...
         >>> _check_fs_path('a/../b')
         Traceback (most recent call last):
-         ...
-        InputError: ...
+        cylc.flow.exceptions.InputError: ...
         >>> _check_fs_path('../a')
         Traceback (most recent call last):
-         ...
-        InputError: ...
+        cylc.flow.exceptions.InputError: ...
         >>> _check_fs_path('./a')
         Traceback (most recent call last):
-         ...
-        InputError: ...
+        cylc.flow.exceptions.InputError: ...
 
     Raises:
         InputError
@@ -265,13 +261,17 @@ def view_log(
         print(os.path.dirname(logpath))
         return 0
     if mode == 'list-dir':
-        for entry in sorted(os.listdir(os.path.dirname(logpath))):
+        dirname = os.path.dirname(logpath)
+        if not os.path.exists(dirname):
+            sys.stderr.write(f"Directory not found: {dirname}\n")
+            return 1
+        for entry in sorted(os.listdir(dirname)):
             print(entry)
         return 0
     if not os.path.exists(logpath) and batchview_cmd is None:
         # Note: batchview_cmd may not need to have access to logpath, so don't
         # test for existence of path if it is set.
-        sys.stderr.write('file not found: %s\n' % logpath)
+        sys.stderr.write('File not found: %s\n' % logpath)
         return 1
     if prepend_path:
         from cylc.flow.hostuserutil import get_host
@@ -401,6 +401,17 @@ def main(
     options: 'Values',
     *ids,
     color: bool = False
+):
+    """Wrapper around the main script for simpler testing.
+    """
+    _main(parser, options, *ids, color=color)
+
+
+def _main(
+    parser: COP,
+    options: 'Values',
+    *ids,
+    color: bool = False
 ) -> None:
     """Implement cylc cat-log CLI.
 
@@ -481,10 +492,16 @@ def main(
                 ),
                 reverse=True
             )
-            try:
-                log_file_path = Path(logs[rotation_number])
-            except IndexError:
-                raise InputError("max rotation %d" % (len(logs) - 1))
+            if logs:
+                try:
+                    log_file_path = Path(logs[rotation_number])
+                except IndexError:
+                    raise InputError(
+                        f"--rotation {rotation_number} invalid "
+                        f"(max value is {len(logs) - 1})"
+                    ) from None
+            else:
+                raise InputError('Log file not found.')
         else:
             log_file_path = Path(log_dir, file_name)
 

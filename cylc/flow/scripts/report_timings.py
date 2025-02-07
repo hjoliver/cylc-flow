@@ -48,12 +48,13 @@ For long-running or large workflows (i.e. workflows with many task events),
 the database query to obtain the timing information may take some time.
 """
 
-import collections
 import contextlib
 import io as StringIO
 import sys
+from collections import Counter
 from typing import TYPE_CHECKING
 
+from cylc.flow import LOG
 from cylc.flow.exceptions import CylcError
 from cylc.flow.id_cli import parse_id
 from cylc.flow.option_parsers import (
@@ -63,6 +64,7 @@ from cylc.flow.option_parsers import (
 from cylc.flow.pathutil import get_workflow_run_pub_db_path
 from cylc.flow.rundb import CylcWorkflowDAO
 from cylc.flow.terminal import cli_function
+
 
 if TYPE_CHECKING:
     from optparse import Values
@@ -121,6 +123,12 @@ def main(parser: COP, options: 'Values', workflow_id: str) -> None:
     workflow_id, *_ = parse_id(
         workflow_id,
         constraint='workflows',
+    )
+
+    LOG.warning(
+        "cylc report-timings is deprecated."
+        " The analysis view in the GUI provides"
+        " similar functionality."
     )
 
     output_options = [
@@ -246,7 +254,10 @@ class TimingSummary:
         try:
             import pandas
         except ImportError:
-            raise CylcError('Cannot import pandas - summary unavailable.')
+            raise CylcError(
+                'Cannot import pandas - summary unavailable.'
+                ' try: pip install cylc-flow[report-timings]'
+            ) from None
         else:
             del pandas
 
@@ -267,7 +278,7 @@ class TimingSummary:
             # there are duplicate entries in the index (see #2509).  The
             # best way around this seems to be to add an intermediate index
             # level (in this case a retry counter) to de-duplicate indices.
-            counts = collections.defaultdict(int)
+            counts = Counter()
             retry = []
             for t in timings.index:
                 counts[t] += 1
@@ -391,5 +402,5 @@ class HTMLTimingSummary(TimingSummary):
         except ImportError:
             raise CylcError(
                 'Cannot import matplotlib - HTML summary unavailable.'
-            )
+            ) from None
         super(HTMLTimingSummary, self)._check_imports()

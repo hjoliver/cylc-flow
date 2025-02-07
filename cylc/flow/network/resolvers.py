@@ -25,31 +25,34 @@ import queue
 from time import time
 from typing import (
     Any,
+    AsyncGenerator,
     Dict,
-    Iterable,
     List,
     NamedTuple,
     Optional,
     Tuple,
     TYPE_CHECKING,
     Union,
+    cast,
 )
 from uuid import uuid4
 
 from graphene.utils.str_converters import to_snake_case
 
 from cylc.flow import LOG
+from cylc.flow.commands import COMMANDS
 from cylc.flow.data_store_mgr import (
     EDGES, FAMILY_PROXIES, TASK_PROXIES, WORKFLOW,
     DELTA_ADDED, create_delta_store
 )
+import cylc.flow.flags
 from cylc.flow.id import Tokens
 from cylc.flow.network.schema import (
     DEF_TYPES,
-    RUNTIME_FIELD_TO_CFG_MAP,
     NodesEdges,
     PROXY_NODES,
     SUB_RESOLVERS,
+    runtime_schema_to_cfg,
     sort_elements,
 )
 
@@ -58,7 +61,8 @@ if TYPE_CHECKING:
     from graphql import ResolveInfo
     from cylc.flow.data_store_mgr import DataStoreMgr
     from cylc.flow.scheduler import Scheduler
-    from cylc.flow.workflow_status import StopMode
+
+    DeltaQueue = queue.Queue[Tuple[str, str, dict]]
 
 
 class TaskMsg(NamedTuple):
@@ -124,6 +128,27 @@ def uniq(iterable):
         if item not in ret:
             ret.append(item)
     return ret
+
+
+def iter_uniq(iterable):
+    """Iterate over an iterable omitting any duplicate entries.
+
+    Useful for unhashable things like dicts, relies on __eq__ for testing
+    equality.
+
+    Note:
+        More efficient than "uniq" for iteration use cases.
+
+    Examples:
+        >>> list(iter_uniq([1, 1, 2, 3, 5, 8, 1]))
+        [1, 2, 3, 5, 8]
+
+    """
+    cache = set()
+    for item in iterable:
+        if item not in cache:
+            cache.add(item)
+            yield item
 
 
 def workflow_ids_filter(workflow_tokens, items) -> bool:
@@ -211,7 +236,7 @@ def node_ids_filter(tokens, state, items) -> bool:
                 or get_state_from_selectors(item) == state
             )
         )
-        for item in uniq(items)
+        for item in iter_uniq(items)
     )
 
 
@@ -267,6 +292,10 @@ def node_filter(node, node_type, args, state):
             args.get('maxdepth', -1) < 0
             or node.depth <= args['maxdepth']
         )
+        and (
+            args.get('graph_depth', -1) < 0
+            or node.graph_depth <= args['graph_depth']
+        )
         # Now filter node against id arg lists
         and (
             not args.get('ids')
@@ -288,7 +317,7 @@ def get_flow_data_from_ids(data_store, native_ids):
         )
     return [
         data_store[w_id]
-        for w_id in uniq(w_ids)
+        for w_id in iter_uniq(w_ids)
         if w_id in data_store
     ]
 
@@ -372,7 +401,7 @@ class BaseResolvers(metaclass=ABCMeta):  # noqa: SIM119
             [
                 node
                 for flow in await self.get_workflows_data(args)
-                for node in flow.get(node_type).values()
+                for node in flow[node_type].values()
                 if node_filter(
                     node,
                     node_type,
@@ -515,7 +544,9 @@ class BaseResolvers(metaclass=ABCMeta):  # noqa: SIM119
             nodes=sort_elements(nodes, args),
             edges=sort_elements(edges, args))
 
-    async def subscribe_delta(self, root, info, args):
+    async def subscribe_delta(
+        self, root, info: 'ResolveInfo', args
+    ) -> AsyncGenerator[Any, None]:
         """Delta subscription async generator.
 
         Async generator mapping the incoming protobuf deltas to
@@ -530,19 +561,19 @@ class BaseResolvers(metaclass=ABCMeta):  # noqa: SIM119
         self.delta_store[sub_id] = {}
 
         op_id = root
-        if 'ops_queue' not in info.context:
-            info.context['ops_queue'] = {}
-        info.context['ops_queue'][op_id] = queue.Queue()
-        op_queue = info.context['ops_queue'][op_id]
+        op_queue: queue.Queue[Tuple[UUID, str]] = queue.Queue()
+        cast('dict', info.context).setdefault(
+            'ops_queue', {}
+        )[op_id] = op_queue
         self.delta_processing_flows[sub_id] = set()
         delta_processing_flows = self.delta_processing_flows[sub_id]
 
         delta_queues = self.data_store_mgr.delta_queues
-        deltas_queue = queue.Queue()
+        deltas_queue: DeltaQueue = queue.Queue()
 
-        counters = {}
-        delta_yield_queue = queue.Queue()
-        flow_delta_queues = {}
+        counters: Dict[str, int] = {}
+        delta_yield_queue: DeltaQueue = queue.Queue()
+        flow_delta_queues: Dict[str, queue.Queue[Tuple[str, dict]]] = {}
         try:
             # Iterate over the queue yielding deltas
             w_ids = workflow_ids
@@ -568,6 +599,9 @@ class BaseResolvers(metaclass=ABCMeta):  # noqa: SIM119
                                     workflow_id=w_id)
                                 delta_store[DELTA_ADDED] = (
                                     self.data_store_mgr.data[w_id])
+                                delta_store[DELTA_ADDED][
+                                    WORKFLOW
+                                ].reloaded = True
                                 deltas_queue.put(
                                     (w_id, 'initial_burst', delta_store))
                     elif w_id in self.delta_store[sub_id]:
@@ -678,44 +712,71 @@ class Resolvers(BaseResolvers):
                 'response': (False, f'No matching workflow in {workflows}')}]
         w_id = w_ids[0]
         result = await self._mutation_mapper(command, kwargs, meta)
-        if result is None:
-            result = (True, 'Command queued')
         return [{'id': w_id, 'response': result}]
-
-    def _log_command(self, command: str, user: str) -> None:
-        """Log receipt of command, with user name if not owner."""
-        is_owner = user == self.schd.owner
-        if command == 'put_messages' and is_owner:
-            # Logging put_messages is overkill.
-            return
-        log_msg = f"[command] {command}"
-        if not is_owner:
-            log_msg += (f" (issued by {user})")
-        LOG.info(log_msg)
 
     async def _mutation_mapper(
         self, command: str, kwargs: Dict[str, Any], meta: Dict[str, Any]
-    ) -> Optional[Tuple[bool, str]]:
-        """Map between GraphQL resolvers and internal command interface."""
+    ) -> Tuple[bool, str]:
+        """Map to internal command interface.
 
-        self._log_command(
-            command,
-            meta.get('auth_user', self.schd.owner)
+        Some direct methods are in this module.
+        Others go to the scheduler command queue.
+
+        """
+        user = meta.get('auth_user', self.schd.owner)
+        if user == self.schd.owner:
+            log_user = ""  # don't log user name if owner
+        else:
+            log_user = f" from {user}"
+
+        log1 = f'Command "{command}" received{log_user}.'
+        log2 = (
+            f"{command}("
+            + ", ".join(
+                f"{key}={value}" for key, value in kwargs.items())
+            + ")"
         )
+
         method = getattr(self, command, None)
         if method is not None:
+            if (
+                command != "put_messages"
+                or user != self.schd.owner
+            ):
+                # Logging task messages as commands is overkill.
+                LOG.info(f"{log1}\n{log2}")
             return method(**kwargs)
 
         try:
-            self.schd.get_command_method(command)
-        except AttributeError:
-            raise ValueError(f"Command '{command}' not found")
+            meth = COMMANDS[command]
+        except KeyError:
+            raise ValueError(f"Command '{command}' not found") from None
 
-        self.schd.queue_command(
-            command,
-            kwargs
+        try:
+            # Initiate the command. Validation may be performed at this point,
+            # validators may raise Exceptions (preferably InputErrors) to
+            # communicate errors.
+            cmd = meth(**kwargs, schd=self.schd)
+            await cmd.__anext__()
+        except Exception as exc:
+            # NOTE: keep this exception vague to prevent a bad command taking
+            # down the scheduler
+            LOG.warning(f'{log1}\n{exc.__class__.__name__}: {exc}')
+            if cylc.flow.flags.verbosity > 1:
+                LOG.exception(exc)  # log full traceback in debug mode
+            return (False, str(exc))
+
+        # Queue the command to the scheduler, with a unique command ID
+        cmd_uuid = str(uuid4())
+        LOG.info(f"{log1} ID={cmd_uuid}\n{log2}")
+        self.schd.command_queue.put(
+            (
+                cmd_uuid,
+                command,
+                cmd,
+            )
         )
-        return None
+        return (True, cmd_uuid)
 
     def broadcast(
         self,
@@ -730,16 +791,16 @@ class Resolvers(BaseResolvers):
             # Convert schema field names to workflow config setting names if
             # applicable:
             for i, dict_ in enumerate(settings):
-                settings[i] = {
-                    RUNTIME_FIELD_TO_CFG_MAP.get(key, key): value
-                    for key, value in dict_.items()
-                }
+                settings[i] = runtime_schema_to_cfg(dict_)
+
         if mode == 'put_broadcast':
             return self.schd.task_events_mgr.broadcast_mgr.put_broadcast(
                 cycle_points, namespaces, settings)
         if mode == 'clear_broadcast':
             return self.schd.task_events_mgr.broadcast_mgr.clear_broadcast(
-                cycle_points, namespaces, settings)
+                point_strings=cycle_points,
+                namespaces=namespaces,
+                cancel_settings=settings)
         if mode == 'expire_broadcast':
             return self.schd.task_events_mgr.broadcast_mgr.expire_broadcast(
                 cutoff)
@@ -797,128 +858,25 @@ class Resolvers(BaseResolvers):
             )
         return (True, f'Messages queued: {len(messages)}')
 
-    def set_graph_window_extent(self, n_edge_distance):
+    def set_graph_window_extent(
+        self, n_edge_distance: int
+    ) -> Tuple[bool, str]:
         """Set data-store graph window to new max edge distance.
 
         Args:
-            n_edge_distance (int):
+            n_edge_distance:
                 Max edge distance 0..n from active node.
 
         Returns:
             tuple: (outcome, message)
 
-            outcome (bool)
+            outcome
                 True if command successfully queued.
-            message (str)
+            message
                 Information about outcome.
 
         """
         if n_edge_distance >= 0:
             self.schd.data_store_mgr.set_graph_window_extent(n_edge_distance)
             return (True, f'Maximum edge distance set to {n_edge_distance}')
-        else:
-            return (False, 'Edge distance cannot be negative')
-
-    def force_spawn_children(
-        self,
-        tasks: Iterable[str],
-        outputs: Optional[Iterable[str]] = None,
-        flow_num: Optional[int] = None
-    ) -> Tuple[bool, str]:
-        """Spawn children of given task outputs.
-
-        User-facing method name: set_outputs.
-
-        Args:
-            tasks: List of identifiers or task globs.
-            outputs: List of outputs to spawn on.
-            flow_num: Flow number to attribute the outputs.
-        """
-        self.schd.command_queue.put(
-            (
-                "force_spawn_children",
-                (tasks,),
-                {
-                    "outputs": outputs,
-                    "flow_num": flow_num
-                },
-            )
-        )
-        return (True, 'Command queued')
-
-    def stop(
-        self,
-        mode: Union[str, 'StopMode'],
-        cycle_point: Optional[str] = None,
-        clock_time: Optional[str] = None,
-        task: Optional[str] = None,
-        flow_num: Optional[int] = None,
-    ) -> Tuple[bool, str]:
-        """Stop the workflow or specific flow from spawning any further.
-
-        Args:
-            mode: Stop mode to set
-            cycle_point: Cycle point after which to stop.
-            clock_time: Wallclock time after which to stop.
-            task: Stop after this task succeeds.
-            flow_num: The flow to stop.
-    ):
-
-        Returns:
-            outcome: True if command successfully queued.
-            message: Information about outcome.
-
-        """
-        self.schd.command_queue.put((
-            "stop",
-            (),
-            filter_none({
-                'mode': mode,
-                'cycle_point': cycle_point,
-                'clock_time': clock_time,
-                'task': task,
-                'flow_num': flow_num,
-            }),
-        )
-        )
-        return (True, 'Command queued')
-
-    def force_trigger_tasks(
-        self,
-        tasks: Iterable[str],
-        flow: Iterable[str],
-        flow_wait: bool,
-        flow_descr: Optional[str] = None,
-    ):
-        """Trigger submission of task jobs where possible.
-
-        Args:
-            tasks (list):
-                List of identifiers or task globs.
-            flow (list):
-                Flow ownership of triggered tasks.
-            flow_wait (bool):
-                Wait for flows before continuing
-            flow_descr (str):
-                Description of new flow.
-
-        Returns:
-            tuple: (outcome, message)
-            outcome (bool)
-                True if command successfully queued.
-            message (str)
-                Information about outcome.
-
-        """
-        self.schd.command_queue.put(
-            (
-                "force_trigger_tasks",
-                (tasks or [],),
-                {
-                    "flow": flow,
-                    "flow_wait": flow_wait,
-                    "flow_descr": flow_descr
-                }
-            ),
-        )
-        return (True, 'Command queued')
+        return (False, 'Edge distance cannot be negative')

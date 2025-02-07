@@ -1,12 +1,13 @@
 [[root]]
+    completion = 
     platform = 
     inherit = 
+    script = 
     init-script = 
     env-script = 
     err-script = 
     exit-script = 
     pre-script = 
-    script = 
     post-script = 
     work sub-directory = 
     execution polling intervals = 
@@ -14,10 +15,14 @@
     execution time limit = 
     submission polling intervals = 
     submission retry delays = 
+    run mode = live
     [[[meta]]]
         title = 
         description = 
         URL = 
+    [[[skip]]]
+        outputs = 
+        disable task event handlers = True
     [[[simulation]]]
         default run length = PT10S
         speedup factor = 
@@ -63,12 +68,10 @@
         from = 
         to = 
     [[[workflow state polling]]]
-        user = 
-        host = 
         interval = 
         max-polls = 
         message = 
-        run-dir = 
+        alt-cylc-run-dir = 
         verbose mode = 
     [[[environment]]]
     [[[directives]]]
@@ -76,6 +79,7 @@
     [[[parameter environment templates]]]
 [[OPS]]
     script = echo "RUN: run-ops.sh"
+    completion = 
     platform = 
     inherit = 
     init-script = 
@@ -90,10 +94,14 @@
     execution time limit = 
     submission polling intervals = 
     submission retry delays = 
+    run mode = live
     [[[meta]]]
         title = 
         description = 
         URL = 
+    [[[skip]]]
+        outputs = 
+        disable task event handlers = True
     [[[simulation]]]
         default run length = PT10S
         speedup factor = 
@@ -139,12 +147,10 @@
         from = 
         to = 
     [[[workflow state polling]]]
-        user = 
-        host = 
         interval = 
         max-polls = 
         message = 
-        run-dir = 
+        alt-cylc-run-dir = 
         verbose mode = 
     [[[environment]]]
     [[[directives]]]
@@ -152,6 +158,7 @@
     [[[parameter environment templates]]]
 [[VAR]]
     script = echo "RUN: run-var.sh"
+    completion = 
     platform = 
     inherit = 
     init-script = 
@@ -166,10 +173,14 @@
     execution time limit = 
     submission polling intervals = 
     submission retry delays = 
+    run mode = live
     [[[meta]]]
         title = 
         description = 
         URL = 
+    [[[skip]]]
+        outputs = 
+        disable task event handlers = True
     [[[simulation]]]
         default run length = PT10S
         speedup factor = 
@@ -215,26 +226,25 @@
         from = 
         to = 
     [[[workflow state polling]]]
-        user = 
-        host = 
         interval = 
         max-polls = 
         message = 
-        run-dir = 
+        alt-cylc-run-dir = 
         verbose mode = 
     [[[environment]]]
     [[[directives]]]
     [[[outputs]]]
     [[[parameter environment templates]]]
 [[SERIAL]]
+    completion = 
     platform = 
     inherit = 
+    script = 
     init-script = 
     env-script = 
     err-script = 
     exit-script = 
     pre-script = 
-    script = 
     post-script = 
     work sub-directory = 
     execution polling intervals = 
@@ -242,12 +252,16 @@
     execution time limit = 
     submission polling intervals = 
     submission retry delays = 
+    run mode = live
     [[[directives]]]
         job_type = serial
     [[[meta]]]
         title = 
         description = 
         URL = 
+    [[[skip]]]
+        outputs = 
+        disable task event handlers = True
     [[[simulation]]]
         default run length = PT10S
         speedup factor = 
@@ -293,25 +307,24 @@
         from = 
         to = 
     [[[workflow state polling]]]
-        user = 
-        host = 
         interval = 
         max-polls = 
         message = 
-        run-dir = 
+        alt-cylc-run-dir = 
         verbose mode = 
     [[[environment]]]
     [[[outputs]]]
     [[[parameter environment templates]]]
 [[PARALLEL]]
+    completion = 
     platform = 
     inherit = 
+    script = 
     init-script = 
     env-script = 
     err-script = 
     exit-script = 
     pre-script = 
-    script = 
     post-script = 
     work sub-directory = 
     execution polling intervals = 
@@ -319,12 +332,16 @@
     execution time limit = 
     submission polling intervals = 
     submission retry delays = 
+    run mode = live
     [[[directives]]]
         job_type = parallel
     [[[meta]]]
         title = 
         description = 
         URL = 
+    [[[skip]]]
+        outputs = 
+        disable task event handlers = True
     [[[simulation]]]
         default run length = PT10S
         speedup factor = 
@@ -370,12 +387,10 @@
         from = 
         to = 
     [[[workflow state polling]]]
-        user = 
-        host = 
         interval = 
         max-polls = 
         message = 
-        run-dir = 
+        alt-cylc-run-dir = 
         verbose mode = 
     [[[environment]]]
     [[[outputs]]]
@@ -383,6 +398,7 @@
 [[ops_s1]]
     script = echo "RUN: run-ops.sh"
     inherit = OPS, SERIAL
+    completion = succeeded or failed
     platform = 
     init-script = 
     env-script = 
@@ -396,12 +412,16 @@
     execution time limit = 
     submission polling intervals = 
     submission retry delays = 
+    run mode = live
     [[[directives]]]
         job_type = serial
     [[[meta]]]
         title = 
         description = 
         URL = 
+    [[[skip]]]
+        outputs = 
+        disable task event handlers = True
     [[[simulation]]]
         default run length = PT10S
         speedup factor = 
@@ -447,12 +467,10 @@
         from = 
         to = 
     [[[workflow state polling]]]
-        user = 
-        host = 
         interval = 
         max-polls = 
         message = 
-        run-dir = 
+        alt-cylc-run-dir = 
         verbose mode = 
     [[[environment]]]
     [[[outputs]]]
@@ -460,6 +478,7 @@
 [[ops_s2]]
     script = echo "RUN: run-ops.sh"
     inherit = OPS, SERIAL
+    completion = succeeded or failed
     platform = 
     init-script = 
     env-script = 
@@ -473,12 +492,16 @@
     execution time limit = 
     submission polling intervals = 
     submission retry delays = 
+    run mode = live
     [[[directives]]]
         job_type = serial
     [[[meta]]]
         title = 
         description = 
         URL = 
+    [[[skip]]]
+        outputs = 
+        disable task event handlers = True
     [[[simulation]]]
         default run length = PT10S
         speedup factor = 
@@ -524,12 +547,10 @@
         from = 
         to = 
     [[[workflow state polling]]]
-        user = 
-        host = 
         interval = 
         max-polls = 
         message = 
-        run-dir = 
+        alt-cylc-run-dir = 
         verbose mode = 
     [[[environment]]]
     [[[outputs]]]
@@ -537,6 +558,7 @@
 [[ops_p1]]
     script = echo "RUN: run-ops.sh"
     inherit = OPS, PARALLEL
+    completion = succeeded or failed
     platform = 
     init-script = 
     env-script = 
@@ -550,12 +572,16 @@
     execution time limit = 
     submission polling intervals = 
     submission retry delays = 
+    run mode = live
     [[[directives]]]
         job_type = parallel
     [[[meta]]]
         title = 
         description = 
         URL = 
+    [[[skip]]]
+        outputs = 
+        disable task event handlers = True
     [[[simulation]]]
         default run length = PT10S
         speedup factor = 
@@ -601,12 +627,10 @@
         from = 
         to = 
     [[[workflow state polling]]]
-        user = 
-        host = 
         interval = 
         max-polls = 
         message = 
-        run-dir = 
+        alt-cylc-run-dir = 
         verbose mode = 
     [[[environment]]]
     [[[outputs]]]
@@ -614,6 +638,7 @@
 [[ops_p2]]
     script = echo "RUN: run-ops.sh"
     inherit = OPS, PARALLEL
+    completion = succeeded or failed
     platform = 
     init-script = 
     env-script = 
@@ -627,12 +652,16 @@
     execution time limit = 
     submission polling intervals = 
     submission retry delays = 
+    run mode = live
     [[[directives]]]
         job_type = parallel
     [[[meta]]]
         title = 
         description = 
         URL = 
+    [[[skip]]]
+        outputs = 
+        disable task event handlers = True
     [[[simulation]]]
         default run length = PT10S
         speedup factor = 
@@ -678,12 +707,10 @@
         from = 
         to = 
     [[[workflow state polling]]]
-        user = 
-        host = 
         interval = 
         max-polls = 
         message = 
-        run-dir = 
+        alt-cylc-run-dir = 
         verbose mode = 
     [[[environment]]]
     [[[outputs]]]
@@ -691,6 +718,7 @@
 [[var_s1]]
     script = echo "RUN: run-var.sh"
     inherit = VAR, SERIAL
+    completion = succeeded
     platform = 
     init-script = 
     env-script = 
@@ -704,12 +732,16 @@
     execution time limit = 
     submission polling intervals = 
     submission retry delays = 
+    run mode = live
     [[[directives]]]
         job_type = serial
     [[[meta]]]
         title = 
         description = 
         URL = 
+    [[[skip]]]
+        outputs = 
+        disable task event handlers = True
     [[[simulation]]]
         default run length = PT10S
         speedup factor = 
@@ -755,12 +787,10 @@
         from = 
         to = 
     [[[workflow state polling]]]
-        user = 
-        host = 
         interval = 
         max-polls = 
         message = 
-        run-dir = 
+        alt-cylc-run-dir = 
         verbose mode = 
     [[[environment]]]
     [[[outputs]]]
@@ -768,6 +798,7 @@
 [[var_s2]]
     script = echo "RUN: run-var.sh"
     inherit = VAR, SERIAL
+    completion = succeeded
     platform = 
     init-script = 
     env-script = 
@@ -781,12 +812,16 @@
     execution time limit = 
     submission polling intervals = 
     submission retry delays = 
+    run mode = live
     [[[directives]]]
         job_type = serial
     [[[meta]]]
         title = 
         description = 
         URL = 
+    [[[skip]]]
+        outputs = 
+        disable task event handlers = True
     [[[simulation]]]
         default run length = PT10S
         speedup factor = 
@@ -832,12 +867,10 @@
         from = 
         to = 
     [[[workflow state polling]]]
-        user = 
-        host = 
         interval = 
         max-polls = 
         message = 
-        run-dir = 
+        alt-cylc-run-dir = 
         verbose mode = 
     [[[environment]]]
     [[[outputs]]]
@@ -845,6 +878,7 @@
 [[var_p1]]
     script = echo "RUN: run-var.sh"
     inherit = VAR, PARALLEL
+    completion = succeeded
     platform = 
     init-script = 
     env-script = 
@@ -858,12 +892,16 @@
     execution time limit = 
     submission polling intervals = 
     submission retry delays = 
+    run mode = live
     [[[directives]]]
         job_type = parallel
     [[[meta]]]
         title = 
         description = 
         URL = 
+    [[[skip]]]
+        outputs = 
+        disable task event handlers = True
     [[[simulation]]]
         default run length = PT10S
         speedup factor = 
@@ -909,12 +947,10 @@
         from = 
         to = 
     [[[workflow state polling]]]
-        user = 
-        host = 
         interval = 
         max-polls = 
         message = 
-        run-dir = 
+        alt-cylc-run-dir = 
         verbose mode = 
     [[[environment]]]
     [[[outputs]]]
@@ -922,6 +958,7 @@
 [[var_p2]]
     script = echo "RUN: run-var.sh"
     inherit = VAR, PARALLEL
+    completion = succeeded
     platform = 
     init-script = 
     env-script = 
@@ -935,12 +972,16 @@
     execution time limit = 
     submission polling intervals = 
     submission retry delays = 
+    run mode = live
     [[[directives]]]
         job_type = parallel
     [[[meta]]]
         title = 
         description = 
         URL = 
+    [[[skip]]]
+        outputs = 
+        disable task event handlers = True
     [[[simulation]]]
         default run length = PT10S
         speedup factor = 
@@ -986,12 +1027,10 @@
         from = 
         to = 
     [[[workflow state polling]]]
-        user = 
-        host = 
         interval = 
         max-polls = 
         message = 
-        run-dir = 
+        alt-cylc-run-dir = 
         verbose mode = 
     [[[environment]]]
     [[[outputs]]]

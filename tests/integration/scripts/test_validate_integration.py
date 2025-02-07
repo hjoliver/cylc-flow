@@ -18,9 +18,12 @@
 
 """Integration tests for Cylc Validate CLI script."""
 
-from cylc.flow.parsec.exceptions import IllegalItemError
+import logging
+
 import pytest
-from cylc.flow.parsec.exceptions import Jinja2Error
+
+from cylc.flow.exceptions import WorkflowConfigError
+from cylc.flow.parsec.exceptions import IllegalItemError, Jinja2Error
 
 
 async def test_validate_against_source_checks_source(
@@ -29,7 +32,7 @@ async def test_validate_against_source_checks_source(
     """Validation fails if validating against source with broken config.
     """
     src_dir = workflow_source(one_conf)
-    workflow_id = install(src_dir)
+    workflow_id = await install(src_dir)
 
     # Check that the original installation validates OK:
     validate(workflow_id, against_source=True)
@@ -67,7 +70,7 @@ async def test_validate_against_source_gets_old_tvars(
         }
     })
 
-    wf_id = install(src_dir)
+    wf_id = await install(src_dir)
     installed_dir = run_dir / wf_id
 
     # Check that the original installation validates OK:
@@ -94,3 +97,156 @@ async def test_validate_against_source_gets_old_tvars(
         flow_file.read_text().replace('P1Y = foo', 'P1Y = {{FOO}}'))
     with pytest.raises(Jinja2Error):
         validate(src_dir)
+
+
+def test_validate_simple_graph(flow, validate, caplog):
+    """Test deprecation notice for Cylc 7 simple graph (no recurrence section)
+    """
+    id_ = flow({
+        'scheduler': {'allow implicit tasks': True},
+        'scheduling': {'dependencies': {'graph': 'foo'}}
+    })
+    validate(id_)
+    expect = (
+        'graph items were automatically upgraded'
+        ' in "workflow definition":'
+        '\n * (8.0.0) [scheduling][dependencies]graph -> [scheduling][graph]R1'
+    )
+    assert expect in caplog.messages
+
+
+def test_pre_cylc8(flow, validate, caplog):
+    """Test all current non-silent workflow obsoletions and deprecations.
+    """
+    id_ = flow({
+        'cylc': {
+            'events': {
+                'reset timer': 10,
+                'reset inactivity timer': 15,
+            }
+        },
+        "scheduling": {
+            "initial cycle point": "20150808T00",
+            "final cycle point": "20150808T00",
+            "graph": {
+                "P1D": "foo => cat & dog"
+            },
+            "special tasks": {
+                "external-trigger": 'cat("meow available")'
+            }
+        },
+        'runtime': {
+            'foo, cat, dog': {
+                'suite state polling': {'template': ''},
+                'events': {'reset timer': 20}
+            }
+        }
+    }, defaults=False)
+    validate(id_)
+    for warning in (
+        (
+            ' * (7.8.0) [runtime][foo, cat, dog][suite state polling]template'
+            ' - DELETED (OBSOLETE)'),
+        ' * (7.8.1) [cylc][events]reset timer - DELETED (OBSOLETE)',
+        ' * (7.8.1) [cylc][events]reset inactivity timer - DELETED (OBSOLETE)',
+        (
+            ' * (7.8.1) [runtime][foo, cat, dog][events]reset timer'
+            ' - DELETED (OBSOLETE)'),
+        (
+            ' * (8.0.0) [runtime][foo, cat, dog][suite state polling]'
+            ' -> [runtime][foo, cat, dog][workflow state polling]'
+            ' - value unchanged'),
+        ' * (8.0.0) [cylc] -> [scheduler] - value unchanged'
+    ):
+        assert warning in caplog.messages
+
+
+def test_graph_upgrade_msg_default(flow, validate, caplog, log_filter):
+    """It lists Cycling definitions which need upgrading."""
+    id_ = flow({
+        'scheduler': {'allow implicit tasks': True},
+        'scheduling': {
+            'initial cycle point': 1042,
+            'dependencies': {
+                'R1': {'graph': 'foo'},
+                'P1Y': {'graph': 'bar & baz'}
+            }
+        },
+    })
+    validate(id_)
+    assert log_filter(contains='[scheduling][dependencies][X]graph')
+    assert log_filter(contains='for X in:\n       P1Y, R1')
+
+
+def test_graph_upgrade_msg_graph_equals(flow, validate, caplog, log_filter):
+    """It gives a more useful message in special case where graph is
+    key rather than section:
+
+    [scheduling]
+        [[dependencies]]
+            graph = foo => bar
+    """
+    id_ = flow({
+        'scheduler': {'allow implicit tasks': True},
+        'scheduling': {'dependencies': {'graph': 'foo => bar'}},
+    })
+    validate(id_)
+    assert log_filter(
+        contains='[scheduling][dependencies]graph -> [scheduling][graph]R1'
+    )
+
+
+def test_graph_upgrade_msg_graph_equals2(flow, validate, caplog, log_filter):
+    """Both an implicit R1 and explict reccurance exist:
+    It appends a note.
+    """
+    id_ = flow({
+        'scheduler': {'allow implicit tasks': True},
+        'scheduling': {
+            'initial cycle point': '1000',
+            'dependencies': {
+                'graph': 'foo => bar', 'P1Y': {'graph': 'a => b'}}},
+    })
+    validate(id_)
+    expect = (
+        'graph items were automatically upgraded in'
+        ' "workflow definition":'
+        '\n * (8.0.0) [scheduling][dependencies][X]graph'
+        ' -> [scheduling][graph]X - for X in:'
+        '\n       P1Y, graph'
+        '\n   ([scheduling][dependencies]graph moves to [scheduling][graph]R1)'
+    )
+    assert log_filter(contains=expect)
+
+
+def test_undefined_parent(flow, validate):
+    """It should catch tasks which inherit from implicit families."""
+    id_ = flow({
+        'scheduling': {'graph': {'R1': 'foo'}},
+        'runtime': {'foo': {'inherit': 'FOO'}}
+    })
+    with pytest.raises(WorkflowConfigError, match='undefined parent for foo'):
+        validate(id_)
+
+
+def test_log_parent_demoted(flow, validate, monkeypatch, caplog, log_filter):
+    """It should log family "demotion" in verbose mode."""
+    monkeypatch.setattr(
+        'cylc.flow.flags.verbosity',
+        10,
+    )
+    caplog.set_level(logging.DEBUG)
+    id_ = flow({
+        'scheduling': {
+            'graph': {
+                'R1': 'foo'
+            }
+        },
+        'runtime': {
+            'foo': {'inherit': 'None, FOO'},
+            'FOO': {},
+        }
+    })
+    validate(id_)
+    assert log_filter(contains='First parent(s) demoted to secondary')
+    assert log_filter(contains="FOO as parent of 'foo'")

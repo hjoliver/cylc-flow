@@ -14,125 +14,66 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-"""
-Tests for worklfow_db_manager
-"""
+from pathlib import Path
+from typing import (
+    List,
+    Set,
+)
+from unittest.mock import Mock
 
 import pytest
-import sqlite3
+from pytest import param
 
-from cylc.flow.exceptions import CylcError, ServiceFileError
-from cylc.flow.workflow_db_mgr import (
-    CylcWorkflowDAO,
-    WorkflowDatabaseManager,
-)
-from cylc.flow.dbstatecheck import CylcWorkflowDBChecker
-
-
-@pytest.fixture
-def _setup_db(tmp_path):
-    """Fixture to create old DB."""
-    def _inner(values, db_file_name='sql.db'):
-        db_file = tmp_path / db_file_name
-        db_file.parent.mkdir(parents=True, exist_ok=True)
-        # Note: cannot use CylcWorkflowDAO here as creating outdated DB
-        conn = sqlite3.connect(str(db_file))
-        conn.execute((
-            r'CREATE TABLE task_states(name TEXT, cycle TEXT, flow_nums TEXT,'
-            r' time_created TEXT, time_updated TEXT, submit_num INTEGER,'
-            r' status TEXT, flow_wait INTEGER, is_manual_submit INTEGER,'
-            r' PRIMARY KEY(name, cycle, flow_nums));')
-        )
-        conn.execute((
-            r'CREATE TABLE task_jobs(cycle TEXT, name TEXT,'
-            r' submit_num INTEGER, is_manual_submit INTEGER,'
-            r' try_num INTEGER, time_submit TEXT, time_submit_exit TEXT,'
-            r' submit_status INTEGER, time_run TEXT, time_run_exit TEXT,'
-            r' run_signal TEXT, run_status INTEGER, platform_name TEXT,'
-            r' job_runner_name TEXT, job_id TEXT,'
-            r' PRIMARY KEY(cycle, name, submit_num));'
-        ))
-        for value in values:
-            conn.execute(value)
-        conn.execute((
-            r"INSERT INTO task_jobs VALUES"
-            r"    ('10090101T0000Z', 'foo', 1, 0, 1, '2022-12-05T14:46:06Z',"
-            r" '2022-12-05T14:46:07Z', 0, '2022-12-05T14:46:10Z',"
-            r" '2022-12-05T14:46:39Z', '', 0, 'localhost', 'background',"
-            r" 4377)"
-        ))
-        conn.commit()
-        conn.close()
-        return db_file
-    return _inner
+from cylc.flow.cycling.integer import IntegerPoint
+from cylc.flow.flow_mgr import FlowNums
+from cylc.flow.id import Tokens
+from cylc.flow.task_proxy import TaskProxy
+from cylc.flow.taskdef import TaskDef
+from cylc.flow.util import serialise_set
+from cylc.flow.workflow_db_mgr import WorkflowDatabaseManager
 
 
-def test_upgrade_pre_810_fails_on_multiple_flows(_setup_db):
-    values = [(
-        r'INSERT INTO task_states VALUES'
-        r"    ('foo', '10050101T0000Z', '[1, 3]',"
-        r" '2022-12-05T14:46:33Z',"
-        r" '2022-12-05T14:46:40Z', 1, 'succeeded', 0, 0)"
-    )]
-    db_file_name = _setup_db(values)
-    with CylcWorkflowDAO(db_file_name) as dao, pytest.raises(
-        CylcError,
-        match='^Cannot .* 8.0.x to 8.1.0 .* used.$'
-    ):
-        WorkflowDatabaseManager.upgrade_pre_810(dao)
+@pytest.mark.parametrize('flow_nums, expected_removed', [
+    param(set(), {1, 2, 5}, id='all'),
+    param({1}, {1}, id='subset'),
+    param({1, 2, 5}, {1, 2, 5}, id='complete-set'),
+    param({1, 3, 5}, {1, 5}, id='intersect'),
+    param({3, 4}, set(), id='disjoint'),
+])
+def test_remove_task_from_flows(
+    tmp_path: Path, flow_nums: FlowNums, expected_removed: FlowNums
+):
+    db_flows: List[FlowNums] = [
+        {1, 2},
+        {5},
+        set(),  # FLOW_NONE
+    ]
+    expected_remaining = {
+        serialise_set(flow - expected_removed) for flow in db_flows
+    }
+    db_mgr = WorkflowDatabaseManager(tmp_path)
+    schd_tokens = Tokens('~asterix/gaul')
+    tdef = TaskDef('a', rtcfg={}, start_point=None, initial_point=None)
+    with db_mgr.get_pri_dao() as dao:
+        db_mgr.pri_dao = dao
+        db_mgr.pub_dao = Mock()
+        for flow in db_flows:
+            itask = TaskProxy(
+                schd_tokens, tdef, IntegerPoint('1'), flow_nums=flow
+            )
+            db_mgr.put_insert_task_states(itask)
+            db_mgr.put_insert_task_outputs(itask)
+        db_mgr.process_queued_ops()
 
+        removed_fnums = db_mgr.remove_task_from_flows('1', 'a', flow_nums)
+        assert removed_fnums == expected_removed
 
-def test_upgrade_pre_810_pass_on_single_flow(_setup_db):
-    values = [(
-        r'INSERT INTO task_states VALUES'
-        r"    ('foo', '10050101T0000Z', '[1]',"
-        r" '2022-12-05T14:46:33Z',"
-        r" '2022-12-05T14:46:40Z', 1, 'succeeded', 0, 0)"
-    )]
-    db_file_name = _setup_db(values)
-    with CylcWorkflowDAO(db_file_name) as dao:
-        WorkflowDatabaseManager.upgrade_pre_810(dao)
-        result = dao.connect().execute(
-            'SELECT DISTINCT flow_nums FROM task_jobs;'
-        ).fetchall()[0][0]
-    assert result == '[1]'
-
-
-def test_check_workflow_db_compat(_setup_db, capsys):
-    """method can pick private or public db to check.
-    """
-    # Create public and private databases with different cylc versions:
-    create = r'CREATE TABLE workflow_params(key TEXT, value TEXT)'
-    insert = (
-        r'INSERT INTO workflow_params VALUES'
-        r'("cylc_version", "{}")'
-    )
-    pri_path = _setup_db(
-        [create, insert.format('7.99.99')], db_file_name='private/db')
-    pub_path = _setup_db(
-        [create, insert.format('7.99.98')], db_file_name='public/db')
-
-    with pytest.raises(ServiceFileError, match='99.98'):
-        WorkflowDatabaseManager.check_db_compatibility(pub_path)
-
-    with pytest.raises(ServiceFileError, match='99.99'):
-        WorkflowDatabaseManager.check_db_compatibility(pri_path)
-
-
-def test_cylc_7_db_wflow_params_table(_setup_db):
-    """Test back-compat needed by workflow state xtrigger for Cylc 7 DBs."""
-    ptformat = "CCYY"
-    create = r'CREATE TABLE suite_params(key TEXT, value TEXT)'
-    insert = (
-        r'INSERT INTO suite_params VALUES'
-        rf'("cycle_point_format", "{ptformat}")'
-    )
-    db_file_name = _setup_db([create, insert])
-    checker = CylcWorkflowDBChecker('foo', 'bar', db_path=db_file_name)
-
-    with pytest.raises(
-        sqlite3.OperationalError, match="no such table: workflow_params"
-    ):
-        checker.get_remote_point_format()
-
-    assert checker.get_remote_point_format_compat() == ptformat
+        db_mgr.process_queued_ops()
+        for table in ('task_states', 'task_outputs'):
+            remaining_fnums: Set[str] = {
+                fnums_str
+                for fnums_str, *_ in dao.connect().execute(
+                    f'SELECT flow_nums FROM {table}'
+                )
+            }
+            assert remaining_fnums == expected_remaining

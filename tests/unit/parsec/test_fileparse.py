@@ -32,6 +32,7 @@ from cylc.flow.parsec.exceptions import (
 )
 from cylc.flow.parsec.OrderedDict import OrderedDictWithDefaults
 from cylc.flow.parsec.fileparse import (
+    EXTRA_VARS_TEMPLATE,
     _prepend_old_templatevars,
     _get_fpath_for_source,
     get_cylc_env_vars,
@@ -39,6 +40,7 @@ from cylc.flow.parsec.fileparse import (
     addsect,
     multiline,
     parse,
+    process_plugins,
     read_and_proc,
     merge_template_vars
 )
@@ -284,8 +286,9 @@ def test_read_and_proc_no_template_engine():
         fpath = tf.name
         template_vars = None
         viewcfg = {
-            'empy': False, 'jinja2': False,
-            'contin': False, 'inline': False
+            'jinja2': False,
+            'contin': False,
+            'inline': False,
         }
         tf.write("a=b\n".encode())
         tf.flush()
@@ -298,8 +301,9 @@ def test_read_and_proc_no_template_engine():
         tf.flush()
 
         viewcfg = {
-            'empy': False, 'jinja2': False,
-            'contin': True, 'inline': False
+            'jinja2': False,
+            'contin': True,
+            'inline': False,
         }
         r = read_and_proc(fpath=fpath, template_vars=template_vars,
                           viewcfg=viewcfg)
@@ -311,9 +315,12 @@ def test_inline():
         fpath = tf.name
         template_vars = None
         viewcfg = {
-            'empy': False, 'jinja2': False,
-            'contin': False, 'inline': True,
-            'mark': None, 'single': None, 'label': None
+            'jinja2': False,
+            'contin': False,
+            'inline': True,
+            'mark': None,
+            'single': None,
+            'label': None,
         }
         with NamedTemporaryFile() as include_file:
             include_file.write("c=d".encode())
@@ -331,9 +338,12 @@ def test_inline_error():
         fpath = tf.name
         template_vars = None
         viewcfg = {
-            'empy': False, 'jinja2': False,
-            'contin': False, 'inline': True,
-            'mark': None, 'single': None, 'label': None
+            'jinja2': False,
+            'contin': False,
+            'inline': True,
+            'mark': None,
+            'single': None,
+            'label': None,
         }
         tf.write("a=b\n%include \"404.txt\"".encode())
         tf.flush()
@@ -350,8 +360,9 @@ def test_read_and_proc_jinja2():
             'name': 'Cylc'
         }
         viewcfg = {
-            'empy': False, 'jinja2': True,
-            'contin': False, 'inline': False
+            'jinja2': True,
+            'contin': False,
+            'inline': False,
         }
         tf.write("#!jinja2\na={{ name }}\n".encode())
         tf.flush()
@@ -373,7 +384,6 @@ def test_read_and_proc_cwd(tmp_path):
         (sdir / sub).touch()
 
     viewcfg = {
-        'empy': False,
         'jinja2': True,
         'contin': False,
         'inline': False
@@ -403,8 +413,9 @@ def test_read_and_proc_jinja2_error():
             'name': 'Cylc'
         }
         viewcfg = {
-            'empy': False, 'jinja2': True,
-            'contin': False, 'inline': False
+            'jinja2': True,
+            'contin': False,
+            'inline': False,
         }
         tf.write("#!jinja2\na={{ name \n".encode())
         tf.flush()
@@ -424,8 +435,9 @@ def test_read_and_proc_jinja2_error_missing_shebang():
             'name': 'Cylc'
         }
         viewcfg = {
-            'empy': False, 'jinja2': True,
-            'contin': False, 'inline': False
+            'jinja2': True,
+            'contin': False,
+            'inline': False,
         }
         # first line is missing shebang!
         tf.write("a={{ name }}\n".encode())
@@ -434,8 +446,6 @@ def test_read_and_proc_jinja2_error_missing_shebang():
                           viewcfg=viewcfg)
         assert r == ['a={{ name }}']
 
-
-# --- originally we had a test for empy here, moved to test_empysupport
 
 def test_parse_keys_only_singleline():
     with NamedTemporaryFile() as of, NamedTemporaryFile() as tf:
@@ -741,7 +751,7 @@ def test_get_fpath_for_source(tmp_path):
 
 def test_user_has_no_cwd(tmp_path):
     """Test we can parse a config file even if cwd does not exist."""
-    cwd = tmp_path/"cwd"
+    cwd = tmp_path / "cwd"
     os.mkdir(cwd)
     os.chdir(cwd)
     os.rmdir(cwd)
@@ -765,15 +775,42 @@ def test_get_cylc_env_vars(monkeypatch):
         {
             "CYLC_VERSION": "betwixt",
             "CYLC_ENV_NAME": "between",
-            "CYLC_QUESTION": "que?", 
-            "CYLC_ANSWER": "42", 
+            "CYLC_QUESTION": "que?",
+            "CYLC_ANSWER": "42",
             "FOO": "foo"
         }
     )
     assert (
         get_cylc_env_vars() == {
-            "CYLC_QUESTION": "que?", 
-            "CYLC_ANSWER": "42", 
+            "CYLC_QUESTION": "que?",
+            "CYLC_ANSWER": "42",
         }
     )
 
+
+class EntryPointWrapper:
+    """Wraps a method to make it look like an entry point."""
+
+    def __init__(self, fcn):
+        self.name = fcn.__name__
+        self.fcn = fcn
+
+    def load(self):
+        return self.fcn
+
+
+@EntryPointWrapper
+def pre_configure_basic(*_, **__):
+    """Simple plugin that returns one env var and one template var."""
+    return {'env': {'foo': 44}, 'template_variables': {}}
+
+
+def test_plugins_not_called_on_global_config(monkeypatch):
+    monkeypatch.setattr(
+        'cylc.flow.plugins.iter_entry_points',
+        lambda x: [pre_configure_basic]
+    )
+    result = process_plugins('/pennine/way/flow.cylc', {})
+    assert result != EXTRA_VARS_TEMPLATE
+    result = process_plugins('/appalachian/trail/global.cylc', {})
+    assert result == EXTRA_VARS_TEMPLATE

@@ -82,36 +82,36 @@ def _tmp_run_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         # Or:
         cylc_run_dir = tmp_run_dir()
     """
+    cylc_run_dir = tmp_path / 'cylc-run'
+    cylc_run_dir.mkdir(exist_ok=True)
+    monkeypatch.setattr('cylc.flow.pathutil._CYLC_RUN_DIR', cylc_run_dir)
+
     def __tmp_run_dir(
         id_: Optional[str] = None,
         installed: bool = False,
         named: bool = False
     ) -> Path:
-        nonlocal tmp_path
-        nonlocal monkeypatch
-        cylc_run_dir = tmp_path / 'cylc-run'
-        cylc_run_dir.mkdir(exist_ok=True)
-        monkeypatch.setattr('cylc.flow.pathutil._CYLC_RUN_DIR', cylc_run_dir)
-        if id_:
-            run_dir = cylc_run_dir.joinpath(id_)
-            run_dir.mkdir(parents=True, exist_ok=True)
-            (run_dir / WorkflowFiles.FLOW_FILE).touch(exist_ok=True)
-            (run_dir / WorkflowFiles.Service.DIRNAME).mkdir(exist_ok=True)
-            if run_dir.name.startswith('run'):
-                unlink_runN(run_dir.parent)
-                link_runN(run_dir)
-            if installed:
-                if named:
-                    if len(Path(id_).parts) < 2:
-                        raise ValueError("Named run requires two-level id_")
-                    (run_dir.parent / WorkflowFiles.Install.DIRNAME).mkdir(
-                        exist_ok=True)
-                else:
-                    (run_dir / WorkflowFiles.Install.DIRNAME).mkdir(
-                        exist_ok=True)
+        if not id_:
+            return cylc_run_dir
 
-            return run_dir
-        return cylc_run_dir
+        run_dir = cylc_run_dir.joinpath(id_)
+        run_dir.mkdir(parents=True, exist_ok=True)
+        (run_dir / WorkflowFiles.FLOW_FILE).touch(exist_ok=True)
+        (run_dir / WorkflowFiles.Service.DIRNAME).mkdir(exist_ok=True)
+        if run_dir.name.startswith('run'):
+            unlink_runN(run_dir.parent)
+            link_runN(run_dir)
+        if installed:
+            if named:
+                if len(Path(id_).parts) < 2:
+                    raise ValueError("Named run requires two-level id_")
+                (run_dir.parent / WorkflowFiles.Install.DIRNAME).mkdir(
+                    exist_ok=True)
+            else:
+                (run_dir / WorkflowFiles.Install.DIRNAME).mkdir(exist_ok=True)
+
+        return run_dir
+
     return __tmp_run_dir
 
 
@@ -172,20 +172,26 @@ def set_cycling_type(monkeypatch: pytest.MonkeyPatch):
             custom time zone to use.
         dump_format: If using ISO8601, specify custom dump format.
     """
+
     def _set_cycling_type(
         ctype: str = INTEGER_CYCLING_TYPE,
-        time_zone: Optional[str] = None,
+        time_zone: Optional[str] = 'Z',
         dump_format: Optional[str] = None,
     ) -> None:
         class _DefaultCycler:
             TYPE = ctype
+
         monkeypatch.setattr(
-            'cylc.flow.cycling.loader.DefaultCycler', _DefaultCycler)
+            'cylc.flow.cycling.loader.DefaultCycler', _DefaultCycler
+        )
         if ctype == ISO8601_CYCLING_TYPE:
             monkeypatch.setattr(
                 'cylc.flow.cycling.iso8601.WorkflowSpecifics',
-                iso8601_init(time_zone=time_zone, custom_dump_format=dump_format)
+                iso8601_init(
+                    time_zone=time_zone, custom_dump_format=dump_format
+                ),
             )
+
     return _set_cycling_type
 
 
@@ -199,6 +205,7 @@ def xtrigger_mgr() -> XtriggerManager:
         workflow=workflow_name,
         user=user,
         proc_pool=Mock(put_command=lambda *a, **k: True),
+        workflow_db_mgr=Mock(housekeep=lambda *a, **k: True),
         broadcast_mgr=Mock(put_broadcast=lambda *a, **k: True),
         data_store_mgr=DataStoreMgr(
             create_autospec(Scheduler, workflow=workflow_name, owner=user)

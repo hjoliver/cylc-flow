@@ -20,7 +20,7 @@ from pytest import param
 from cylc.flow.option_parsers import Options
 
 from cylc.flow.scripts.validate import (
-    wrapped_main as validate,
+    run as validate,
     get_option_parser as validate_gop
 )
 from cylc.flow.scripts.view import (
@@ -85,7 +85,7 @@ async def test_validate_with_old_tvars(
         opts.reference = True
 
     async with mod_start(_setup):
-        if function == view:
+        if function in {view, cylclist}:
             await function(opts, _setup.workflow_name)
         else:
             await function(parser, opts, _setup.workflow_name)

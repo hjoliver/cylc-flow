@@ -32,9 +32,9 @@ Examples:
 """
 
 from functools import partial
+import sys
 from typing import TYPE_CHECKING
 
-from cylc.flow.id import Tokens
 from cylc.flow.network.client_factory import get_client
 from cylc.flow.network.multi import call_multi
 from cylc.flow.option_parsers import (
@@ -45,6 +45,7 @@ from cylc.flow.terminal import cli_function
 
 if TYPE_CHECKING:
     from optparse import Values
+    from cylc.flow.id import Tokens
 
 
 MUTATION = '''
@@ -62,7 +63,7 @@ mutation (
 '''
 
 
-def get_option_parser() -> COP:
+def get_option_parser() -> 'COP':
     parser = COP(
         __doc__,
         comms=True,
@@ -74,7 +75,7 @@ def get_option_parser() -> COP:
     return parser
 
 
-async def run(options: 'Values', workflow_id: str, *tokens_list: Tokens):
+async def run(options: 'Values', workflow_id: str, *tokens_list: 'Tokens'):
     pclient = get_client(workflow_id, timeout=options.comms_timeout)
 
     mutation_kwargs = {
@@ -88,13 +89,14 @@ async def run(options: 'Values', workflow_id: str, *tokens_list: Tokens):
         }
     }
 
-    await pclient.async_request('graphql', mutation_kwargs)
+    return await pclient.async_request('graphql', mutation_kwargs)
 
 
 @cli_function(get_option_parser)
-def main(parser: COP, options: 'Values', *ids: str):
+def main(parser: 'COP', options: 'Values', *ids: str):
     """CLI of "cylc kill"."""
-    call_multi(
+    rets = call_multi(
         partial(run, options),
         *ids,
     )
+    sys.exit(all(rets.values()) is False)

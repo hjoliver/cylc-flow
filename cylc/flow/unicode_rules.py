@@ -22,7 +22,9 @@ from cylc.flow.task_id import (
     _TASK_NAME_CHARACTERS,
     _TASK_NAME_PREFIX,
 )
+from cylc.flow.run_modes import RunMode
 from cylc.flow.task_qualifiers import TASK_QUALIFIERS
+from cylc.flow.task_state import TASK_STATUSES_ORDERED
 
 ENGLISH_REGEX_MAP = {
     r'\w': 'alphanumeric',
@@ -345,13 +347,15 @@ class TaskOutputValidator(UnicodeRuleChecker):
 
     RULES = [
         # restrict outputs to sensible characters
-        allowed_characters(r'\w', r'\d', r'\-', r'\.'),
+        allowed_characters(r'\w', r'\d', r'\-'),
         # blacklist the _cylc prefix
         not_starts_with('_cylc'),
         # blacklist keywords
-        not_equals('required', 'optional', 'all'),
-        # blacklist built-in task qualifiers
-        not_equals(*TASK_QUALIFIERS),
+        not_equals('required', 'optional', 'all', 'and', 'or'),
+        # blacklist Run Modes:
+        not_equals(RunMode.SKIP.value),
+        # blacklist built-in task qualifiers and statuses (e.g. "waiting")
+        not_equals(*sorted({*TASK_QUALIFIERS, *TASK_STATUSES_ORDERED})),
     ]
 
 

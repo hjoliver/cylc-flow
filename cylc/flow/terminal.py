@@ -16,25 +16,43 @@
 
 """Functionality to assist working with terminals"""
 
-from functools import wraps
 import inspect
 import json
 import logging
-from optparse import OptionParser
 import os
-from subprocess import PIPE, Popen  # nosec
 import sys
+from functools import wraps
+from subprocess import PIPE, Popen  # nosec
 from textwrap import wrap
-from typing import Any, Callable, Optional
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Callable,
+    Dict,
+    List,
+    Optional,
+    Sequence,
+    TypeVar,
+    Union,
+    cast,
+    overload,
+)
 
 from ansimarkup import parse as cparse
 from colorama import init as color_init
 
+import cylc.flow.flags
 from cylc.flow import CYLC_LOG
 from cylc.flow.exceptions import CylcError
-import cylc.flow.flags
 from cylc.flow.loggingutil import CylcLogFormatter
 from cylc.flow.parsec.exceptions import ParsecError
+
+
+if TYPE_CHECKING:
+    from optparse import OptionParser, Values
+
+    T = TypeVar('T')
+    StrFunc = Callable[[str], str]
 
 
 # CLI exception message format
@@ -92,7 +110,49 @@ def print_contents(contents, padding=5, char='.', indent=0):
             print(f'{indent}  {" " * title_width}{" " * padding}{line}')
 
 
-def supports_color():
+def format_grid(rows, gutter=2):
+    """Format gridded text.
+
+    This takes a 2D table of text and formats it to the maximum width of each
+    column and adds a bit of space between them.
+
+    Args:
+        rows:
+            2D list containing the text to format.
+        gutter:
+            The width of the gutter between columns.
+
+    Examples:
+        >>> format_grid([
+        ...     ['a', 'b', 'ccccc'],
+        ...     ['ddddd', 'e', 'f'],
+        ... ])
+        ['a      b  ccccc  ',
+         'ddddd  e  f      ']
+
+        >>> format_grid([])
+        []
+
+    """
+    if not rows:
+        return rows
+    templ = [
+        '{col:%d}' % (max(
+            len(row[ind])
+            for row in rows
+        ) + gutter)
+        for ind in range(len(rows[0]))
+    ]
+    lines = []
+    for row in rows:
+        ret = ''
+        for ind, col in enumerate(row):
+            ret += templ[ind].format(col=col)
+        lines.append(ret)
+    return lines
+
+
+def supports_color() -> bool:
     """Determine if running in a terminal which supports color.
 
     See equivalent code in Django:
@@ -100,11 +160,19 @@ def supports_color():
     """
     if not is_terminal():
         return False
-    if sys.platform in ['Pocket PC', 'win32']:
+    if sys.platform in {'Pocket PC', 'win32'}:
         return False
     if 'ANSICON' in os.environ:
         return False
     return True
+
+
+def should_use_color(opts: 'Optional[Values]') -> bool:
+    """Determine whether to use color based on the options supplied."""
+    return opts is not None and hasattr(opts, 'color') and (
+        opts.color == 'always'
+        or (opts.color == 'auto' and supports_color())
+    )
 
 
 def ansi_log(name=CYLC_LOG, stream='stderr'):
@@ -184,7 +252,7 @@ def parse_dirty_json(stdout):
 
 
 def cli_function(
-    parser_function: Optional[Callable[..., OptionParser]] = None,
+    parser_function: 'Optional[Callable[..., OptionParser]]' = None,
     **parser_kwargs: Any
 ):
     """Decorator for CLI entry points.
@@ -213,17 +281,15 @@ def cli_function(
                         list(api_args),
                         **parser_kwargs
                     )
-                    if hasattr(opts, 'color'):
-                        use_color = (
-                            opts.color == 'always'
-                            or (opts.color == 'auto' and supports_color())
-                        )
+                    use_color = should_use_color(opts)
                     wrapped_args = [parser, opts, *args]
                 if 'color' in inspect.signature(wrapped_function).parameters:
                     wrapped_kwargs['color'] = use_color
 
                 # configure Cylc to use colour
-                color_init(autoreset=True, strip=not use_color)
+                # TODO: re-enable autoreset
+                # (https://github.com/cylc/cylc-flow/issues/6076)
+                color_init(autoreset=False, strip=not use_color)
                 if use_color:
                     ansi_log()
 
@@ -291,7 +357,32 @@ def cli_function(
     return inner
 
 
-def prompt(message, options, default=None, process=None):
+@overload
+def prompt(
+    message: str,
+    options: Sequence[str],
+    default: Optional[str] = None,
+    process: Optional['StrFunc'] = None,
+) -> str:
+    ...
+
+
+@overload
+def prompt(
+    message: str,
+    options: Dict[str, 'T'],
+    default: Optional[str] = None,
+    process: Optional['StrFunc'] = None,
+) -> 'T':
+    ...
+
+
+def prompt(
+    message: str,
+    options: Union[Sequence[str], Dict[str, 'T']],
+    default: Optional[str] = None,
+    process: Optional['StrFunc'] = None,
+) -> Union[str, 'T']:
     """Dead simple CLI textual prompting.
 
     Args:
@@ -319,13 +410,45 @@ def prompt(message, options, default=None, process=None):
     if default:
         default_ = f'[{default}] '
     message += f': {default_}{",".join(options)}? '
-    usr = None
+    usr = cast('str', None)
     while usr not in options:
         usr = input(f'{message}')
-        if default is not None and usr == '':
+        if default is not None and not usr:
             usr = default
         if process:
             usr = process(usr)
     if isinstance(options, dict):
         return options[usr]
     return usr
+
+
+def flatten_cli_lists(lsts: List[str]) -> List[str]:
+    """Return a sorted flat list for multi-use CLI command options.
+
+    Examples:
+        # --out='a,b,c'
+        >>> flatten_cli_lists(['a,b,c'])
+        ['a', 'b', 'c']
+
+        # --out='a' --out='a,b'
+        >>> flatten_cli_lists(['a', 'b,c'])
+        ['a', 'b', 'c']
+
+        # --out='a' --out='a,b'
+        >>> flatten_cli_lists(['a', 'a,b'])
+        ['a', 'b']
+
+        # --out='  a '
+        >>> flatten_cli_lists(['  a  '])
+        ['a']
+
+        # --out='a, b, c , d'
+        >>> flatten_cli_lists(['a, b, c , d'])
+        ['a', 'b', 'c', 'd']
+
+    """
+    return sorted({
+        item.strip()
+        for lst in (lsts or [])
+        for item in lst.strip().split(',')
+    })

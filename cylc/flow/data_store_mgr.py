@@ -33,19 +33,17 @@ Static data elements are generated on workflow start/restart/reload, which
 includes workflow, task, and family definition objects.
 
 The cycle point nodes/edges (i.e. task/family proxies) generation is triggered
-individually on transition from staging to active task pool. Each active task
-is generated along with any children and parents recursively out to a
-specified maximum graph distance (n_edge_distance), that can be externally
-altered (via API). Collectively this forms the N-Distance-Window on the
-workflow graph.
+individually on transition to active task pool. Each active task is generated
+along with any children and parents via a graph walk out to a specified maximum
+graph distance (n_edge_distance), that can be externally altered (via API).
+Collectively this forms the N-Distance-Window on the workflow graph.
 
-Pruning of data-store elements is done using both the collection/set of nodes
-generated through the associated graph paths of the active nodes and the
-tracking of the boundary nodes (n_edge_distance+1) of those active nodes.
-Once active, these boundary nodes act as the prune trigger for their
-original/generator node(s). Set operations are used to do a diff between the
-nodes of active paths (paths whose node is in the active task pool) and the
-nodes of flagged paths (whose boundary node(s) have become active).
+Pruning of data-store elements is done using the collection/set of nodes
+generated at the boundary of an active node's graph walk and registering active
+node's parents against them. Once active, these boundary nodes act as the prune
+triggers for the associated parent nodes. Set operations are used to do a diff
+between the nodes of active paths (paths whose node is in the active task pool)
+and the nodes of flagged paths (whose boundary node(s) have become active).
 
 Updates are created by the event/task/job managers.
 
@@ -63,15 +61,19 @@ import json
 from time import time
 from typing import (
     Any,
+    Dict,
     Optional,
+    List,
+    Set,
     TYPE_CHECKING,
     Tuple,
-    Union,
 )
 import zlib
 
 from cylc.flow import __version__ as CYLC_VERSION, LOG
-from cylc.flow.data_messages_pb2 import (  # type: ignore
+from cylc.flow.cycling.loader import get_point
+from cylc.flow.cycling.nocycle import NOCYCLE_POINTS
+from cylc.flow.data_messages_pb2 import (
     PbEdge, PbEntireWorkflow, PbFamily, PbFamilyProxy, PbJob, PbTask,
     PbTaskProxy, PbWorkflow, PbRuntime, AllDeltas, EDeltas, FDeltas,
     FPDeltas, JDeltas, TDeltas, TPDeltas, WDeltas)
@@ -83,7 +85,11 @@ from cylc.flow.parsec.util import (
     pdeepcopy,
     poverride
 )
-from cylc.flow.workflow_status import get_workflow_status
+from cylc.flow.run_modes import RunMode
+from cylc.flow.workflow_status import (
+    get_workflow_status,
+    get_workflow_status_msg,
+)
 from cylc.flow.task_job_logs import JOB_LOG_OPTS, get_task_job_log
 from cylc.flow.task_proxy import TaskProxy
 from cylc.flow.task_state import (
@@ -99,8 +105,8 @@ from cylc.flow.task_state_prop import extract_group_state
 from cylc.flow.taskdef import generate_graph_parents, generate_graph_children
 from cylc.flow.task_state import TASK_STATUSES_FINAL
 from cylc.flow.util import (
-    serialise,
-    deserialise
+    serialise_set,
+    deserialise_set
 )
 from cylc.flow.wallclock import (
     TIME_ZONE_LOCAL_INFO,
@@ -110,7 +116,9 @@ from cylc.flow.wallclock import (
 
 if TYPE_CHECKING:
     from cylc.flow.cycling import PointBase
-
+    from cylc.flow.flow_mgr import FlowNums
+    from cylc.flow.prerequisite import Prerequisite
+    from cylc.flow.scheduler import Scheduler
 
 EDGES = 'edges'
 FAMILIES = 'families'
@@ -245,6 +253,7 @@ def runtime_from_config(rtconfig):
     return PbRuntime(
         platform=platform,
         script=rtconfig['script'],
+        completion=rtconfig['completion'],
         init_script=rtconfig['init-script'],
         env_script=rtconfig['env-script'],
         err_script=rtconfig['err-script'],
@@ -252,6 +261,7 @@ def runtime_from_config(rtconfig):
         pre_script=rtconfig['pre-script'],
         post_script=rtconfig['post-script'],
         work_sub_dir=rtconfig['work sub-directory'],
+        run_mode=rtconfig['run mode'],
         execution_time_limit=str(rtconfig['execution time limit'] or ''),
         execution_polling_intervals=listjoin(
             rtconfig['execution polling intervals']
@@ -461,8 +471,8 @@ class DataStoreMgr:
     ERR_PREFIX_JOBID_MATCH = 'No matching jobs found: '
     ERR_PREFIX_JOB_NOT_ON_SEQUENCE = 'Invalid cycle point for job: '
 
-    def __init__(self, schd):
-        self.schd = schd
+    def __init__(self, schd, n_edge_distance=1):
+        self.schd: Scheduler = schd
         self.id_ = Tokens(
             user=self.schd.owner,
             workflow=self.schd.workflow,
@@ -475,13 +485,13 @@ class DataStoreMgr:
         self.updated_state_families = set()
         # Update workflow state totals once more post delta application.
         self.state_update_follow_on = False
-        self.n_edge_distance = 1
+        self.n_edge_distance = n_edge_distance
         self.next_n_edge_distance = None
         self.latest_state_tasks = {
             state: deque(maxlen=LATEST_STATE_TASKS_QUEUE_SIZE)
             for state in TASK_STATUSES_ORDERED
         }
-        self.xtrigger_tasks = {}
+        self.xtrigger_tasks: Dict[str, Set[Tuple[str, str]]] = {}
         # Managed data types
         self.data = {
             self.workflow_id: deepcopy(DATA_TEMPLATE)
@@ -504,8 +514,11 @@ class DataStoreMgr:
         self.all_task_pool = set()
         self.all_n_window_nodes = set()
         self.n_window_nodes = {}
-        self.n_window_edges = {}
-        self.n_window_boundary_nodes = {}
+        self.n_window_edges = set()
+        self.n_window_node_walks = {}
+        self.n_window_completed_walks = set()
+        self.n_window_depths = {}
+        self.update_window_depths = False
         self.db_load_task_proxies = {}
         self.family_pruned_ids = set()
         self.prune_trigger_nodes = {}
@@ -525,27 +538,29 @@ class DataStoreMgr:
         """
         # Reset attributes/data-store on reload:
         if reloaded:
-            self.__init__(self.schd)
+            self.__init__(self.schd, self.n_edge_distance)
 
         # Static elements
         self.generate_definition_elements()
 
         # Update workflow statuses and totals (assume needed)
-        self.update_workflow()
+        self.update_workflow(True)
 
         # Apply current deltas
         self.batch_deltas()
         self.apply_delta_batch()
+        # Clear deltas after application
+        self.clear_delta_store()
+        self.clear_delta_batch()
 
-        if not reloaded:
-            # Gather this batch of deltas for publish
-            self.apply_delta_checksum()
-            self.publish_deltas = self.get_publish_deltas()
+        # Gather the store as batch of deltas for publishing
+        self.batch_deltas(True)
+        self.apply_delta_checksum()
+        self.publish_deltas = self.get_publish_deltas()
 
         self.updates_pending = False
 
-        # Clear deltas after application and publishing
-        self.clear_delta_store()
+        # Clear second batch after publishing
         self.clear_delta_batch()
 
     def generate_definition_elements(self):
@@ -561,8 +576,11 @@ class DataStoreMgr:
         families = self.added[FAMILIES]
         workflow = self.added[WORKFLOW]
         workflow.id = self.workflow_id
+        workflow.n_edge_distance = self.n_edge_distance
         workflow.last_updated = update_time
         workflow.stamp = f'{workflow.id}@{workflow.last_updated}'
+        # Treat play/restart as hard reload of definition.
+        workflow.reloaded = True
 
         graph = workflow.edges
         graph.leaves[:] = config.leaves
@@ -683,8 +701,7 @@ class DataStoreMgr:
             time_zone_info = TIME_ZONE_LOCAL_INFO
         for key, val in time_zone_info.items():
             setbuff(workflow.time_zone_info, key, val)
-
-        workflow.run_mode = config.run_mode()
+        workflow.run_mode = RunMode.get(config.options).value
         workflow.cycling_mode = config.cfg['scheduling']['cycling mode']
         workflow.workflow_log_dir = self.schd.workflow_log_dir
         workflow.job_log_names.extend(list(JOB_LOG_OPTS.values()))
@@ -702,182 +719,373 @@ class DataStoreMgr:
     def increment_graph_window(
         self,
         source_tokens: Tokens,
-        point,
-        flow_nums,
-        edge_distance=0,
-        active_id: Optional[str] = None,
-        descendant=False,
-        is_parent=False,
-        is_manual_submit=False,
-        itask=None
+        point: 'PointBase',
+        flow_nums: 'FlowNums',
+        is_manual_submit: bool = False,
+        itask: Optional['TaskProxy'] = None
     ) -> None:
         """Generate graph window about active task proxy to n-edge-distance.
 
-        A recursive function, that creates a node then moves to children and
-        parents repeating this process out to one edge beyond the max window
-        size (in edges). Going out one edge further, we can trigger
-        pruning as new active tasks appear beyond this boundary.
-
+        Fills in graph walk from existing walks if possible, otherwise expands
+        the graph front from whereever hasn't been walked.
+        Walk nodes are grouped into locations which are tag according to
+        parent child path, i.e. 'cpc' would be children-parents-children away
+        from active/start task. Which not only provide a way to cheaply rewalk,
+        but also the edge distance from origin.
+        The futherest child boundary nodes are registered as prune triggers for
+        the origin's parents, so when they become active the parents are
+        assessed for pruning eligibility.
 
         Args:
-            source_tokens (cylc.flow.id.Tokens)
-            point (PointBase)
-            flow_nums (set)
-            edge_distance (int):
-                Graph distance from active/origin node.
-            active_id (str):
-                Active/origin node id.
-            descendant (bool):
-                Is the current node a direct descendent of the active/origin.
-            is_parent (bool)
-            is_manual_submit (bool)
-            itask (cylc.flow.task_proxy.TaskProxy):
+            source_tokens
+            point
+            flow_nums
+            is_manual_submit
+            itask:
                 Active/Other task proxy, passed in with pool invocation.
-
-        Returns:
-            None
-
         """
-        is_active = not (descendant or is_parent)
-        # ID passed through recursion as reference to original/active node.
-        if active_id is None:
-            source_tokens = self.id_.duplicate(source_tokens)
-            active_id = source_tokens.id
 
-        # flag manual triggers for pruning on deletion.
-        if is_manual_submit:
-            self.prune_trigger_nodes.setdefault(active_id, set()).add(
-                source_tokens.id
-            )
+        # common refrences
+        active_id = source_tokens.id
+        all_walks = self.n_window_node_walks
+        taskdefs = self.schd.config.taskdefs
+        final_point = self.schd.config.final_point
 
-        # Setup and check if active node is another's boundary node
-        # to flag its paths for pruning.
-        if is_active:
-            self.n_window_edges[active_id] = set()
-            self.n_window_boundary_nodes[active_id] = {}
-            self.n_window_nodes[active_id] = set()
-            if active_id in self.prune_trigger_nodes:
-                self.prune_flagged_nodes.update(
-                    self.prune_trigger_nodes[active_id])
-                del self.prune_trigger_nodes[active_id]
+        # walk keys/tags
+        # Children location tag
+        c_tag = 'c'
+        # Parents location tag
+        p_tag = 'p'
 
-        # This part is vital to constructing a set of boundary nodes
-        # associated with the current Active node.
-        if edge_distance > self.n_edge_distance:
-            if descendant and self.n_edge_distance > 0:
-                self.n_window_boundary_nodes[
-                    active_id
-                ].setdefault(edge_distance, set()).add(source_tokens.id)
-            return
+        # Setup walk fields:
+        # - locations (locs): i.e. 'cpc' children-parents-children from origin,
+        #   with their respective node ids.
+        # - orphans: task no longer exists in workflow.
+        # - done_locs: set of locactions that have been walked over.
+        # - done_ids: set of node ids that have been walked (from initial
+        #   walk filling, that may not have been the entire walk).
+        # If walk already completed, must have gone from non-active to active
+        # again.. So redo walk (as walk nodes may be pruned).
+        if (
+            active_id not in all_walks
+            or active_id in self.n_window_completed_walks
+        ):
+            all_walks[active_id] = {
+                'locations': {},
+                'orphans': set(),
+                'done_locs': set(),
+                'done_ids': set(),
+                'walk_ids': {active_id},
+                'depths': {
+                    depth: set()
+                    for depth in range(1, self.n_edge_distance + 1)
+                }
+            }
+            if active_id in self.n_window_completed_walks:
+                self.n_window_completed_walks.remove(active_id)
+        active_walk = all_walks[active_id]
+        active_locs = active_walk['locations']
+        if source_tokens['task'] not in taskdefs:
+            active_walk['orphans'].add(active_id)
 
         # Generate task proxy node
-        is_orphan, graph_children = self.generate_ghost_task(
+        self.n_window_nodes[active_id] = set()
+
+        self.generate_ghost_task(
             source_tokens,
             point,
             flow_nums,
-            is_parent,
-            itask
+            is_parent=False,
+            itask=itask,
+            replace_existing=True,
         )
 
-        self.n_window_nodes[active_id].add(source_tokens.id)
+        # Pre-populate from previous walks
+        # Will check all location permutations.
+        # There may be short cuts for parent locs, however children will more
+        # likely be incomplete walks with no 'done_locs' and using parent's
+        # children will required sifting out cousin branches.
+        working_locs: List[str] = []
+        if self.n_edge_distance > 1:
+            if c_tag in active_locs:
+                working_locs.extend(('cc', 'cp'))
+            if p_tag in active_locs:
+                working_locs.extend(('pp', 'pc'))
+            n_depth = 2
+        while working_locs:
+            for w_loc in working_locs:
+                loc_done = True
+                # Most will be incomplete walks, however, we can check.
+                # i.e. parents of children may all exist.
+                if w_loc[:-1] in active_locs:
+                    for loc_id in active_locs[w_loc[:-1]]:
+                        if loc_id not in all_walks:
+                            loc_done = False
+                            break
+                else:
+                    continue
+                # find child nodes of parent location,
+                # i.e. 'cpcc' = 'cpc' + 'c'
+                w_set = set().union(*(
+                    all_walks[loc_id]['locations'][w_loc[-1]]
+                    for loc_id in active_locs[w_loc[:-1]]
+                    if (
+                        loc_id in all_walks
+                        and w_loc[-1] in all_walks[loc_id]['locations']
+                    )
+                ))
+                w_set.difference_update(active_walk['walk_ids'])
+                if w_set:
+                    active_locs[w_loc] = w_set
+                    active_walk['walk_ids'].update(w_set)
+                    active_walk['depths'][n_depth].update(w_set)
+                    # If child/parent nodes have been pruned we will need
+                    # to regenerate them.
+                    if (
+                        loc_done
+                        and not w_set.difference(self.all_n_window_nodes)
+                    ):
+                        active_walk['done_locs'].add(w_loc[:-1])
+                        active_walk['done_ids'].update(
+                            active_locs[w_loc[:-1]]
+                        )
+            working_locs = [
+                new_loc
+                for loc in working_locs
+                if loc in active_locs and len(loc) < self.n_edge_distance
+                for new_loc in (loc + c_tag, loc + p_tag)
+            ]
+            n_depth += 1
 
-        edge_distance += 1
-
-        # Don't expand window about orphan task.
+        # Graph walk
+        node_tokens: Tokens
         child_tokens: Tokens
         parent_tokens: Tokens
-        if not is_orphan:
-            tdef = self.schd.config.taskdefs[source_tokens['task']]
-            # TODO: xtrigger is workflow_state edges too
-            # Reference set for workflow relations
-            final_point = self.schd.config.final_point
-            if descendant or is_active:
-                if graph_children is None:
-                    graph_children = generate_graph_children(tdef, point)
-                if not any(graph_children.values()):
-                    self.n_window_boundary_nodes[active_id].setdefault(
-                        edge_distance - 1,
-                        set()
-                    ).add(source_tokens.id)
+        walk_incomplete = True
+        while walk_incomplete:
+            walk_incomplete = False
+            # Only walk locations not fully explored
+            locations = [
+                loc
+                for loc in active_locs
+                if (
 
-                # Children/downstream nodes
-                for items in graph_children.values():
-                    for child_name, child_point, _ in items:
-                        if child_point > final_point:
+                    len(loc) < self.n_edge_distance
+                    and loc not in active_walk['done_locs']
+                )
+            ]
+            # Origin/Active usually first or isolate nodes
+            if (
+                not active_walk['done_ids']
+                and not locations
+                and active_id not in active_walk['orphans']
+                and self.n_edge_distance != 0
+            ):
+                locations = ['']
+            # Explore/walk locations
+            for location in locations:
+                walk_incomplete = True
+                if not location:
+                    loc_nodes = {active_id}
+                else:
+                    loc_nodes = active_locs[location]
+                    active_walk['done_locs'].add(location)
+                c_loc = location + c_tag
+                p_loc = location + p_tag
+                c_ids = set()
+                p_ids = set()
+                n_depth = len(location) + 1
+                # Exclude walked nodes at this location.
+                # This also helps avoid walking in a circle.
+                for node_id in loc_nodes.difference(active_walk['done_ids']):
+                    active_walk['done_ids'].add(node_id)
+                    node_tokens = Tokens(node_id)
+                    # Don't expand window about orphan task.
+                    try:
+                        tdef = taskdefs[node_tokens['task']]
+                    except KeyError:
+                        active_walk['orphans'].add(node_id)
+                        continue
+                    # Use existing children/parents from other walks.
+                    # (note: nodes/edges should already be generated)
+                    c_done = False
+                    p_done = False
+                    if node_id in all_walks and node_id is not active_id:
+                        with suppress(KeyError):
+                            # If children have been pruned, don't skip,
+                            # re-generate them (uncommon or impossible?).
+                            if not all_walks[node_id]['locations'][
+                                c_tag
+                            ].difference(self.all_n_window_nodes):
+                                c_ids.update(
+                                    all_walks[node_id]['locations'][c_tag]
+                                )
+                                c_done = True
+                        with suppress(KeyError):
+                            # If parent have been pruned, don't skip,
+                            # re-generate them (more common case).
+                            if not all_walks[node_id]['locations'][
+                                p_tag
+                            ].difference(self.all_n_window_nodes):
+                                p_ids.update(
+                                    all_walks[node_id]['locations'][p_tag]
+                                )
+                                p_done = True
+                        if p_done and c_done:
                             continue
-                        child_tokens = self.id_.duplicate(
-                            cycle=str(child_point),
-                            task=child_name,
-                        )
-                        # We still increment the graph one further to find
-                        # boundary nodes, but don't create elements.
-                        if edge_distance <= self.n_edge_distance:
-                            self.generate_edge(
-                                source_tokens,
-                                child_tokens,
-                                active_id
+
+                    # Children/downstream nodes
+                    # TODO: xtrigger is workflow_state edges too
+                    # see: https://github.com/cylc/cylc-flow/issues/4582
+                    # Reference set for workflow relations
+                    nc_ids = set()
+                    if not c_done:
+                        if itask is not None and n_depth == 1:
+                            graph_children = itask.graph_children
+                        else:
+                            graph_children = generate_graph_children(
+                                tdef,
+                                get_point(node_tokens['cycle'])
                             )
-                        if child_tokens.id in self.n_window_nodes[active_id]:
-                            continue
-                        self.increment_graph_window(
-                            child_tokens,
-                            child_point,
-                            flow_nums,
-                            edge_distance,
-                            active_id,
-                            True,
-                            False
-                        )
+                        for items in graph_children.values():
+                            for child_name, child_point, _ in items:
+                                if final_point and child_point > final_point:
+                                    continue
+                                child_tokens = self.id_.duplicate(
+                                    cycle=str(child_point),
+                                    task=child_name,
+                                )
+                                self.generate_ghost_task(
+                                    child_tokens,
+                                    child_point,
+                                    flow_nums,
+                                    False,
+                                    None,
+                                    n_depth
+                                )
+                                self.generate_edge(
+                                    node_tokens,
+                                    child_tokens,
+                                    active_id
+                                )
+                                nc_ids.add(child_tokens.id)
 
-            # Parents/upstream nodes
-            if is_parent or is_active:
-                for items in generate_graph_parents(
-                    tdef,
-                    point,
-                    self.schd.config.taskdefs
-                ).values():
-                    for parent_name, parent_point, _ in items:
-                        if parent_point > final_point:
-                            continue
-                        parent_tokens = self.id_.duplicate(
-                            cycle=str(parent_point),
-                            task=parent_name,
-                        )
-                        if edge_distance <= self.n_edge_distance:
-                            # reverse for parent
-                            self.generate_edge(
-                                parent_tokens,
-                                source_tokens,
-                                active_id
-                            )
-                        if parent_tokens.id in self.n_window_nodes[active_id]:
-                            continue
-                        self.increment_graph_window(
-                            parent_tokens,
-                            parent_point,
-                            flow_nums,
-                            edge_distance,
-                            active_id,
-                            False,
-                            True
-                        )
+                    # Parents/upstream nodes
+                    np_ids = set()
+                    if not p_done:
+                        for items in generate_graph_parents(
+                            tdef,
+                            get_point(node_tokens['cycle']),
+                            taskdefs
+                        ).values():
+                            for parent_name, parent_point, _ in items:
+                                if (
+                                    str(parent_point) not in NOCYCLE_POINTS
+                                    and final_point
+                                    and (parent_point > final_point)
+                                ):
+                                    continue
+                                parent_tokens = self.id_.duplicate(
+                                    cycle=str(parent_point),
+                                    task=parent_name,
+                                )
+                                self.generate_ghost_task(
+                                    parent_tokens,
+                                    parent_point,
+                                    flow_nums,
+                                    True,
+                                    None,
+                                    n_depth
+                                )
+                                # reverse for parent
+                                self.generate_edge(
+                                    parent_tokens,
+                                    node_tokens,
+                                    active_id
+                                )
+                                np_ids.add(parent_tokens.id)
 
-        # If this is the active task (edge_distance has been incremented),
-        # then add the most distant child as a trigger to prune it.
-        if is_active:
-            levels = self.n_window_boundary_nodes[active_id].keys()
+                    # Register new walk
+                    if node_id not in all_walks:
+                        all_walks[node_id] = {
+                            'locations': {},
+                            'done_ids': set(),
+                            'done_locs': set(),
+                            'orphans': set(),
+                            'walk_ids': {node_id} | nc_ids | np_ids,
+                            'depths': {
+                                depth: set()
+                                for depth in range(1, self.n_edge_distance + 1)
+                            }
+                        }
+                    if nc_ids:
+                        all_walks[node_id]['locations'][c_tag] = nc_ids
+                        all_walks[node_id]['depths'][1].update(nc_ids)
+                        c_ids.update(nc_ids)
+                    if np_ids:
+                        all_walks[node_id]['locations'][p_tag] = np_ids
+                        all_walks[node_id]['depths'][1].update(np_ids)
+                        p_ids.update(np_ids)
+
+                # Create location association
+                c_ids.difference_update(active_walk['walk_ids'])
+                if c_ids:
+                    active_locs.setdefault(c_loc, set()).update(c_ids)
+                p_ids.difference_update(active_walk['walk_ids'])
+                if p_ids:
+                    active_locs.setdefault(p_loc, set()).update(p_ids)
+                active_walk['walk_ids'].update(c_ids, p_ids)
+                active_walk['depths'][n_depth].update(c_ids, p_ids)
+
+        self.n_window_completed_walks.add(active_id)
+        self.n_window_nodes[active_id].update(active_walk['walk_ids'])
+
+        # This part is vital to constructing a set of boundary nodes
+        # associated with the n=0 window of current active node.
+        # Only trigger pruning for furthest set of boundary nodes
+        boundary_nodes: Set[str] = set()
+        max_level: int = 0
+        with suppress(ValueError):
+            max_level = max(
+                len(loc)
+                for loc in active_locs
+                if p_tag not in loc
+            )
+            # add the most distant child as a trigger to prune it.
+            boundary_nodes.update(*(
+                active_locs[loc]
+                for loc in active_locs
+                if p_tag not in loc and len(loc) >= max_level
+            ))
+        if not boundary_nodes and not max_level:
             # Could be self-reference node foo:failed => foo
-            if not levels:
-                self.n_window_boundary_nodes[active_id][0] = {active_id}
-                levels = (0,)
-            # Only trigger pruning for furthest set of boundary nodes
-            for tp_id in self.n_window_boundary_nodes[active_id][max(levels)]:
-                self.prune_trigger_nodes.setdefault(
-                    tp_id, set()).add(active_id)
-            del self.n_window_boundary_nodes[active_id]
-            if self.n_window_edges[active_id]:
-                getattr(self.updated[WORKFLOW], EDGES).edges.extend(
-                    self.n_window_edges[active_id])
+            boundary_nodes = {active_id}
+        # associate
+        for tp_id in boundary_nodes:
+            try:
+                self.prune_trigger_nodes.setdefault(tp_id, set()).update(
+                    active_walk['walk_ids']
+                )
+                self.prune_trigger_nodes[tp_id].discard(tp_id)
+            except KeyError:
+                self.prune_trigger_nodes.setdefault(tp_id, set()).add(
+                    active_id
+                )
+        # flag manual triggers for pruning on deletion.
+        if is_manual_submit:
+            self.prune_trigger_nodes.setdefault(active_id, set()).add(
+                active_id
+            )
+        if active_walk['orphans']:
+            self.prune_trigger_nodes.setdefault(active_id, set()).union(
+                active_walk['orphans']
+            )
+        # Check if active node is another's boundary node
+        # to flag its paths for pruning.
+        if active_id in self.prune_trigger_nodes:
+            self.prune_flagged_nodes.update(
+                self.prune_trigger_nodes[active_id])
+            del self.prune_trigger_nodes[active_id]
 
     def generate_edge(
         self,
@@ -888,7 +1096,7 @@ class DataStoreMgr:
         """Construct edge of child and parent task proxy node."""
         # Initiate edge element.
         e_id = self.edge_id(parent_tokens, child_tokens)
-        if e_id in self.n_window_edges[active_id]:
+        if e_id in self.n_window_edges:
             return
         if (
             e_id not in self.data[self.workflow_id][EDGES]
@@ -906,7 +1114,8 @@ class DataStoreMgr:
             self.updated[TASK_PROXIES].setdefault(
                 parent_tokens.id,
                 PbTaskProxy(id=parent_tokens.id)).edges.append(e_id)
-            self.n_window_edges[active_id].add(e_id)
+            getattr(self.updated[WORKFLOW], EDGES).edges.append(e_id)
+            self.n_window_edges.add(e_id)
 
     def remove_pool_node(self, name, point):
         """Remove ID reference and flag isolate node/branch for pruning."""
@@ -924,13 +1133,17 @@ class DataStoreMgr:
         ):
             self.prune_flagged_nodes.update(self.prune_trigger_nodes[tp_id])
             del self.prune_trigger_nodes[tp_id]
-            self.updates_pending = True
         elif (
                 tp_id in self.n_window_nodes and
                 self.n_window_nodes[tp_id].isdisjoint(self.all_task_pool)
         ):
             self.prune_flagged_nodes.add(tp_id)
-            self.updates_pending = True
+        elif tp_id in self.n_window_node_walks:
+            self.prune_flagged_nodes.update(
+                self.n_window_node_walks[tp_id]['walk_ids']
+            )
+        self.update_window_depths = True
+        self.updates_pending = True
 
     def add_pool_node(self, name, point):
         """Add external ID reference for internal task pool node."""
@@ -939,60 +1152,59 @@ class DataStoreMgr:
             task=name,
         ).id
         self.all_task_pool.add(tp_id)
+        self.update_window_depths = True
 
     def generate_ghost_task(
         self,
         tokens: Tokens,
-        point,
-        flow_nums,
-        is_parent=False,
-        itask=None
-    ) -> Tuple[bool, Optional[dict]]:
+        point: 'PointBase',
+        flow_nums: 'FlowNums',
+        is_parent: bool = False,
+        itask: Optional['TaskProxy'] = None,
+        n_depth: int = 0,
+        replace_existing: bool = False,
+    ) -> None:
         """Create task-point element populated with static data.
 
         Args:
-            source_tokens (cylc.flow.id.Tokens)
-            point (PointBase)
-            flow_nums (set)
-            is_parent (bool):
-                Used to determine whether to load DB state.
-            itask (cylc.flow.task_proxy.TaskProxy):
-                Update task-node from corresponding task proxy object.
-
-        Returns:
-            (is_orphan, graph_children)
-
-        Orphan tasks with no children return (True, None) respectively.
-
+            source_tokens
+            point
+            flow_nums
+            is_parent: Used to determine whether to load DB state.
+            itask: Update task-node from corresponding task proxy object.
+            n_depth: n-window graph edge distance.
+            replace_existing: Replace any existing data for task as it may
+                be out of date (e.g. flow nums).
         """
+        tp_id = tokens.id
+        if (
+            tp_id in self.data[self.workflow_id][TASK_PROXIES]
+            or tp_id in self.added[TASK_PROXIES]
+        ):
+            if replace_existing and itask is not None:
+                self.delta_from_task_proxy(itask)
+            return
+
         name = tokens['task']
         point_string = tokens['cycle']
         t_id = self.definition_id(name)
-        tp_id = tokens.id
-        task_proxies = self.data[self.workflow_id][TASK_PROXIES]
-
-        is_orphan = False
-        if name not in self.schd.config.taskdefs:
-            is_orphan = True
 
         if itask is None:
-            itask = self.schd.pool.get_task(point_string, name)
-        if tp_id in task_proxies or tp_id in self.added[TASK_PROXIES]:
-            if itask is None:
-                return is_orphan, None
-            return is_orphan, itask.graph_children
-
-        if itask is None:
-            itask = TaskProxy(
+            itask = self.schd.pool.get_task(point_string, name) or TaskProxy(
                 self.id_,
                 self.schd.config.get_taskdef(name),
                 point,
                 flow_nums,
                 submit_num=0,
-                data_mode=True
+                data_mode=True,
+                sequential_xtrigger_labels=(
+                    self.schd.xtrigger_mgr.xtriggers.sequential_xtrigger_labels
+                ),
             )
 
-        if is_orphan:
+        is_orphan = False
+        if name not in self.schd.config.taskdefs:
+            is_orphan = True
             self.generate_orphan_task(itask)
 
         # Most of the time the definition node will be in the store.
@@ -1003,7 +1215,7 @@ class DataStoreMgr:
                 task_def = self.added[TASKS][t_id]
             except KeyError:
                 # Task removed from workflow definition.
-                return False, itask.graph_children
+                return
 
         update_time = time()
         tp_stamp = f'{tp_id}@{update_time}'
@@ -1017,8 +1229,12 @@ class DataStoreMgr:
                 in self.schd.pool.tasks_to_hold
             ),
             depth=task_def.depth,
+            graph_depth=n_depth,
             name=name,
+            flow_nums=serialise_set(flow_nums),
         )
+        self.all_n_window_nodes.add(tp_id)
+        self.n_window_depths.setdefault(n_depth, set()).add(tp_id)
 
         tproxy.namespace[:] = task_def.namespace
         if is_orphan:
@@ -1071,7 +1287,7 @@ class DataStoreMgr:
 
         self.updates_pending = True
 
-        return is_orphan, itask.graph_children
+        return
 
     def generate_orphan_task(self, itask):
         """Generate orphan task definition."""
@@ -1190,7 +1406,6 @@ class DataStoreMgr:
 
     def apply_task_proxy_db_history(self):
         """Extract and apply DB history on given task proxies."""
-
         if not self.db_load_task_proxies:
             return
 
@@ -1209,8 +1424,8 @@ class DataStoreMgr:
             relative_id = tokens.relative_id
             itask, is_parent = self.db_load_task_proxies[relative_id]
             itask.submit_num = submit_num
-            flow_nums = deserialise(flow_nums_str)
-            # Do not set states and outputs for future tasks in flow.
+            flow_nums = deserialise_set(flow_nums_str)
+            # Do not set states and outputs for inactive tasks in flow.
             if (
                     itask.flow_nums and
                     flow_nums != itask.flow_nums and
@@ -1230,12 +1445,12 @@ class DataStoreMgr:
                     )
             ):
                 for message in json.loads(outputs_str):
-                    itask.state.outputs.set_completion(message, True)
+                    itask.state.outputs.set_message_complete(message)
             # Gather tasks with flow id.
             prereq_ids.add(f'{relative_id}/{flow_nums_str}')
 
         # Batch load prerequisites of tasks according to flow.
-        prereqs_map = {}
+        prereqs_map: Dict[str, dict] = {}
         for (
                 cycle, name, prereq_name,
                 prereq_cycle, prereq_output, satisfied
@@ -1249,16 +1464,14 @@ class DataStoreMgr:
             ] = satisfied if satisfied != '0' else False
 
         for ikey, prereqs in prereqs_map.items():
+            itask_prereq: Prerequisite
             for itask_prereq in (
-                    self.db_load_task_proxies[ikey][0].state.prerequisites
+                self.db_load_task_proxies[ikey][0].state.prerequisites
             ):
-                for key in itask_prereq.satisfied.keys():
-                    try:
-                        itask_prereq.satisfied[key] = prereqs[key]
-                    except KeyError:
-                        # This prereq is not in the DB: new dependencies
-                        # added to an already-spawned task before restart.
-                        itask_prereq.satisfied[key] = False
+                for key in itask_prereq:
+                    itask_prereq[key] = prereqs.get(key, False)
+                    # (False if prereq is not in the DB: new dependencies
+                    # added to an already-spawned task before restart.)
 
         # Extract info from itasks to data-store.
         for task_info in self.db_load_task_proxies.values():
@@ -1275,13 +1488,17 @@ class DataStoreMgr:
 
         self.db_load_task_proxies.clear()
 
-    def _process_internal_task_proxy(self, itask, tproxy):
+    def _process_internal_task_proxy(
+        self,
+        itask: 'TaskProxy',
+        tproxy: PbTaskProxy,
+    ):
         """Extract information from internal task proxy object."""
 
         update_time = time()
 
         tproxy.state = itask.state.status
-        tproxy.flow_nums = serialise(itask.flow_nums)
+        tproxy.flow_nums = serialise_set(itask.flow_nums)
 
         prereq_list = []
         for prereq in itask.state.prerequisites:
@@ -1292,7 +1509,7 @@ class DataStoreMgr:
         del tproxy.prerequisites[:]
         tproxy.prerequisites.extend(prereq_list)
 
-        for label, message, satisfied in itask.state.outputs.get_all():
+        for label, message, satisfied in itask.state.outputs:
             output = tproxy.outputs[label]
             output.label = label
             output.message = message
@@ -1311,7 +1528,7 @@ class DataStoreMgr:
             xtrig.id = sig
             xtrig.label = label
             xtrig.satisfied = satisfied
-            self.xtrigger_tasks.setdefault(sig, set()).add(tproxy.id)
+            self.xtrigger_tasks.setdefault(sig, set()).add((tproxy.id, label))
 
         if tproxy.state in self.latest_state_tasks:
             tp_ref = itask.identity
@@ -1358,6 +1575,7 @@ class DataStoreMgr:
             cycle=str(cycle_point),
             task=name,
         )
+        tproxy: Optional[PbTaskProxy]
         tp_id, tproxy = self.store_node_fetcher(tp_tokens)
         if not tproxy:
             return
@@ -1380,7 +1598,7 @@ class DataStoreMgr:
             name=tproxy.name,
             cycle_point=tproxy.cycle_point,
             execution_time_limit=job_conf.get('execution_time_limit'),
-            platform=job_conf.get('platform')['name'],
+            platform=job_conf['platform']['name'],
             job_runner_name=job_conf.get('job_runner_name'),
         )
         # Not all fields are populated with some submit-failures,
@@ -1396,7 +1614,6 @@ class DataStoreMgr:
         # Add in log files.
         j_buf.job_log_dir = get_task_job_log(
             self.schd.workflow, tproxy.cycle_point, tproxy.name, sub_num)
-        j_buf.extra_logs.extend(job_conf.get('logfiles', []))
 
         self.added[JOBS][j_id] = j_buf
         getattr(self.updated[WORKFLOW], JOBS).append(j_id)
@@ -1432,6 +1649,7 @@ class DataStoreMgr:
             cycle=point_string,
             task=name,
         )
+        tproxy: Optional[PbTaskProxy]
         tp_id, tproxy = self.store_node_fetcher(tp_tokens)
         if not tproxy:
             return
@@ -1494,18 +1712,25 @@ class DataStoreMgr:
             tp_delta.jobs.append(j_id)
             self.updates_pending = True
 
-    def update_data_structure(self, reloaded=False):
+    def update_data_structure(self):
         """Workflow batch updates in the data structure."""
-        # load database history for flagged nodes
-        self.apply_task_proxy_db_history()
 
         # Avoids changing window edge distance during edge/node creation
         if self.next_n_edge_distance is not None:
             self.n_edge_distance = self.next_n_edge_distance
+            self.window_resize_rewalk()
             self.next_n_edge_distance = None
+
+        # load database history for flagged nodes
+        self.apply_task_proxy_db_history()
 
         self.updates_pending_follow_on = False
         self.prune_data_store()
+
+        # Find depth changes and create deltas
+        if self.update_window_depths:
+            self.window_depth_finder()
+
         if self.updates_pending:
             # update
             self.update_family_proxies()
@@ -1521,11 +1746,7 @@ class DataStoreMgr:
             # Apply all deltas
             self.apply_delta_batch()
 
-        if reloaded:
-            self.clear_delta_batch()
-            self.batch_deltas(reloaded=True)
-
-        if self.updates_pending or reloaded:
+        if self.updates_pending:
             self.apply_delta_checksum()
             # Gather this batch of deltas for publish
             self.publish_deltas = self.get_publish_deltas()
@@ -1535,6 +1756,95 @@ class DataStoreMgr:
         # Clear deltas
         self.clear_delta_batch()
         self.clear_delta_store()
+
+    def update_workflow_states(self):
+        """Batch workflow state updates."""
+
+        # update the workflow state in the data store
+        self.update_workflow()
+
+        # push out update deltas
+        self.batch_deltas()
+        self.apply_delta_batch()
+        self.apply_delta_checksum()
+        self.publish_deltas = self.get_publish_deltas()
+
+    def window_resize_rewalk(self) -> None:
+        """Re-create data-store n-window on resize."""
+        # Gather pre-resize window nodes
+        if not self.all_n_window_nodes:
+            self.all_n_window_nodes = set().union(*(
+                v
+                for k, v in self.n_window_nodes.items()
+                if k in self.all_task_pool
+            ))
+
+        # Clear window walks, and walk from scratch.
+        self.prune_flagged_nodes.clear()
+        self.n_window_node_walks.clear()
+        for tp_id in self.all_task_pool:
+            tokens = Tokens(tp_id)
+            tproxy: PbTaskProxy
+            _, tproxy = self.store_node_fetcher(tokens)
+            self.increment_graph_window(
+                tokens,
+                get_point(tokens['cycle']),
+                deserialise_set(tproxy.flow_nums)
+            )
+        # Flag difference between old and new window for pruning.
+        self.prune_flagged_nodes.update(
+            self.all_n_window_nodes.difference(*(
+                v
+                for k, v in self.n_window_nodes.items()
+                if k in self.all_task_pool
+            ))
+        )
+        self.update_window_depths = True
+
+    def window_depth_finder(self):
+        """Recalculate window depths, creating depth deltas."""
+        # Setup new window depths
+        n_window_depths: Dict[int, Set[str]] = {
+            0: self.all_task_pool.copy()
+        }
+
+        depth = 1
+        # Since starting from smaller depth, exclude those whose depth has
+        # already been found.
+        depth_found_tasks: Set[str] = self.all_task_pool.copy()
+        while depth <= self.n_edge_distance:
+            n_window_depths[depth] = set().union(*(
+                self.n_window_node_walks[n_id]['depths'][depth]
+                for n_id in self.all_task_pool
+                if (
+                    n_id in self.n_window_node_walks
+                    and depth in self.n_window_node_walks[n_id]['depths']
+                )
+            )).difference(depth_found_tasks)
+            depth_found_tasks.update(n_window_depths[depth])
+            # Calculate next depth parameters.
+            depth += 1
+
+        # Create deltas of those whose depth has changed, a node should only
+        # appear once across all depths.
+        # So the diff will only contain it at a single depth and if it didn't
+        # appear at the same depth previously.
+        update_time = time()
+        for depth, node_set in n_window_depths.items():
+            node_set_diff = node_set.difference(
+                self.n_window_depths.setdefault(depth, set())
+            )
+            if not self.updates_pending and node_set_diff:
+                self.updates_pending = True
+            for tp_id in node_set_diff:
+                tp_delta = self.updated[TASK_PROXIES].setdefault(
+                    tp_id, PbTaskProxy(id=tp_id)
+                )
+                tp_delta.stamp = f'{tp_id}@{update_time}'
+                tp_delta.graph_depth = depth
+        # Set old to new.
+        self.n_window_depths = n_window_depths
+        self.update_window_depths = False
 
     def prune_data_store(self):
         """Remove flagged nodes and edges not in the set of active paths."""
@@ -1570,8 +1880,6 @@ class DataStoreMgr:
         for tp_id in list(node_ids):
             if tp_id in self.n_window_nodes:
                 del self.n_window_nodes[tp_id]
-            if tp_id in self.n_window_edges:
-                del self.n_window_edges[tp_id]
             if tp_id in tp_data:
                 node = tp_data[tp_id]
             elif tp_id in tp_added:
@@ -1579,8 +1887,15 @@ class DataStoreMgr:
             else:
                 node_ids.remove(tp_id)
                 continue
+            self.n_window_edges.difference_update(node.edges)
+            if tp_id in self.n_window_node_walks:
+                del self.n_window_node_walks[tp_id]
+            if tp_id in self.n_window_completed_walks:
+                self.n_window_completed_walks.remove(tp_id)
             for sig in node.xtriggers:
-                self.xtrigger_tasks[sig].remove(tp_id)
+                self.xtrigger_tasks[sig].remove(
+                    (tp_id, node.xtriggers[sig].label)
+                )
                 if not self.xtrigger_tasks[sig]:
                     del self.xtrigger_tasks[sig]
 
@@ -1668,10 +1983,12 @@ class DataStoreMgr:
                     node = tp_added[tp_id]
                 else:
                     continue
-                for j_id in list(node.jobs) + list(tp_updated[tp_id].jobs):
+                update_node = tp_updated.pop(tp_id)
+                for j_id in list(node.jobs) + list(update_node.jobs):
                     if j_id in j_updated:
                         del j_updated[j_id]
-                del tp_updated[tp_id]
+                self.n_window_edges.difference_update(update_node.edges)
+                self.deltas[EDGES].pruned.extend(update_node.edges)
         self.pruned_task_proxies.clear()
 
     def update_family_proxies(self):
@@ -1731,6 +2048,7 @@ class DataStoreMgr:
             is_held_total = 0
             is_queued_total = 0
             is_runahead_total = 0
+            graph_depth = self.n_edge_distance
             for child_id in fam_node.child_families:
                 child_node = fp_updated.get(child_id, fp_data.get(child_id))
                 if child_node is not None:
@@ -1738,6 +2056,8 @@ class DataStoreMgr:
                     is_queued_total += child_node.is_queued_total
                     is_runahead_total += child_node.is_runahead_total
                     state_counter += Counter(dict(child_node.state_totals))
+                    if child_node.graph_depth < graph_depth:
+                        graph_depth = child_node.graph_depth
             # Gather all child task states
             task_states = []
             for tp_id in fam_node.child_tasks:
@@ -1772,6 +2092,12 @@ class DataStoreMgr:
                 if tp_runahead.is_runahead:
                     is_runahead_total += 1
 
+                tp_depth = tp_delta
+                if tp_depth is None or not tp_depth.HasField('graph_depth'):
+                    tp_depth = tp_node
+                if tp_depth.graph_depth < graph_depth:
+                    graph_depth = tp_depth.graph_depth
+
             state_counter += Counter(task_states)
             # created delta data element
             fp_delta = PbFamilyProxy(
@@ -1783,7 +2109,8 @@ class DataStoreMgr:
                 is_queued=(is_queued_total > 0),
                 is_queued_total=is_queued_total,
                 is_runahead=(is_runahead_total > 0),
-                is_runahead_total=is_runahead_total
+                is_runahead_total=is_runahead_total,
+                graph_depth=graph_depth
             )
             fp_delta.states[:] = state_counter.keys()
             # Use all states to clean up pruned counts
@@ -1797,18 +2124,19 @@ class DataStoreMgr:
                 self.state_update_families.add(fam_node.first_parent)
             self.state_update_families.remove(fp_id)
 
-    def set_graph_window_extent(self, n_edge_distance):
+    def set_graph_window_extent(self, n_edge_distance: int) -> None:
         """Set what the max edge distance will change to.
 
         Args:
-            n_edge_distance (int):
+            n_edge_distance:
                 Maximum edge distance from active node.
 
         """
-        self.next_n_edge_distance = n_edge_distance
-        self.updates_pending = True
+        if n_edge_distance != self.n_edge_distance:
+            self.next_n_edge_distance = n_edge_distance
+            self.updates_pending = True
 
-    def update_workflow(self):
+    def update_workflow(self, reloaded=False):
         """Update workflow element status and state totals."""
         # Create new message and copy existing message content
         data = self.data[self.workflow_id]
@@ -1857,15 +2185,23 @@ class DataStoreMgr:
                 w_delta.latest_state_tasks[state].task_proxies[:] = tp_queue
 
         # Set status & msg if changed.
-        status, status_msg = map(
-            str, get_workflow_status(self.schd))
+        status = get_workflow_status(self.schd).value
+        status_msg = get_workflow_status_msg(self.schd)
         if w_data.status != status or w_data.status_msg != status_msg:
             w_delta.status = status
             w_delta.status_msg = status_msg
             delta_set = True
 
-        if self.schd.pool.main_pool:
-            pool_points = set(self.schd.pool.main_pool)
+        if reloaded is not w_data.reloaded:
+            w_delta.reloaded = reloaded
+
+        if w_data.n_edge_distance != self.n_edge_distance:
+            w_delta.n_edge_distance = self.n_edge_distance
+            delta_set = True
+
+        if self.schd.pool.active_tasks:
+            pool_points = set(self.schd.pool.active_tasks)
+
             oldest_point = str(min(pool_points))
             if w_data.oldest_active_cycle_point != oldest_point:
                 w_delta.oldest_active_cycle_point = oldest_point
@@ -1920,7 +2256,9 @@ class DataStoreMgr:
 
     def _generate_broadcast_node_deltas(self, node_data, node_type):
         cfg = self.schd.config.cfg
-        for node_id, node in node_data.items():
+        # NOTE: node_data may change during operation so make a copy
+        # see https://github.com/cylc/cylc-flow/pull/6397
+        for node_id, node in list(node_data.items()):
             tokens = Tokens(node_id)
             new_runtime = runtime_from_config(
                 self._apply_broadcasts_to_runtime(
@@ -1942,7 +2280,7 @@ class DataStoreMgr:
     # -----------
     # Task Deltas
     # -----------
-    def delta_task_state(self, itask):
+    def delta_task_state(self, itask: 'TaskProxy') -> None:
         """Create delta for change in task proxy state.
 
         Args:
@@ -1951,40 +2289,54 @@ class DataStoreMgr:
                 objects from the workflow task pool.
 
         """
+        tproxy: Optional[PbTaskProxy]
         tp_id, tproxy = self.store_node_fetcher(itask.tokens)
         if not tproxy:
             return
         update_time = time()
 
         # update task instance
-        tp_delta = self.updated[TASK_PROXIES].setdefault(
-            tp_id, PbTaskProxy(id=tp_id))
+        tp_delta: PbTaskProxy = self.updated[TASK_PROXIES].setdefault(
+            tp_id, PbTaskProxy(id=tp_id)
+        )
         tp_delta.stamp = f'{tp_id}@{update_time}'
-        tp_delta.state = itask.state.status
+        for field in ('is_held', 'is_queued', 'is_runahead'):
+            val = getattr(itask.state, field)
+            if (
+                # only update the fields that have changed compared to store:
+                getattr(tproxy, field) != val
+                # or changed since earlier delta that is not yet sent:
+                or getattr(tp_delta, field) != val
+            ):
+                setattr(tp_delta, field, val)
+        if (
+            tproxy.state != itask.state.status
+            or tp_delta.state != itask.state.status
+        ):
+            tp_delta.state = itask.state.status
+            if tp_delta.state in self.latest_state_tasks:
+                tp_ref = itask.identity
+                tp_queue = self.latest_state_tasks[tp_delta.state]
+                if tp_ref in tp_queue:
+                    tp_queue.remove(tp_ref)
+                self.latest_state_tasks[tp_delta.state].appendleft(tp_ref)
+            # if state is final work out new task mean.
+            if tp_delta.state in TASK_STATUSES_FINAL:
+                elapsed_time = task_mean_elapsed_time(itask.tdef)
+                if elapsed_time:
+                    t_id = self.definition_id(tproxy.name)
+                    t_delta = PbTask(
+                        stamp=f'{t_id}@{update_time}',
+                        mean_elapsed_time=elapsed_time
+                    )
+                    self.updated[TASKS].setdefault(
+                        t_id,
+                        PbTask(id=t_id)).MergeFrom(t_delta)
         self.state_update_families.add(tproxy.first_parent)
-        if tp_delta.state in self.latest_state_tasks:
-            tp_ref = itask.identity
-            tp_queue = self.latest_state_tasks[tp_delta.state]
-            if tp_ref in tp_queue:
-                tp_queue.remove(tp_ref)
-            self.latest_state_tasks[tp_delta.state].appendleft(tp_ref)
-        # if state is final work out new task mean.
-        if tp_delta.state in TASK_STATUSES_FINAL:
-            elapsed_time = task_mean_elapsed_time(itask.tdef)
-            if elapsed_time:
-                t_id = self.definition_id(tproxy.name)
-                t_delta = PbTask(
-                    stamp=f'{t_id}@{update_time}',
-                    mean_elapsed_time=elapsed_time
-                )
-                self.updated[TASKS].setdefault(
-                    t_id,
-                    PbTask(id=t_id)).MergeFrom(t_delta)
         self.updates_pending = True
 
     def delta_task_held(
-        self,
-        itask: Union[TaskProxy, Tuple[str, 'PointBase', bool]]
+        self, name: str, cycle: 'PointBase', is_held: bool
     ) -> None:
         """Create delta for change in task proxy held state.
 
@@ -1994,16 +2346,11 @@ class DataStoreMgr:
                 (name, cycle, is_held).
 
         """
-        if isinstance(itask, TaskProxy):
-            tokens = itask.tokens
-            is_held = itask.state.is_held
-        else:
-            name, cycle, is_held = itask
-            tokens = self.id_.duplicate(
-                task=name,
-                cycle=str(cycle),
-            )
-
+        tokens = self.id_.duplicate(
+            task=name,
+            cycle=str(cycle),
+        )
+        tproxy: Optional[PbTaskProxy]
         tp_id, tproxy = self.store_node_fetcher(tokens)
         if not tproxy:
             return
@@ -2014,42 +2361,43 @@ class DataStoreMgr:
         self.state_update_families.add(tproxy.first_parent)
         self.updates_pending = True
 
-    def delta_task_queued(self, itask: TaskProxy) -> None:
-        """Create delta for change in task proxy queued state.
+    def delta_task_flow_nums(self, itask: TaskProxy) -> None:
+        """Create delta for change in task proxy flow numbers.
 
         Args:
-            itask (cylc.flow.task_proxy.TaskProxy):
-                Update task-node from corresponding task proxy
-                objects from the workflow task pool.
-
+            itask: TaskProxy with updated flow numbers.
         """
+        tproxy: Optional[PbTaskProxy]
         tp_id, tproxy = self.store_node_fetcher(itask.tokens)
         if not tproxy:
             return
-        tp_delta = self.updated[TASK_PROXIES].setdefault(
-            tp_id, PbTaskProxy(id=tp_id))
-        tp_delta.stamp = f'{tp_id}@{time()}'
-        tp_delta.is_queued = itask.state.is_queued
-        self.state_update_families.add(tproxy.first_parent)
-        self.updates_pending = True
+        self._delta_task_flow_nums(tp_id, itask.flow_nums)
 
-    def delta_task_runahead(self, itask: TaskProxy) -> None:
-        """Create delta for change in task proxy runahead state.
+    def delta_remove_task_flow_nums(
+        self, task: str, removed: 'FlowNums'
+    ) -> None:
+        """Create delta for removal of flow numbers from a task proxy.
 
         Args:
-            itask (cylc.flow.task_proxy.TaskProxy):
-                Update task-node from corresponding task proxy
-                objects from the workflow task pool.
-
+            task: Relative ID of task.
+            removed: Flow numbers to remove from the task proxy in the
+                data store.
         """
-        tp_id, tproxy = self.store_node_fetcher(itask.tokens)
+        tproxy: Optional[PbTaskProxy]
+        tp_id, tproxy = self.store_node_fetcher(
+            Tokens(task, relative=True).duplicate(**self.id_)
+        )
         if not tproxy:
             return
-        tp_delta = self.updated[TASK_PROXIES].setdefault(
-            tp_id, PbTaskProxy(id=tp_id))
+        new_flow_nums = deserialise_set(tproxy.flow_nums).difference(removed)
+        self._delta_task_flow_nums(tp_id, new_flow_nums)
+
+    def _delta_task_flow_nums(self, tp_id: str, flow_nums: 'FlowNums') -> None:
+        tp_delta: PbTaskProxy = self.updated[TASK_PROXIES].setdefault(
+            tp_id, PbTaskProxy(id=tp_id)
+        )
         tp_delta.stamp = f'{tp_id}@{time()}'
-        tp_delta.is_runahead = itask.state.is_runahead
-        self.state_update_families.add(tproxy.first_parent)
+        tp_delta.flow_nums = serialise_set(flow_nums)
         self.updates_pending = True
 
     def delta_task_output(
@@ -2065,24 +2413,27 @@ class DataStoreMgr:
                 objects from the workflow task pool.
 
         """
-        tp_id, tproxy = self.store_node_fetcher(itask.tokens)
-        if not tproxy:
-            return
-        item = itask.state.outputs.get_item(message)
-        if item is None:
-            return
-        label, _, satisfied = item
-        # update task instance
-        update_time = time()
-        tp_delta = self.updated[TASK_PROXIES].setdefault(
-            tp_id, PbTaskProxy(id=tp_id))
-        tp_delta.stamp = f'{tp_id}@{update_time}'
-        output = tp_delta.outputs[label]
-        output.label = label
-        output.message = message
-        output.satisfied = satisfied
-        output.time = update_time
-        self.updates_pending = True
+        # TODO: Restore incremental update when we have a protocol to do so
+        # https://github.com/cylc/cylc-flow/issues/6307
+        return self.delta_task_outputs(itask)
+
+        # tproxy: Optional[PbTaskProxy]
+        # tp_id, tproxy = self.store_node_fetcher(itask.tokens)
+        # if not tproxy:
+        #     return
+        # outputs = itask.state.outputs
+        # label = outputs.get_trigger(message)
+        # # update task instance
+        # update_time = time()
+        # tp_delta = self.updated[TASK_PROXIES].setdefault(
+        #     tp_id, PbTaskProxy(id=tp_id))
+        # tp_delta.stamp = f'{tp_id}@{update_time}'
+        # output = tp_delta.outputs[label]
+        # output.label = label
+        # output.message = message
+        # output.satisfied = outputs.is_message_complete(message)
+        # output.time = update_time
+        # self.updates_pending = True
 
     def delta_task_outputs(self, itask: TaskProxy) -> None:
         """Create delta for change in all task proxy outputs.
@@ -2093,6 +2444,7 @@ class DataStoreMgr:
                 objects from the workflow task pool.
 
         """
+        tproxy: Optional[PbTaskProxy]
         tp_id, tproxy = self.store_node_fetcher(itask.tokens)
         if not tproxy:
             return
@@ -2100,9 +2452,10 @@ class DataStoreMgr:
         tp_delta = self.updated[TASK_PROXIES].setdefault(
             tp_id, PbTaskProxy(id=tp_id))
         tp_delta.stamp = f'{tp_id}@{update_time}'
-        for label, _, satisfied in itask.state.outputs.get_all():
-            output = tp_delta.outputs[label]
-            output.label = label
+        for trigger, message, satisfied in itask.state.outputs:
+            output = tp_delta.outputs[trigger]
+            output.label = trigger
+            output.message = message
             output.satisfied = satisfied
             output.time = update_time
 
@@ -2117,6 +2470,7 @@ class DataStoreMgr:
                 objects from the workflow task pool.
 
         """
+        tproxy: Optional[PbTaskProxy]
         tp_id, tproxy = self.store_node_fetcher(itask.tokens)
         if not tproxy:
             return
@@ -2145,13 +2499,14 @@ class DataStoreMgr:
         """Create delta for change in task proxy external_trigger.
 
         Args:
-            itask (cylc.flow.task_proxy.TaskProxy):
+            itask:
                 Update task-node from corresponding task proxy
                 objects from the workflow task pool.
-            trig (str): Trigger ID.
-            message (str): Trigger message.
+            trig: Trigger ID.
+            message: Trigger message.
 
         """
+        tproxy: Optional[PbTaskProxy]
         tp_id, tproxy = self.store_node_fetcher(itask.tokens)
         if not tproxy:
             return
@@ -2161,6 +2516,7 @@ class DataStoreMgr:
             tp_id, PbTaskProxy(id=tp_id))
         tp_delta.stamp = f'{tp_id}@{update_time}'
         ext_trigger = tp_delta.external_triggers[trig]
+        ext_trigger.id = tproxy.external_triggers[trig].id
         ext_trigger.message = message
         ext_trigger.satisfied = satisfied
         ext_trigger.time = update_time
@@ -2178,15 +2534,37 @@ class DataStoreMgr:
 
         """
         update_time = time()
-        for tp_id in self.xtrigger_tasks.get(sig, set()):
+        for tp_id, label in self.xtrigger_tasks.get(sig, set()):
             # update task instance
             tp_delta = self.updated[TASK_PROXIES].setdefault(
                 tp_id, PbTaskProxy(id=tp_id))
             tp_delta.stamp = f'{tp_id}@{update_time}'
             xtrigger = tp_delta.xtriggers[sig]
+            xtrigger.id = sig
+            xtrigger.label = label
             xtrigger.satisfied = satisfied
             xtrigger.time = update_time
             self.updates_pending = True
+
+    def delta_from_task_proxy(self, itask: TaskProxy) -> None:
+        """Create delta from existing pool task proxy.
+
+        Args:
+            itask (cylc.flow.task_proxy.TaskProxy):
+                Update task-node from corresponding task proxy
+                objects from the workflow task pool.
+
+        """
+        tproxy: Optional[PbTaskProxy]
+        tp_id, tproxy = self.store_node_fetcher(itask.tokens)
+        if not tproxy:
+            return
+        update_time = time()
+        tp_delta = self.updated[TASK_PROXIES].setdefault(
+            tp_id, PbTaskProxy(id=tp_id))
+        tp_delta.stamp = f'{tp_id}@{update_time}'
+        self._process_internal_task_proxy(itask, tp_delta)
+        self.updates_pending = True
 
     # -----------
     # Job Deltas

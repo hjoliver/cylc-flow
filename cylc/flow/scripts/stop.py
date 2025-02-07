@@ -40,7 +40,8 @@ Examples:
   $ cylc stop my_workflow//1234/foo
 
 By default stopping workflows wait for submitted and running tasks to complete
-before shutting down. You can change this behaviour with the --mode option.
+before shutting down. You can change this behaviour with the --now or
+--kill options.
 
 There are several shutdown methods:
 
@@ -53,9 +54,9 @@ There are several shutdown methods:
      CCYYMMDDThh:mm, CCYY-MM-DDThh, etc).
 
 Tasks that become ready after the shutdown is ordered will be submitted
-immediately if the workflow is restarted.  Remaining task event handlers and
-job poll and kill commands, however, will be executed prior to shutdown, unless
---now is used.
+immediately if the workflow is restarted. Remaining task event handlers and
+job poll and kill commands will be executed prior to shutdown, unless
+--now is used twice.
 
 This command exits immediately unless --max-polls is greater than zero, in
 which case it polls to wait for workflow shutdown.
@@ -207,7 +208,15 @@ async def run(
     options: 'Values',
     workflow_id,
     *tokens_list,
-) -> int:
+) -> object:
+    return await _run(options, workflow_id, *tokens_list)
+
+
+async def _run(
+    options: 'Values',
+    workflow_id,
+    *tokens_list,
+) -> object:
     # parse the stop-task or stop-cycle if provided
     stop_task = stop_cycle = None
     if tokens_list:
@@ -219,11 +228,7 @@ async def run(
 
     _validate(options, stop_task, stop_cycle, *tokens_list)
 
-    try:
-        pclient = get_client(workflow_id, timeout=options.comms_timeout)
-    except WorkflowStopped:
-        # nothing to do, return a success code
-        return 0
+    pclient = get_client(workflow_id, timeout=options.comms_timeout)
 
     if int(options.max_polls) > 0:
         # (test to avoid the "nothing to do" warning for # --max-polls=0)
@@ -258,12 +263,14 @@ async def run(
         }
     }
 
-    await pclient.async_request('graphql', mutation_kwargs)
+    ret = await pclient.async_request('graphql', mutation_kwargs)
 
     if int(options.max_polls) > 0 and not await spoller.poll():
         # (test to avoid the "nothing to do" warning for # --max-polls=0)
-        return 1
-    return 0
+        raise CylcError(
+            f'Workflow did not shut down after {options.max_poll} polls'
+        )
+    return ret
 
 
 @cli_function(get_option_parser)
@@ -277,10 +284,6 @@ def main(
         *ids,
         constraint='mixed',
         max_tasks=1,
+        success_exceptions=(WorkflowStopped,),
     )
-    if all(
-        ret == 0
-        for ret in rets
-    ):
-        sys.exit(0)
-    sys.exit(1)
+    sys.exit(all(rets.values()) is False)

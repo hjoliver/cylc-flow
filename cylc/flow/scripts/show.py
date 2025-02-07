@@ -37,17 +37,22 @@ workflow database.
 """
 
 import asyncio
+import re
 import json
-from optparse import Values
 import sys
-from typing import Dict
+from textwrap import indent
+from typing import Any, Dict, TYPE_CHECKING
 
 from ansimarkup import ansiprint
+
+from metomi.isodatetime.data import (
+    get_timepoint_from_seconds_since_unix_epoch as seconds2point)
 
 from cylc.flow.exceptions import InputError
 from cylc.flow.id import Tokens
 from cylc.flow.id_cli import parse_ids
 from cylc.flow.network.client_factory import get_client
+from cylc.flow.task_outputs import TaskOutputs
 from cylc.flow.task_state import (
     TASK_STATUSES_ORDERED,
     TASK_STATUS_RUNNING
@@ -55,8 +60,14 @@ from cylc.flow.task_state import (
 from cylc.flow.option_parsers import (
     CylcOptionParser as COP,
     ID_MULTI_ARG_DOC,
+    Options,
 )
 from cylc.flow.terminal import cli_function
+from cylc.flow.util import BOOL_SYMBOLS
+
+
+if TYPE_CHECKING:
+    from optparse import Values
 
 
 WORKFLOW_META_QUERY = '''
@@ -93,6 +104,10 @@ query ($wFlows: [ID]!, $taskIds: [ID]) {
     name
     cyclePoint
     state
+    isHeld
+    isQueued
+    isRunahead
+    flowNums
     task {
       meta {
         title
@@ -128,16 +143,39 @@ query ($wFlows: [ID]!, $taskIds: [ID]) {
       label
       satisfied
     }
+    runtime {
+      completion
+    }
   }
 }
 '''
 
 
+SATISFIED = BOOL_SYMBOLS[True]
+UNSATISFIED = BOOL_SYMBOLS[False]
+
+
 def print_msg_state(msg, state):
     if state:
-        ansiprint(f'<green>  + {msg}</green>')
+        ansiprint(f'<green>  {SATISFIED} {msg}</green>')
     else:
-        ansiprint(f'<red>  - {msg}</red>')
+        ansiprint(f'<red>  {UNSATISFIED} {msg}</red>')
+
+
+def print_completion_state(t_proxy):
+    # create task outputs object
+    outputs = TaskOutputs(t_proxy["runtime"]["completion"])
+
+    for output in t_proxy['outputs']:
+        outputs.add(output['label'], output['message'])
+        if output['satisfied']:
+            outputs.set_message_complete(output['message'])
+
+    ansiprint(
+        f'<bold>output completion:</bold>'
+        f' {"complete" if outputs.is_complete() else "incomplete"}'
+        f'\n{indent(outputs.format_completion_status(ansimarkup=2), "  ")}'
+    )
 
 
 def flatten_data(data, flat_data=None):
@@ -213,6 +251,9 @@ def get_option_parser():
     return parser
 
 
+ShowOptions = Options(get_option_parser())
+
+
 async def workflow_meta_query(workflow_id, pclient, options, json_filter):
     query = WORKFLOW_META_QUERY
     query_kwargs = {
@@ -255,8 +296,10 @@ async def prereqs_and_outputs_query(
         }
     }
     results = await pclient.async_request('graphql', tp_kwargs)
-    multi = len(results['taskProxies']) > 1
-    for t_proxy in results['taskProxies']:
+    task_proxies = sorted(results['taskProxies'],
+                          key=lambda proxy: proxy['id'])
+    multi = len(task_proxies) > 1
+    for t_proxy in task_proxies:
         task_id = Tokens(t_proxy['id']).relative_id
         state = t_proxy['state']
         if options.json:
@@ -295,7 +338,25 @@ async def prereqs_and_outputs_query(
                         f'<bold>{key}:</bold>'
                         f' {value or "<m>(not given)</m>"}')
 
-                ansiprint(f'<bold>state:</bold> {state}')
+                # state and state attributes
+                attrs = []
+                if t_proxy['isHeld']:
+                    attrs.append("held")
+                if t_proxy['isQueued']:
+                    attrs.append("queued")
+                if t_proxy['isRunahead']:
+                    attrs.append("runahead")
+                state_msg = state
+                if attrs:
+                    state_msg += f" ({','.join(attrs)})"
+                ansiprint(f'<bold>state:</bold> {state_msg}')
+
+                # flow numbers, if not just 1
+                if t_proxy["flowNums"] != "[1]":
+                    ansiprint(
+                        f"<bold>flows:</bold> "
+                        f"{t_proxy['flowNums'].replace(' ', '')}"
+                    )
 
                 # prerequisites
                 pre_txt = "<bold>prerequisites:</bold>"
@@ -309,14 +370,16 @@ async def prereqs_and_outputs_query(
                     ansiprint(f"{pre_txt} (n/a for past tasks)")
                 else:
                     ansiprint(
-                        f"{pre_txt} ('<red>-</red>': not satisfied)")
+                        f"{pre_txt}"
+                        f" ('<red>{UNSATISFIED}</red>': not satisfied)"
+                    )
                     for _, prefix, msg, state in prereqs:
                         print_msg_state(f'{prefix}{msg}', state)
 
                 # outputs
                 ansiprint(
                     '<bold>outputs:</bold>'
-                    " ('<red>-</red>': not completed)")
+                    f" ('<red>{UNSATISFIED}</red>': not completed)")
                 if not t_proxy['outputs']:  # (Not possible - standard outputs)
                     print('  (None)')
                 for output in t_proxy['outputs']:
@@ -327,23 +390,57 @@ async def prereqs_and_outputs_query(
                         or t_proxy['xtriggers']
                 ):
                     ansiprint(
-                        "<bold>other:</bold> ('<red>-</red>': not satisfied)")
+                        "<bold>other:</bold>"
+                        f" ('<red>{UNSATISFIED}</red>': not satisfied)"
+                    )
                     for ext_trig in t_proxy['externalTriggers']:
                         state = ext_trig['satisfied']
                         print_msg_state(
                             f'{ext_trig["label"]} ... {state}',
                             state)
                     for xtrig in t_proxy['xtriggers']:
+                        label = get_wallclock_label(xtrig) or xtrig['id']
                         state = xtrig['satisfied']
                         print_msg_state(
-                            f'xtrigger "{xtrig["label"]} = {xtrig["id"]}"',
+                            f'xtrigger "{xtrig["label"]} = {label}"',
                             state)
-    if not results['taskProxies']:
+
+                print_completion_state(t_proxy)
+
+    if not task_proxies:
         ansiprint(
-            f"<red>No matching active tasks found: {', '.join(ids_list)}",
-            file=sys.stderr)
+            "<red>No matching active tasks found: "
+            f"{', '.join(ids_list)}</red>",
+            file=sys.stderr,
+        )
         return 1
     return 0
+
+
+def get_wallclock_label(xtrig: Dict[str, Any]) -> str:
+    """Return a label for an xtrigger if it is a wall_clock trigger.
+
+    Returns:
+        A label or False.
+
+    Examples:
+        >>> this = get_wallclock_label
+
+        >>> this({'id': 'wall_clock(trigger_time=0)'})
+        'wall_clock(trigger_time=1970-01-01T00:00:00Z)'
+
+        >>> this({'id': 'wall_clock(trigger_time=440143843)'})
+        'wall_clock(trigger_time=1983-12-13T06:10:43Z)'
+
+    """
+    wallclock_trigger = re.findall(
+        r'wall_clock\(trigger_time=(.*)\)', xtrig['id'])
+    if wallclock_trigger:
+        return (
+            'wall_clock(trigger_time='
+            f'{str(seconds2point(wallclock_trigger[0], True))})'
+        )
+    return ''
 
 
 async def task_meta_query(
@@ -423,7 +520,7 @@ def main(_, options: 'Values', *ids) -> None:
         constraint='mixed',
         max_workflows=1,
     )
-    workflow_id = list(workflow_args)[0]
+    workflow_id = next(iter(workflow_args))
     tokens_list = workflow_args[workflow_id]
 
     if tokens_list and options.task_defs:

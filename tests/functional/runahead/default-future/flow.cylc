@@ -3,7 +3,7 @@
     UTC mode = True
     allow implicit tasks = True
     [[events]]
-        inactivity timeout = PT20S
+        inactivity timeout = PT1M
         abort on inactivity timeout = True
 [scheduling]
     initial cycle point = 20100101T00
@@ -27,7 +27,7 @@
     [[spawner]]
         script = """
             # spawn wibble
-            cylc set-outputs --flow=1 $CYLC_WORKFLOW_ID 20100101T0800Z/foo
+            cylc set $CYLC_WORKFLOW_ID 20100101T0800Z/foo
         """
     [[foo]]
         script = false

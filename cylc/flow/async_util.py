@@ -16,7 +16,9 @@
 """Utilities for use with asynchronous code."""
 
 import asyncio
+from contextlib import asynccontextmanager
 from functools import partial, wraps
+from inspect import signature
 import os
 from pathlib import Path
 from typing import List, Union
@@ -263,8 +265,20 @@ class _PipeFunction:
         return _AsyncPipe(self.func).__repr__()
 
     @property
+    def __name__(self):
+        return self.func.__name__
+
+    @property
     def __doc__(self):
         return self.func.__doc__
+
+    @property
+    def __signature__(self):
+        return signature(self.func)
+
+    @property
+    def __annotations__(self):
+        return self.func.__annotations__
 
 
 def pipe(func=None, preproc=None):
@@ -406,11 +420,42 @@ async def asyncqgen(queue):
         yield await queue.get()
 
 
-async def unordered_map(coroutine, iterator):
+def wrap_exception(coroutine):
+    """Catch and return exceptions rather than raising them.
+
+    Examples:
+        >>> async def myfcn():
+        ...     raise Exception('foo')
+        >>> mywrappedfcn = wrap_exception(myfcn)
+        >>> ret = asyncio.run(mywrappedfcn())  # the exception is not raised...
+        >>> ret  # ...it is returned
+        Exception('foo')
+
+    """
+    async def _inner(*args, **kwargs):
+        nonlocal coroutine
+        try:
+            return await coroutine(*args, **kwargs)
+        except Exception as exc:
+            return exc
+
+    return _inner
+
+
+async def unordered_map(coroutine, iterator, wrap_exceptions=False):
     """An asynchronous map function which does not preserve order.
 
     Use in situations where you want results as they are completed rather than
     once they are all completed.
+
+    Args:
+        coroutine:
+            The async function you want to call.
+        iterator:
+            The arguments you want to call it with.
+        wrap_exceptions:
+            If True, then exceptions will be caught and returned rather than
+            raised.
 
     Example:
         # define your async coroutine
@@ -430,6 +475,9 @@ async def unordered_map(coroutine, iterator):
         [((0,), 0), ((1,), 1), ((2,), 4), ((3,), 9), ((4,), 16)]
 
     """
+    if wrap_exceptions:
+        coroutine = wrap_exception(coroutine)
+
     # create tasks
     pending = []
     for args in iterator:
@@ -465,3 +513,48 @@ def make_async(fcn):
 
 
 async_listdir = make_async(os.listdir)
+
+
+@asynccontextmanager
+async def async_block():
+    """Ensure all tasks started within the context are awaited when it closes.
+
+    Normally, you would await a task e.g:
+
+    await three()
+
+    If it's possible to await the task, do that, however, this isn't always an
+    option. This interface exists is to help patch over issues where async code
+    (one) calls sync code (two) which calls async code (three) e.g:
+
+    async def one():
+        two()
+
+    def two():
+        # this breaks - event loop is already running
+        asyncio.get_event_loop().run_until_complete(three())
+
+    async def three():
+        await asyncio.sleep(1)
+
+    This code will error because you can't nest asyncio (without nest-asyncio)
+    which means you can schedule tasks the tasks in "two", but you can't await
+    them.
+
+    def two():
+        # this works, but it doesn't wait for three() to complete
+        asyncio.create_task(three())
+
+    This interface allows you to await the tasks
+
+    async def one()
+        async with async_block():
+            two()
+        # any tasks two() started will have been awaited by now
+    """
+    # make a list of all tasks running before we enter the context manager
+    tasks_before = asyncio.all_tasks()
+    # run the user code
+    yield
+    # await any new tasks
+    await asyncio.gather(*(asyncio.all_tasks() - tasks_before))

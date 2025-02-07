@@ -26,26 +26,32 @@ from optparse import (
 )
 import os
 import re
+import sys
+from textwrap import dedent
+from typing import Any, Dict, Iterable, Optional, List, Set, Tuple
+
 from ansimarkup import (
     parse as cparse,
     strip as cstrip
 )
 
-import sys
-from textwrap import dedent
-from typing import Any, Dict, Optional, List, Tuple, Union
-
 from cylc.flow import LOG
-from cylc.flow.terminal import supports_color, DIM
+from cylc.flow.terminal import should_use_color, DIM
 import cylc.flow.flags
 from cylc.flow.loggingutil import (
     CylcLogFormatter,
     setup_segregated_log_streams,
 )
+from cylc.flow.log_level import (
+    env_to_verbosity,
+    verbosity_to_log_level
+)
 
 WORKFLOW_ID_ARG_DOC = ('WORKFLOW', 'Workflow ID')
+OPT_WORKFLOW_ID_ARG_DOC = ('[WORKFLOW]', 'Workflow ID')
 WORKFLOW_ID_MULTI_ARG_DOC = ('WORKFLOW ...', 'Workflow ID(s)')
 WORKFLOW_ID_OR_PATH_ARG_DOC = ('WORKFLOW | PATH', 'Workflow ID or path')
+ID_SEL_ARG_DOC = ('ID[:sel]', 'WORKFLOW-ID[[//CYCLE[/TASK]]:selector]')
 ID_MULTI_ARG_DOC = ('ID ...', 'Workflow/Cycle/Family/Task ID(s)')
 FULL_ID_MULTI_ARG_DOC = ('ID ...', 'Cycle/Family/Task ID(s)')
 
@@ -62,7 +68,13 @@ class OptionSettings():
     cylc.flow.option_parsers(thismodule).combine_options_pair.
     """
 
-    def __init__(self, argslist, sources=None, useif=None, **kwargs):
+    def __init__(
+        self,
+        argslist: List[str],
+        sources: Optional[Set[str]] = None,
+        useif: str = '',
+        **kwargs
+    ):
         """Init function:
 
         Args:
@@ -71,13 +83,10 @@ class OptionSettings():
             useif: badge for use by Cylc optionparser.
             **kwargs: kwargs for optparse.option.
         """
-        self.kwargs: Dict[str, str] = {}
-        self.sources: set = sources if sources is not None else set()
-        self.useif: str = useif if useif is not None else ''
-
-        self.args: list[str] = argslist
-        for kwarg, value in kwargs.items():
-            self.kwargs.update({kwarg: value})
+        self.args: List[str] = argslist
+        self.kwargs: Dict[str, Any] = kwargs
+        self.sources: Set[str] = sources if sources is not None else set()
+        self.useif: str = useif
 
     def __eq__(self, other):
         """Args and Kwargs, but not other props equal.
@@ -161,11 +170,7 @@ def format_help_headings(string):
     """Put "headings" in bold.
 
     Where "headings" are lines with no indentation which are followed by a
-    colon e.g:
-
-    Examples:
-      ...
-
+    colon.
     """
     return cparse(
         re.sub(
@@ -174,99 +179,6 @@ def format_help_headings(string):
             string,
             flags=re.M,
         )
-    )
-
-
-def verbosity_to_log_level(verb: int) -> int:
-    """Convert Cylc verbosity to log severity level."""
-    if verb < 0:
-        return logging.WARNING
-    if verb > 0:
-        return logging.DEBUG
-    return logging.INFO
-
-
-def log_level_to_verbosity(lvl: int) -> int:
-    """Convert log severity level to Cylc verbosity.
-
-    Examples:
-        >>> log_level_to_verbosity(logging.NOTSET)
-        2
-        >>> log_level_to_verbosity(logging.DEBUG)
-        1
-        >>> log_level_to_verbosity(logging.INFO)
-        0
-        >>> log_level_to_verbosity(logging.WARNING)
-        -1
-        >>> log_level_to_verbosity(logging.ERROR)
-        -1
-    """
-    if lvl < logging.DEBUG:
-        return 2
-    if lvl < logging.INFO:
-        return 1
-    if lvl == logging.INFO:
-        return 0
-    return -1
-
-
-def verbosity_to_opts(verb: int) -> List[str]:
-    """Convert Cylc verbosity to the CLI opts required to replicate it.
-
-    Examples:
-        >>> verbosity_to_opts(0)
-        []
-        >>> verbosity_to_opts(-2)
-        ['-q', '-q']
-        >>> verbosity_to_opts(2)
-        ['-v', '-v']
-
-    """
-    return [
-        '-q'
-        for _ in range(verb, 0)
-    ] + [
-        '-v'
-        for _ in range(0, verb)
-    ]
-
-
-def verbosity_to_env(verb: int) -> Dict[str, str]:
-    """Convert Cylc verbosity to the env vars required to replicate it.
-
-    Examples:
-        >>> verbosity_to_env(0)
-        {'CYLC_VERBOSE': 'false', 'CYLC_DEBUG': 'false'}
-        >>> verbosity_to_env(1)
-        {'CYLC_VERBOSE': 'true', 'CYLC_DEBUG': 'false'}
-        >>> verbosity_to_env(2)
-        {'CYLC_VERBOSE': 'true', 'CYLC_DEBUG': 'true'}
-
-    """
-    return {
-        'CYLC_VERBOSE': str((verb > 0)).lower(),
-        'CYLC_DEBUG': str((verb > 1)).lower(),
-    }
-
-
-def env_to_verbosity(env: Union[Dict, os._Environ]) -> int:
-    """Extract verbosity from environment variables.
-
-    Examples:
-        >>> env_to_verbosity({})
-        0
-        >>> env_to_verbosity({'CYLC_VERBOSE': 'true'})
-        1
-        >>> env_to_verbosity({'CYLC_DEBUG': 'true'})
-        2
-        >>> env_to_verbosity({'CYLC_DEBUG': 'TRUE'})
-        2
-
-    """
-    return (
-        2 if env.get('CYLC_DEBUG', '').lower() == 'true'
-        else 1 if env.get('CYLC_VERBOSE', '').lower() == 'true'
-        else 0
     )
 
 
@@ -284,7 +196,10 @@ class CylcOption(Option):
 
 
 class CylcHelpFormatter(IndentedHelpFormatter):
-    def _format(self, text):
+    """This formatter handles colour in help text, and automatically
+    colourises headings & shell examples."""
+
+    def _format(self, text: str) -> str:
         """Format help (usage) text on the fly to handle coloring.
 
         Help is printed to the terminal before color initialization for general
@@ -296,72 +211,70 @@ class CylcHelpFormatter(IndentedHelpFormatter):
           - Strip any hardwired color tags
 
         """
-        if (
-            hasattr(self.parser.values, 'color')
-            and (
-                self.parser.values.color == "always"
-                or (
-                    self.parser.values.color == "auto"
-                    and supports_color()
-                )
-            )
-        ):
+        if should_use_color(self.parser.values):
             # Add color formatting to examples text.
-            text = format_shell_examples(
+            return format_shell_examples(
                 format_help_headings(text)
             )
-        else:
-            # Strip any hardwired formatting
-            text = cstrip(text)
-        return text
+        # Else strip any hardwired formatting
+        return cstrip(text)
 
-    def format_usage(self, usage):
+    def format_usage(self, usage: str) -> str:
         return super().format_usage(self._format(usage))
 
     # If we start using "description" as well as "usage" (also epilog):
     # def format_description(self, description):
     #     return super().format_description(self._format(description))
 
+    def format_option(self, option: Option) -> str:
+        """Format help text for options."""
+        if option.help:
+            if should_use_color(self.parser.values):
+                option.help = cparse(option.help)
+            else:
+                option.help = cstrip(option.help)
+        return super().format_option(option)
+
 
 class CylcOptionParser(OptionParser):
 
     """Common options for all cylc CLI commands."""
 
-    MULTITASK_USAGE = cparse(dedent('''
-        This command can operate on multiple tasks, globs and selectors may
-        be used:
+    MULTITASK_USAGE = dedent('''
+        This command can operate on multiple tasks. Globs and selectors may
+        be used to match active tasks:
             Multiple Tasks:
-                <dim># Operate on two tasks</dim>
+                # Operate on two tasks
                 workflow //cycle-1/task-1 //cycle-2/task-2
 
             Globs (note: globs should be quoted and only match active tasks):
-                <dim># Match any the active task "foo" in all cycles</dim>
+                # Match any active task "foo" in all cycles
                 '//*/foo'
 
-                <dim># Match the tasks "foo-1" and "foo-2"</dim>
+                # Match the tasks "foo-1" and "foo-2"
                 '//*/foo-[12]'
 
             Selectors (note: selectors only match active tasks):
-                <dim># match all failed tasks in cycle "1"</dim>
+                # match all failed tasks in cycle "1"
                 //1:failed
 
             See `cylc help id` for more details.
-    '''))
-    MULTIWORKFLOW_USAGE = cparse(dedent('''
-        This command can operate on multiple workflows, globs may also be used:
+    ''')
+    MULTIWORKFLOW_USAGE = dedent('''
+        This command can operate on multiple workflows. Globs may be used:
             Multiple Workflows:
-                <dim># Operate on two workflows</dim>
+                # Operate on two workflows
                 workflow-1 workflow-2
 
             Globs (note: globs should be quoted):
-                <dim># Match all workflows</dim>
+                # Match all workflows
                 '*'
 
-                <dim># Match the workflows foo-1, foo-2</dim>
+                # Match the workflows foo-1, foo-2
                 'foo-[12]'
 
             See `cylc help id` for more details.
-    '''))
+    ''')
 
     CAN_BE_USED_MULTIPLE = (
         " This option can be used multiple times on the command line.")
@@ -384,11 +297,17 @@ class CylcOptionParser(OptionParser):
             ['--debug'], help='Equivalent to -v -v',
             dest='verbosity', action='store_const', const=2, useif='all'),
         OptionSettings(
-            ['--no-timestamp'], help='Don\'t timestamp logged messages.',
-            action='store_false', dest='log_timestamp',
-            default=True, useif='all'),
+            ['--timestamp'],
+            help='Add a timestamp to messages logged to the terminal.',
+            action='store_true', dest='log_timestamp',
+            default=False, useif='all'),
         OptionSettings(
-            ['--color', '--color'], metavar='WHEN', action='store',
+            ['--no-timestamp'], help="Don't add a timestamp to messages logged"
+            " to the terminal (this does nothing - it is now the default.",
+            action='store_false', dest='_noop',
+            default=False, useif='all'),
+        OptionSettings(
+            ['--color', '--colour'], metavar='WHEN', action='store',
             default='auto', choices=['never', 'auto', 'always'],
             help=(
                 "When to use color/bold text in terminal output."
@@ -398,10 +317,13 @@ class CylcOptionParser(OptionParser):
         OptionSettings(
             ['--comms-timeout'], metavar='SEC',
             help=(
-                "Set a timeout for network connections"
-                " to the running workflow. The default is no timeout."
-                " For task messaging connections see"
-                " site/user config file documentation."
+                "Set the timeout for communication with the running workflow."
+                " The default is determined by the setup, 5 seconds for"
+                " TCP comms and 300 for SSH."
+                " If connections timeout, it likely means either, a complex"
+                " request has been issued (e.g. cylc tui); there is a network"
+                " issue; or a problem with the scheduler. Increasing the"
+                " timeout will help with the first case."
             ),
             action='store', default=None, dest='comms_timeout', useif='comms'),
         OptionSettings(
@@ -420,13 +342,15 @@ class CylcOptionParser(OptionParser):
         OptionSettings(
             ['-z', '--set-list', '--template-list'],
             metavar='NAME=VALUE1,VALUE2,...',
+            # NOTE: deliberate non-breaking spaces in help text:
             help=(
-                'Set the value of a Jinja2 template variable in the'
-                ' workflow definition as a comma separated'
-                ' list of Python strings.'
-                ' Values containing commas must be quoted.'
-                " e.g. '+s STR=a,b,c' => ['a', 'b', 'c']"
-                " or '+ s STR=a,\"b,c\"' => ['a', 'b,c']"
+                'A more convenient alternative to --set for defining a list'
+                ' of strings. E.G.'
+                ' "-z FOO=a,b,c" is shorthand for'
+                ' "-s FOO=[\'a\',\'b\',\'c\']".'
+                ' Commas can be present in values if quoted, e.g.'
+                ' "-z FOO=a,\'b,c\'" is shorthand for'
+                ' "-s FOO=[\'a\',\'b,c\']".'
                 + CAN_BE_USED_MULTIPLE
                 + NOTE_PERSIST_ACROSS_RESTARTS
             ),
@@ -778,13 +702,15 @@ def combine_options_pair(first_list, second_list):
     return output
 
 
-def add_sources_to_helps(options, modify=None):
-    """Prettify format of list of CLI commands this option applies to
+def add_sources_to_helps(
+    options: Iterable[OptionSettings], modify: Optional[dict] = None
+) -> None:
+    """Get list of CLI commands this option applies to
     and prepend that list to the start of help.
 
     Arguments:
-        Options:
-            Options dicts to modify help upon.
+        options:
+            List of OptionSettings to modify help upon.
         modify:
             Dict of items to substitute: Intended to allow one
             to replace cylc-rose with the names of the sub-commands
@@ -799,38 +725,56 @@ def add_sources_to_helps(options, modify=None):
                     sources.append(sub)
                     sources.remove(match)
 
-            option.kwargs['help'] = cparse(
+            option.kwargs['help'] = (
                 f'<cyan>[{", ".join(sources)}]</cyan>'
-                f' {option.kwargs["help"]}')
-    return options
+                f' {option.kwargs["help"]}'
+            )
 
 
-def combine_options(*args, modify=None):
-    """Combine a list of argument dicts.
+def combine_options(
+    *args: List[OptionSettings], modify: Optional[dict] = None
+) -> List[OptionSettings]:
+    """Combine lists of Cylc options.
 
     Ordering should be irrelevant because combine_options_pair should
     be commutative, and the overall order of args is not relevant.
     """
-    list_ = list(args)
-    output = list_[0]
-    for arg in list_[1:]:
+    output = args[0]
+    for arg in args[1:]:
         output = combine_options_pair(arg, output)
 
-    return add_sources_to_helps(output, modify)
+    add_sources_to_helps(output, modify)
+    return output
 
 
 def cleanup_sysargv(
-    script_name,
-    workflow_id,
-    options,
-    compound_script_opts,
-    script_opts,
-    source,
-):
+    script_name: str,
+    workflow_id: str,
+    options: 'Values',
+    compound_script_opts: Iterable['OptionSettings'],
+    script_opts: Iterable['OptionSettings'],
+    source: str,
+) -> None:
     """Remove unwanted options from sys.argv
 
     Some cylc scripts (notably Cylc Play when it is re-invoked on a scheduler
-    server) require the correct content in sys.argv.
+    server) require the correct content in sys.argv: This function
+    subtracts the unwanted options from sys.argv.
+
+    Args:
+        script_name:
+            Name of the target script. For example if we are
+            using this for the play step of cylc vip then this
+            will be "play".
+        workflow_id:
+        options:
+            Actual options provided to the compound script.
+        compound_script_options:
+            Options available in compound script.
+        script_options:
+            Options available in target script.
+        source:
+            Source directory.
     """
     # Organize Options by dest.
     script_opts_by_dest = {
@@ -841,30 +785,67 @@ def cleanup_sysargv(
         x.kwargs.get('dest', x.args[0].strip(DOUBLEDASH)): x
         for x in compound_script_opts
     }
-    # Filter out non-cylc-play options.
-    args = [i.split('=')[0] for i in sys.argv]
-    for unwanted_opt in (set(options.__dict__)) - set(script_opts_by_dest):
-        for arg in compound_opts_by_dest[unwanted_opt].args:
-            if arg in sys.argv:
-                index = sys.argv.index(arg)
-                sys.argv.pop(index)
-                if (
-                    compound_opts_by_dest[unwanted_opt].kwargs['action']
-                    not in ['store_true', 'store_false']
-                ):
-                    sys.argv.pop(index)
-            elif arg in args:
-                index = args.index(arg)
-                sys.argv.pop(index)
+
+    # Get a list of unwanted args:
+    unwanted_compound: List[str] = []
+    unwanted_simple: List[str] = []
+    for unwanted_dest in set(options.__dict__) - set(script_opts_by_dest):
+        for unwanted_arg in compound_opts_by_dest[unwanted_dest].args:
+            if (
+                compound_opts_by_dest[unwanted_dest].kwargs.get('action', None)
+                in ['store_true', 'store_false']
+            ):
+                unwanted_simple.append(unwanted_arg)
+            else:
+                unwanted_compound.append(unwanted_arg)
+
+    new_args = filter_sysargv(sys.argv, unwanted_simple, unwanted_compound)
 
     # replace compound script name:
-    sys.argv[1] = script_name
+    new_args[1] = script_name
 
     # replace source path with workflow ID.
-    if str(source) in sys.argv:
-        sys.argv.remove(str(source))
-    if workflow_id not in sys.argv:
-        sys.argv.append(workflow_id)
+    if str(source) in new_args:
+        new_args.remove(str(source))
+    if workflow_id not in new_args:
+        new_args.append(workflow_id)
+
+    sys.argv = new_args
+
+
+def filter_sysargv(
+    sysargs, unwanted_simple: List, unwanted_compound: List
+) -> List:
+    """Create a copy of sys.argv without unwanted arguments:
+
+    Cases:
+        >>> this = filter_sysargv
+        >>> this(['--foo', 'expects-a-value', '--bar'], [], ['--foo'])
+        ['--bar']
+        >>> this(['--foo=expects-a-value', '--bar'], [], ['--foo'])
+        ['--bar']
+        >>> this(['--foo', '--bar'], ['--foo'], [])
+        ['--bar']
+    """
+    pop_next: bool = False
+    new_args: List = []
+    for this_arg in sysargs:
+        parts = this_arg.split('=', 1)
+        if pop_next:
+            pop_next = False
+            continue
+        elif parts[0] in unwanted_compound:
+            # Case --foo=value or --foo value
+            if len(parts) == 1:
+                # --foo value
+                pop_next = True
+            continue
+        elif parts[0] in unwanted_simple:
+            # Case --foo does not expect a value:
+            continue
+        else:
+            new_args.append(this_arg)
+    return new_args
 
 
 def log_subcommand(*args):
@@ -877,4 +858,5 @@ def log_subcommand(*args):
     # Args might be posixpath or similar.
     args = [str(a) for a in args]
     print(cparse(
-        f'<b><cyan>$ cylc {" ".join(args)}</cyan></b>'))
+        f'<b><cyan>$ cylc {" ".join(args)}</cyan></b>'
+    ))

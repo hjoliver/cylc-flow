@@ -20,7 +20,13 @@
 
 Hold task(s) in a workflow.
 
-Held tasks do not submit their jobs even if ready to run.
+Held tasks do not submit jobs even if ready.
+
+Any task can be held.
+
+Note: a held running task will not submit more jobs itself (e.g. by retries)
+until released, but the running job may still complete outputs that cause
+non-held downstream tasks to trigger.
 
 To pause an entire workflow use "cylc pause".
 
@@ -56,6 +62,7 @@ See also 'cylc release'.
 """
 
 from functools import partial
+import sys
 from typing import TYPE_CHECKING
 
 from cylc.flow.exceptions import InputError
@@ -155,13 +162,14 @@ async def run(options, workflow_id, *tokens_list):
         }
     }
 
-    await pclient.async_request('graphql', mutation_kwargs)
+    return await pclient.async_request('graphql', mutation_kwargs)
 
 
 @cli_function(get_option_parser)
 def main(parser: COP, options: 'Values', *ids):
-    call_multi(
+    rets = call_multi(
         partial(run, options),
         *ids,
         constraint='mixed',
     )
+    sys.exit(all(rets.values()) is False)

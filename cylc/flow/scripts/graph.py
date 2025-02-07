@@ -37,6 +37,7 @@ Examples:
 
 import asyncio
 from difflib import unified_diff
+from pathlib import Path
 from shutil import which
 from subprocess import Popen, PIPE
 import sys
@@ -54,6 +55,7 @@ from cylc.flow.option_parsers import (
     CylcOptionParser as COP,
     icp_option,
 )
+from cylc.flow.pathutil import get_workflow_run_dir
 from cylc.flow.templatevars import get_template_vars
 from cylc.flow.terminal import cli_function
 
@@ -425,9 +427,21 @@ async def graph_diff(
     graph_a: List[str] = []
     graph_b: List[str] = []
     graph_reference(
-        opts, workflow_a, start, stop, flow_file, write=graph_a.append),
+        opts,
+        workflow_a,
+        start,
+        stop,
+        flow_file,
+        write=graph_a.append,
+    )
     graph_reference(
-        opts, workflow_b, start, stop, flow_file_b, write=graph_b.append),
+        opts,
+        workflow_b,
+        start,
+        stop,
+        flow_file_b,
+        write=graph_b.append,
+    )
 
     # compare graphs
     diff_lines = list(
@@ -556,6 +570,11 @@ async def _main(
         src=True,
         constraint='workflows',
     )
+
+    # Save the location of the existing workflow run dir in the
+    # against source option:
+    if opts.against_source:
+        opts.against_source = Path(get_workflow_run_dir(workflow_id))
 
     if opts.diff:
         return await graph_diff(

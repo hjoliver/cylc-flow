@@ -20,9 +20,9 @@ from unittest.mock import Mock
 
 import pytest
 
-from cylc.flow import CYLC_LOG
 from cylc.flow.data_store_mgr import EDGES, TASK_PROXIES
 from cylc.flow.id import Tokens
+from cylc.flow import CYLC_LOG
 from cylc.flow.network.resolvers import Resolvers
 from cylc.flow.scheduler import Scheduler
 from cylc.flow.workflow_status import StopMode
@@ -217,44 +217,91 @@ async def test_mutation_mapper(mock_flow):
     """Test the mapping of mutations to internal command methods."""
     meta = {}
     response = await mock_flow.resolvers._mutation_mapper('pause', {}, meta)
-    assert response is None
+    assert response[0] is True  # (True, command-uuid-str)
     with pytest.raises(ValueError):
         await mock_flow.resolvers._mutation_mapper('non_exist', {}, meta)
 
 
-@pytest.mark.asyncio
-async def test_stop(
-    one: Scheduler, run: Callable, log_filter: Callable,
+async def test_command_logging(mock_flow, caplog, log_filter):
+    """The command log message should include non-owner name."""
+
+    meta = {}
+
+    caplog.set_level(logging.INFO, CYLC_LOG)
+
+    await mock_flow.resolvers._mutation_mapper(
+        "stop",
+        {'mode': StopMode.REQUEST_CLEAN.value},
+        meta,
+    )
+    assert log_filter(contains='Command "stop" received')
+
+    # put_messages: only log for owner
+    kwargs = {
+        "task_job": "1/foo/01",
+        "event_time": "bedtime",
+        "messages": [[logging.CRITICAL, "it's late"]]
+    }
+    meta["auth_user"] = mock_flow.owner
+    await mock_flow.resolvers._mutation_mapper("put_messages", kwargs, meta)
+    assert not log_filter(contains='Command "put_messages" received:')
+
+    meta["auth_user"] = "Dr Spock"
+    await mock_flow.resolvers._mutation_mapper("put_messages", kwargs, meta)
+    assert log_filter(contains='Command "put_messages" received from Dr Spock')
+
+
+async def test_command_validation_failure(
+    mock_flow,
+    caplog,
+    flow_args,
+    monkeypatch,
 ):
-    """Test the stop resolver."""
-    async with run(one) as log:
-        resolvers = Resolvers(
-            one.data_store_mgr,
-            schd=one
+    """It should log command validation failures server side."""
+    caplog.set_level(logging.DEBUG, None)
+    flow_args['workflows'].append(
+        {
+            'user': mock_flow.owner,
+            'workflow': mock_flow.name,
+            'workflow_sel': None,
+        }
+    )
+
+    # submit a command with invalid arguments:
+    async def submit_invalid_command(verbosity=0):
+        nonlocal caplog, mock_flow, flow_args
+        monkeypatch.setattr('cylc.flow.flags.verbosity', verbosity)
+        caplog.clear()
+        return await mock_flow.resolvers.mutator(
+            None,
+            'stop',
+            flow_args,
+            {'task': 'cycle/task/job', 'mode': 'not-a-mode'},
+            {},
         )
-        resolvers.stop(StopMode.REQUEST_CLEAN)
-        await one.process_command_queue()
-        assert log_filter(
-            log, level=logging.INFO, contains="Command actioned: stop"
-        )
-        assert one.stop_mode == StopMode.REQUEST_CLEAN
 
+    # submitting the invalid command should result in this error
+    msg = 'This command does not take job ids:\n * cycle/task/job'
 
-async def test_command_logging(mock_flow, caplog):
-    """It should log the command, with user name if not owner."""
-    caplog.set_level(logging.INFO, logger=CYLC_LOG)
-    owner = mock_flow.owner
-    other = f"not-{mock_flow.owner}"
+    # test submitting the command at *default* verbosity
+    response = await submit_invalid_command()
 
-    command = "stop"
-    mock_flow.resolvers._log_command(command, owner)
-    assert caplog.records[-1].msg == f"[command] {command}"
-    mock_flow.resolvers._log_command(command, other)
-    msg1 = f"[command] {command} (issued by {other})"
-    assert caplog.records[-1].msg == msg1
+    # the error should be sent back to the client:
+    assert response[0]['response'][1] == msg
+    # it should also be logged by the server:
+    assert caplog.records[-1].levelno == logging.WARNING
+    assert msg in caplog.records[-1].message
 
-    command = "put_messages"
-    mock_flow.resolvers._log_command(command, owner)
-    assert caplog.records[-1].msg == msg1  # (prev message, i.e. not logged).
-    mock_flow.resolvers._log_command(command, other)
-    assert caplog.records[-1].msg == f"[command] {command} (issued by {other})"
+    # test submitting the command at *debug* verbosity
+    response = await submit_invalid_command(verbosity=2)
+
+    # the error should be sent back to the client:
+    assert response[0]['response'][1] == msg
+    # it should be logged at the server
+    assert caplog.records[-2].levelno == logging.WARNING
+    assert msg in caplog.records[-2].message
+    # the traceback should also be logged
+    # (note traceback gets logged at the ERROR level and shows up funny in
+    # caplog)
+    assert caplog.records[-1].levelno == logging.ERROR
+    assert msg in caplog.records[-1].message

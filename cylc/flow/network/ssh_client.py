@@ -14,17 +14,36 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-from async_timeout import timeout as asyncto
 import asyncio
 import json
 import os
-from typing import Any, List, Optional, Tuple, Union, Dict
+import sys
+from typing import (
+    Any,
+    Dict,
+    List,
+    Optional,
+    Tuple,
+    Union,
+)
 
-from cylc.flow.exceptions import ClientError, ClientTimeout
+from cylc.flow.exceptions import (
+    ClientError,
+    ClientTimeout,
+)
 from cylc.flow.network.client import WorkflowRuntimeClientBase
 from cylc.flow.network.client_factory import CommsMeth
 from cylc.flow.remote import remote_cylc_cmd
-from cylc.flow.workflow_files import load_contact_file, ContactFileFields
+from cylc.flow.workflow_files import (
+    ContactFileFields,
+    load_contact_file,
+)
+
+
+if sys.version_info[:2] >= (3, 11):
+    from asyncio import timeout as asyncto
+else:
+    from async_timeout import timeout as asyncto
 
 
 class WorkflowRuntimeClient(WorkflowRuntimeClientBase):
@@ -63,10 +82,11 @@ class WorkflowRuntimeClient(WorkflowRuntimeClientBase):
                 cmd, ssh_cmd, login_sh, cylc_path, msg = self.prepare_command(
                     command, args, timeout
                 )
-                platform = {
+                platform: dict = {
                     'ssh command': ssh_cmd,
                     'cylc path': cylc_path,
                     'use login shell': login_sh,
+                    'ssh forward environment variables': [],
                 }
                 # NOTE: this can not raise NoHostsError
                 # because we have provided the host
@@ -89,7 +109,7 @@ class WorkflowRuntimeClient(WorkflowRuntimeClientBase):
                 f"Command exceeded the timeout {timeout}s. "
                 "This could be due to network problems. "
                 "Check the workflow log."
-            )
+            ) from None
 
     def prepare_command(
         self, command: str, args: Optional[dict], timeout: Union[float, str]

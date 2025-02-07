@@ -14,16 +14,23 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+from unittest.mock import MagicMock
 import pytest
+from types import SimpleNamespace
 
+from cylc.flow.prerequisite import Prerequisite
 from cylc.flow.taskdef import TaskDef
 from cylc.flow.cycling.integer import IntegerSequence, IntegerPoint
+from cylc.flow.run_modes import RunMode, disable_task_event_handlers
 from cylc.flow.task_trigger import Dependency, TaskTrigger
 from cylc.flow.task_state import (
     TaskState,
+    TASK_STATUS_PREPARING,
+    TASK_STATUS_SUBMIT_FAILED,
+    TASK_STATUS_SUBMITTED,
     TASK_STATUS_SUCCEEDED,
-    TASK_STATUS_FAILED,
     TASK_STATUS_WAITING,
+    TASK_STATUS_RUNNING,
 )
 
 
@@ -36,7 +43,7 @@ from cylc.flow.task_state import (
 )
 def test_state_comparison(state, is_held):
     """Test the __call__ method."""
-    tdef = TaskDef('foo', {}, 'live', '123', '123')
+    tdef = TaskDef('foo', {}, '123', '123')
     tstate = TaskState(tdef, '123', state, is_held)
 
     assert tstate(state, is_held=is_held)
@@ -67,7 +74,7 @@ def test_state_comparison(state, is_held):
 )
 def test_reset(state, is_held, should_reset):
     """Test that tasks do or don't have their state changed."""
-    tdef = TaskDef('foo', {}, 'live', '123', '123')
+    tdef = TaskDef('foo', {}, '123', '123')
     # create task state:
     #   * status: waiting
     #   * is_held: true
@@ -77,58 +84,6 @@ def test_reset(state, is_held, should_reset):
         assert tstate.is_held == is_held
     if state is not None:
         assert tstate.status == state
-
-
-@pytest.mark.parametrize(
-    'before,after,outputs',
-    [
-        (
-            (TASK_STATUS_WAITING, False),
-            (TASK_STATUS_SUCCEEDED, False),
-            ['submitted', 'started', 'succeeded']
-        ),
-        (
-            (TASK_STATUS_WAITING, False),
-            (TASK_STATUS_FAILED, False),
-            ['submitted', 'started', 'failed']
-        ),
-        (
-            (TASK_STATUS_WAITING, False),
-            (TASK_STATUS_FAILED, None),  # no change to is_held
-            ['submitted', 'started', 'failed']
-        ),
-        (
-            (TASK_STATUS_WAITING, False),
-            (None, False),  # no change to status
-            []
-        ),
-        # only reset task outputs if not setting task to held
-        # https://github.com/cylc/cylc-flow/pull/2116
-        (
-            (TASK_STATUS_WAITING, False),
-            (TASK_STATUS_FAILED, True),
-            []
-        ),
-        # only reset task outputs if not setting task to held
-        # https://github.com/cylc/cylc-flow/pull/2116
-        (
-            (TASK_STATUS_WAITING, False),
-            (TASK_STATUS_SUCCEEDED, True),
-            []
-        )
-    ]
-)
-def test_reset_outputs(before, after, outputs):
-    """Test that outputs are reset correctly on state changes."""
-    tdef = TaskDef('foo', {}, 'live', '123', '123')
-
-    orig_status, orig_is_held = before
-    new_status, new_is_held = after
-
-    tstate = TaskState(tdef, '123', orig_status, orig_is_held)
-    assert tstate.outputs.get_completed() == []
-    tstate.reset(status=new_status, is_held=new_is_held)
-    assert tstate.outputs.get_completed() == outputs
 
 
 def test_task_prereq_duplicates(set_cycling_type):
@@ -143,12 +98,76 @@ def test_task_prereq_duplicates(set_cycling_type):
 
     dep = Dependency([trig], [trig], False)
 
-    tdef = TaskDef('foo', {}, 'live', IntegerPoint("1"), IntegerPoint("1"))
+    tdef = TaskDef('foo', {}, IntegerPoint("1"), IntegerPoint("1"))
     tdef.add_dependency(dep, seq1)
     tdef.add_dependency(dep, seq2)  # duplicate!
 
     tstate = TaskState(tdef, IntegerPoint("1"), TASK_STATUS_WAITING, False)
 
-    prereqs = [p.satisfied for p in tstate.prerequisites]
+    prereqs = [p._satisfied for p in tstate.prerequisites]
 
     assert prereqs == [{("1", "a", "succeeded"): False}]
+
+
+def test_task_state_order():
+    """Test is_gt and is_gte methods."""
+
+    tdef = TaskDef('foo', {}, IntegerPoint("1"), IntegerPoint("1"))
+    tstate = TaskState(tdef, IntegerPoint("1"), TASK_STATUS_SUBMITTED, False)
+
+    assert tstate.is_gt(TASK_STATUS_WAITING)
+    assert tstate.is_gt(TASK_STATUS_PREPARING)
+    assert tstate.is_gt(TASK_STATUS_SUBMIT_FAILED)
+    assert not tstate.is_gt(TASK_STATUS_SUBMITTED)
+    assert tstate.is_gte(TASK_STATUS_SUBMITTED)
+    assert not tstate.is_gt(TASK_STATUS_RUNNING)
+    assert not tstate.is_gte(TASK_STATUS_RUNNING)
+
+
+def test_get_resolved_dependencies():
+    prereq1 = Prerequisite(IntegerPoint('2'))
+    prereq1[('1', 'a', 'x')] = True
+    prereq1[('1', 'b', 'x')] = False
+    prereq1[('1', 'c', 'x')] = 'satisfied from database'
+    prereq1[('1', 'd', 'x')] = 'force satisfied'
+    prereq2 = Prerequisite(IntegerPoint('2'))
+    prereq2[('1', 'e', 'succeeded')] = False
+    prereq2[('1', 'e', 'failed')] = True
+    task_state = TaskState(
+        MagicMock(), IntegerPoint('2'), TASK_STATUS_WAITING, False
+    )
+    task_state.prerequisites = [prereq1, prereq2]
+    assert task_state.get_resolved_dependencies() == [
+        '1/a',
+        '1/c',
+        '1/d',
+        '1/e',
+    ]
+
+
+@pytest.mark.parametrize(
+    'itask_run_mode, disable_handlers, expect',
+    (
+        ('live', True, False),
+        ('live', False, False),
+        ('dummy', True, False),
+        ('dummy', False, False),
+        ('simulation', True, True),
+        ('simulation', False, True),
+        ('skip', True, True),
+        ('skip', False, False),
+    )
+)
+def test_disable_task_event_handlers(itask_run_mode, disable_handlers, expect):
+    """Conditions under which task event handlers should not be used.
+    """
+    # Construct a fake itask object:
+    itask = SimpleNamespace(
+        run_mode=RunMode(itask_run_mode),
+        platform={'disable task event handlers': disable_handlers},
+        tdef=SimpleNamespace(
+            rtconfig={
+                'skip': {'disable task event handlers': disable_handlers}})
+    )
+    # Check method:
+    assert disable_task_event_handlers(itask) is expect

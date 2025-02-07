@@ -26,7 +26,7 @@ import re
 import shlex
 from collections import deque
 from textwrap import dedent
-from typing import List, Dict, Any, Tuple
+from typing import List, Dict, Any, Optional, Tuple
 
 from metomi.isodatetime.data import Duration, TimePoint
 from metomi.isodatetime.dumpers import TimePointDumper
@@ -280,7 +280,7 @@ class ParsecValidator:
         try:
             return float(value)
         except ValueError as exc:
-            raise IllegalValueError('float', keys, value, exc=exc)
+            raise IllegalValueError('float', keys, value, exc=exc) from None
 
     @classmethod
     def coerce_float_list(cls, value, keys):
@@ -309,7 +309,7 @@ class ParsecValidator:
         try:
             return int(value)
         except ValueError as exc:
-            raise IllegalValueError('int', keys, value, exc=exc)
+            raise IllegalValueError('int', keys, value, exc=exc) from None
 
     @classmethod
     def coerce_int_list(cls, value, keys):
@@ -340,18 +340,18 @@ class ParsecValidator:
             (1, 3)
             >>> ParsecValidator.coerce_range('1..3, 5', 'k')
             Traceback (most recent call last):
-            cylc.flow.parsec.exceptions.ListValueError: \
+            cylc.flow.parsec.exceptions.ListValueError:
             (type=list) k = 1..3, 5 - (Only one min..max pair is permitted)
-            >>> ParsecValidator.coerce_range('1..z', None)
+            >>> ParsecValidator.coerce_range('1..z', 'k')
             Traceback (most recent call last):
-            cylc.flow.parsec.exceptions.ListValueError: \
-            (type=list) k = 1..3, 5 - \
-            (Integer range must be in the format min..max)
+            cylc.flow.parsec.exceptions.ListValueError:
+            (type=list) k = 1..z - (Integer range must be in the
+            format min..max)
             >>> ParsecValidator.coerce_range('1', 'k')
             Traceback (most recent call last):
-            cylc.flow.parsec.exceptions.ListValueError: \
-            (type=list) k = 1..3, 5 - \
-            (Integer range must be in the format min..max)
+            cylc.flow.parsec.exceptions.ListValueError:
+            (type=list) k = 1 - (Integer range must be in the
+            format min..max)
 
         """
         items = cls.strip_and_unquote_list(keys, value)
@@ -373,7 +373,7 @@ class ParsecValidator:
         return Range((int(min_), int(max_)))
 
     @classmethod
-    def coerce_str(cls, value, keys):
+    def coerce_str(cls, value, keys) -> str:
         """Coerce value to a string.
 
         Examples:
@@ -385,7 +385,7 @@ class ParsecValidator:
         """
         if isinstance(value, list):
             # handle graph string merging
-            vraw = []
+            vraw: List[str] = []
             vals = [value]
             while vals:
                 val = vals.pop()
@@ -480,13 +480,17 @@ class ParsecValidator:
                 try:
                     lvalues.append(type_(item))
                 except ValueError as exc:
-                    raise IllegalValueError('list', keys, item, exc=exc)
+                    raise IllegalValueError(
+                        'list', keys, item, exc=exc
+                    ) from None
             else:
                 # mult * val
                 try:
                     lvalues += int(mult) * [type_(val)]
                 except ValueError as exc:
-                    raise IllegalValueError('list', keys, item, exc=exc)
+                    raise IllegalValueError(
+                        'list', keys, item, exc=exc
+                    ) from None
         return lvalues
 
     @classmethod
@@ -512,16 +516,32 @@ class ParsecValidator:
             return None
 
     @classmethod
-    def strip_and_unquote(cls, keys, value):
+    def _unquote(cls, keys: List[str], value: str) -> Optional[str]:
+        """Unquote value."""
+        for substr, rec in (
+            ("'''", cls._REC_MULTI_LINE_SINGLE),
+            ('"""', cls._REC_MULTI_LINE_DOUBLE),
+            ('"', cls._REC_DQ_VALUE),
+            ("'", cls._REC_SQ_VALUE)
+        ):
+            if value.startswith(substr):
+                match = rec.match(value)
+                if not match:
+                    raise IllegalValueError("string", keys, value)
+                return match[1]
+        return None
+
+    @classmethod
+    def strip_and_unquote(cls, keys: List[str], value: str) -> str:
         """Remove leading and trailing spaces and unquote value.
 
         Args:
-            keys (list):
+            keys:
                 Keys in nested dict that represents the raw configuration.
-            value (str):
+            value:
                 String value in raw configuration.
 
-        Return (str):
+        Return:
             Processed value.
 
         Examples:
@@ -529,24 +549,13 @@ class ParsecValidator:
             'foo'
 
         """
-        for substr, rec in [
-                ["'''", cls._REC_MULTI_LINE_SINGLE],
-                ['"""', cls._REC_MULTI_LINE_DOUBLE],
-                ['"', cls._REC_DQ_VALUE],
-                ["'", cls._REC_SQ_VALUE]]:
-            if value.startswith(substr):
-                match = rec.match(value)
-                if not match:
-                    raise IllegalValueError("string", keys, value)
-                value = match.groups()[0]
-                break
-        else:
-            # unquoted
-            value = value.split(r'#', 1)[0]
+        val = cls._unquote(keys, value)
+        if val is None:
+            val = value.split(r'#', 1)[0]
 
         # Note strip() removes leading and trailing whitespace, including
         # initial newlines on a multiline string:
-        return dedent(value).strip()
+        return dedent(val).strip()
 
     @classmethod
     def strip_and_unquote_list(cls, keys, value):
@@ -657,6 +666,7 @@ class CylcConfigValidator(ParsecValidator):
     V_CYCLE_POINT = 'V_CYCLE_POINT'
     V_CYCLE_POINT_FORMAT = 'V_CYCLE_POINT_FORMAT'
     V_CYCLE_POINT_TIME_ZONE = 'V_CYCLE_POINT_TIME_ZONE'
+    V_CYCLE_POINT_WITH_OFFSETS = 'V_CYCLE_POINT_WITH_OFFSETS'
     V_INTERVAL = 'V_INTERVAL'
     V_INTERVAL_LIST = 'V_INTERVAL_LIST'
     V_PARAMETER_LIST = 'V_PARAMETER_LIST'
@@ -697,6 +707,26 @@ class CylcConfigValidator(ParsecValidator):
                 'Z': 'UTC / GMT.',
                 '+13': 'UTC plus 13 hours.',
                 '-0830': 'UTC minus 8 hours and 30 minutes.'
+            }
+        ),
+        V_CYCLE_POINT_WITH_OFFSETS: (
+            'cycle point with support for offsets',
+            'An integer or date-time cycle point, with optional offset(s).',
+            {
+                '1': 'An integer cycle point.',
+                '1 +P5': (
+                    'An integer cycle point with an offset'
+                    ' (this evaluates as ``6``).'
+                ),
+                '+P5': (
+                    'An integer cycle point offset.'
+                    ' This offset is added to the initial cycle point'
+                ),
+                '2000-01-01T00:00Z': 'A date-time cycle point.',
+                '2000-02-29T00:00Z +P1D +P1M': (
+                    'A date-time cycle point with offsets'
+                    ' (this evaluates as ``2000-04-01T00:00Z``).'
+                ),
             }
         ),
         V_INTERVAL: (
@@ -751,6 +781,9 @@ class CylcConfigValidator(ParsecValidator):
             self.V_CYCLE_POINT: self.coerce_cycle_point,
             self.V_CYCLE_POINT_FORMAT: self.coerce_cycle_point_format,
             self.V_CYCLE_POINT_TIME_ZONE: self.coerce_cycle_point_time_zone,
+            # NOTE: This type exists for documentation reasons
+            # it doesn't actually process offsets, that happens later
+            self.V_CYCLE_POINT_WITH_OFFSETS: self.coerce_str,
             self.V_INTERVAL: self.coerce_interval,
             self.V_INTERVAL_LIST: self.coerce_interval_list,
             self.V_PARAMETER_LIST: self.coerce_parameter_list,
@@ -803,7 +836,9 @@ class CylcConfigValidator(ParsecValidator):
                     parser.parse(value)
                 return value
             except IsodatetimeError as exc:
-                raise IllegalValueError('cycle point', keys, value, exc=exc)
+                raise IllegalValueError(
+                    'cycle point', keys, value, exc=exc
+                ) from None
         try:
             TimePointParser().parse(value)
         except IsodatetimeError as exc:
@@ -812,7 +847,9 @@ class CylcConfigValidator(ParsecValidator):
                 details = {'msg': "Invalid cycle point"}
             else:
                 details = {'exc': exc}
-            raise IllegalValueError('cycle point', keys, value, **details)
+            raise IllegalValueError(
+                'cycle point', keys, value, **details
+            ) from None
         return value
 
     @classmethod
@@ -854,7 +891,7 @@ class CylcConfigValidator(ParsecValidator):
             except IsodatetimeError as exc:
                 raise IllegalValueError(
                     'cycle point format', keys, value, exc=exc
-                )
+                ) from None
             return value
         if 'X' in value:
             for i in range(1, 101):
@@ -869,7 +906,9 @@ class CylcConfigValidator(ParsecValidator):
         try:
             dumper.dump(test_timepoint, value)
         except IsodatetimeError as exc:
-            raise IllegalValueError('cycle point format', keys, value, exc=exc)
+            raise IllegalValueError(
+                'cycle point format', keys, value, exc=exc
+            ) from None
         return value
 
     @classmethod
@@ -903,7 +942,7 @@ class CylcConfigValidator(ParsecValidator):
         except ValueError as exc:  # not IsodatetimeError as too specific
             raise IllegalValueError(
                 'cycle point time zone format', keys, value, exc=exc
-            )
+            ) from None
         return value
 
     @classmethod
@@ -922,7 +961,9 @@ class CylcConfigValidator(ParsecValidator):
         try:
             interval = DurationParser().parse(value)
         except IsodatetimeError as exc:
-            raise IllegalValueError("ISO 8601 interval", keys, value, exc=exc)
+            raise IllegalValueError(
+                "ISO 8601 interval", keys, value, exc=exc
+            ) from None
         return DurationFloat(interval.get_seconds())
 
     @classmethod
@@ -966,30 +1007,45 @@ class CylcConfigValidator(ParsecValidator):
             >>> CylcConfigValidator.coerce_parameter_list('a, b, c', None)
             ['a', 'b', 'c']
 
+            >>> CylcConfigValidator.coerce_parameter_list('084_132', None)
+            ['084_132']
+
+            >>> CylcConfigValidator.coerce_parameter_list('072, a', None)
+            ['072', 'a']
         """
         items = []
         can_only_be = None   # A flag to prevent mixing str and int range
         for item in cls.strip_and_unquote_list(keys, value):
             values = cls.parse_int_range(item)
             if values is not None:
-                if can_only_be == str:
+                if can_only_be is str:
                     raise IllegalValueError(
                         'parameter', keys, value, 'mixing int range and str')
                 can_only_be = int
                 items.extend(values)
             elif cls._REC_NAME_SUFFIX.match(item):  # noqa: SIM106
                 try:
+                    if '_' in item:
+                        # Disable PEP-515 int coercion; go to except block:
+                        raise ValueError()
                     int(item)
                 except ValueError:
-                    if can_only_be == int:
+                    if can_only_be is int:
                         raise IllegalValueError(
-                            'parameter', keys, value,
-                            'mixing int range and str')
+                            'parameter',
+                            keys,
+                            value,
+                            'mixing int range and str',
+                        ) from None
                     can_only_be = str
                 items.append(item)
             else:
                 raise IllegalValueError(
                     'parameter', keys, value, '%s: bad value' % item)
+
+        if can_only_be is str:
+            return items
+
         try:
             return [int(item) for item in items]
         except ValueError:
@@ -1107,7 +1163,7 @@ class CylcConfigValidator(ParsecValidator):
 
     @classmethod
     def _coerce_type(cls, value):
-        """Convert value to int, float, or bool, if possible.
+        """Convert value to int, float, bool, or None, if possible.
 
         Examples:
             >>> CylcConfigValidator._coerce_type('1')
@@ -1118,6 +1174,7 @@ class CylcConfigValidator(ParsecValidator):
             True
             >>> CylcConfigValidator._coerce_type('abc')
             'abc'
+            >>> CylcConfigValidator._coerce_type('None')
 
         """
         try:
@@ -1130,28 +1187,32 @@ class CylcConfigValidator(ParsecValidator):
                     val = False
                 elif value == 'True':
                     val = True
+                elif value == 'None':
+                    val = None
                 else:
                     # Leave as string.
                     val = cls.strip_and_unquote([], value)
         return val
 
 
-# BACK COMPAT: BroadcastConfigValidator
-# The DB at 8.0.x stores Interval values as neither ISO8601 duration
-# string or DurationFloat. This has been fixed at 8.1.0, and
-# the following class acts as a bridge between fixed and broken.
-# url:
-#     https://github.com/cylc/cylc-flow/pull/5138
-# from:
-#    8.0.x
-# to:
-#    8.1.x
-# remove at:
-#    8.x
 class BroadcastConfigValidator(CylcConfigValidator):
     """Validate and Coerce DB loaded broadcast config to internal objects."""
     def __init__(self):
         CylcConfigValidator.__init__(self)
+
+    @classmethod
+    def coerce_str(cls, value, keys) -> str:
+        """Coerce value to a string. Unquotes & strips lead/trail whitespace.
+
+        Prevents ParsecValidator from assuming '#' means comments;
+        '#' has valid uses in shell script such as parameter substitution.
+
+        Examples:
+            >>> BroadcastConfigValidator.coerce_str('echo "${FOO#*bar}"', None)
+            'echo "${FOO#*bar}"'
+        """
+        val = ParsecValidator._unquote(keys, value) or value
+        return dedent(val).strip()
 
     @classmethod
     def strip_and_unquote_list(cls, keys, value):
@@ -1177,6 +1238,18 @@ class BroadcastConfigValidator(CylcConfigValidator):
             value = value.lstrip('[').rstrip(']')
         return ParsecValidator.strip_and_unquote_list(keys, value)
 
+    # BACK COMPAT: BroadcastConfigValidator.coerce_interval
+    # The DB at 8.0.x stores Interval values as neither ISO8601 duration
+    # string or DurationFloat. This has been fixed at 8.1.0, and
+    # the following method acts as a bridge between fixed and broken.
+    # url:
+    #     https://github.com/cylc/cylc-flow/pull/5138
+    # from:
+    #    8.0.x
+    # to:
+    #    8.1.x
+    # remove at:
+    #    8.x
     @classmethod
     def coerce_interval(cls, value, keys):
         """Coerce an ISO 8601 interval into seconds.
@@ -1202,7 +1275,8 @@ class BroadcastConfigValidator(CylcConfigValidator):
                 interval = DurationParser().parse(str(DurationFloat(value)))
             except IsodatetimeError as exc:
                 raise IllegalValueError(
-                    "ISO 8601 interval", keys, value, exc=exc)
+                    "ISO 8601 interval", keys, value, exc=exc
+                ) from None
         return DurationFloat(interval.get_seconds())
 
 

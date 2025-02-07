@@ -91,9 +91,16 @@ class PointBase(metaclass=ABCMeta):
         """Compare self to other point, returning a 'cmp'-like result."""
         pass
 
-    def standardise(self) -> 'PointBase':
-        """Format self.value into a standard representation and check it."""
-        return self
+    def standardise(self, allow_truncated: bool = True) -> 'PointBase':
+        """Format self.value into a standard representation and check it.
+
+        Args:
+           allow_truncated:
+               If True, then truncated points (i.e. any point with context
+               missing off the front) will be tollerated, if False, truncated
+               points will cause an exception to be raised.
+        """
+        raise NotImplementedError
 
     @abstractmethod
     def sub(self, other):
@@ -246,9 +253,6 @@ class IntervalBase(metaclass=ABCMeta):
     def sub(self, other):
         """Subtract other (interval) from self; return an interval."""
         pass
-
-    def is_null(self):
-        return (self == self.get_null())
 
     def __str__(self) -> str:
         # Stringify.
@@ -418,22 +422,6 @@ class SequenceBase(metaclass=ABCMeta):
     def get_stop_point(self):
         """Return the last point of this sequence, or None if unbounded."""
         pass
-
-    def get_first_n_points(self, n, point=None):
-        """Return a list of first n points of this sequence."""
-        if point is None:
-            p1 = self.get_start_point()
-        else:
-            p1 = self.get_first_point(point)
-        if p1 is None:
-            return []
-        result = [p1]
-        for _ in range(1, n):
-            p1 = self.get_next_point_on_sequence(p1)
-            if p1 is None:
-                break
-            result.append(p1)
-        return result
 
     @abstractmethod
     def __eq__(self, other) -> bool:

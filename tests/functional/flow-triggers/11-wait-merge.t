@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # THIS FILE IS PART OF THE CYLC WORKFLOW ENGINE.
 # Copyright (C) NIWA & British Crown (Met Office) & Contributors.
-# 
+#
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
@@ -17,6 +17,7 @@
 #-------------------------------------------------------------------------------
 
 . "$(dirname "$0")/test_header"
+skip_macos_gh_actions
 set_test_number 4
 
 install_and_validate "${TEST_NAME_BASE}" "${TEST_NAME_BASE}" true
@@ -30,14 +31,14 @@ QUERY="SELECT cycle, name,flow_nums,outputs FROM task_outputs;"
 run_ok "${TEST_NAME}" sqlite3 "${DB}" "$QUERY"
 
 cmp_ok "${TEST_NAME}.stdout" <<\__END__
-1|a|[1]|["submitted", "started", "succeeded"]
-1|b|[1]|["submitted", "started", "succeeded"]
-1|a|[2]|["submitted", "started", "succeeded"]
-1|c|[2]|["submitted", "started", "x"]
-1|c|[1, 2]|["submitted", "started", "succeeded", "x"]
-1|x|[1, 2]|["submitted", "started", "succeeded"]
-1|d|[1, 2]|["submitted", "started", "succeeded"]
-1|b|[2]|["submitted", "started", "succeeded"]
+1|a|[1]|{"submitted": "submitted", "started": "started", "succeeded": "succeeded"}
+1|b|[1]|{"submitted": "submitted", "started": "started", "succeeded": "succeeded"}
+1|a|[2]|{"submitted": "submitted", "started": "started", "succeeded": "succeeded"}
+1|c|[2]|{"submitted": "submitted", "started": "started", "x": "x"}
+1|c|[1, 2]|{"submitted": "submitted", "started": "started", "succeeded": "succeeded", "x": "x"}
+1|x|[1, 2]|{"submitted": "submitted", "started": "started", "succeeded": "succeeded"}
+1|d|[1, 2]|{"submitted": "submitted", "started": "started", "succeeded": "succeeded"}
+1|b|[2]|{"submitted": "submitted", "started": "started", "succeeded": "succeeded"}
 __END__
 
 purge

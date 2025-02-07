@@ -40,8 +40,11 @@ file:
 
 .. note::
 
-   Since not all SLURM commands have a short form, cylc requires
-   the long form directives.
+   * Cylc requires long form directives (e.g. ``--begin`` not ``-b``).
+   * Cylc requires an ``=`` even if the directive does not have a value
+     (e.g. ``--hold=`` not ``--hold``).
+   * If a directive does not have a value you may use the short form
+     (e.g. ``-H=``). But the directive must still be suffixed with an ``=``.
 
 These are written to the top of the job script like this:
 
@@ -132,6 +135,8 @@ class SLURMHandler():
     #  Separator between het job directive sections
     SEP_HETJOB = "#SBATCH hetjob"
 
+    TIME_LIMIT_DIRECTIVE = "--time"
+
     @classmethod
     def filter_poll_many_output(cls, out):
         """Return list of job IDs extracted from job poll stdout.
@@ -158,8 +163,8 @@ class SLURMHandler():
         directives['--output'] = job_file_path.replace('%', '%%') + ".out"
         directives['--error'] = job_file_path.replace('%', '%%') + ".err"
         if (job_conf["execution_time_limit"] and
-                directives.get("--time") is None):
-            directives["--time"] = "%d:%02d" % (
+                directives.get(cls.TIME_LIMIT_DIRECTIVE) is None):
+            directives[cls.TIME_LIMIT_DIRECTIVE] = "%d:%02d" % (
                 job_conf["execution_time_limit"] / 60,
                 job_conf["execution_time_limit"] % 60)
         for key, value in list(job_conf['directives'].items()):

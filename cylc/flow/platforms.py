@@ -31,6 +31,7 @@ from cylc.flow.exceptions import (
     PlatformLookupError, CylcError, NoHostsError, NoPlatformsError)
 from cylc.flow.cfgspec.glbl_cfg import glbl_cfg
 from cylc.flow.hostuserutil import is_remote_host
+from cylc.flow.run_modes import JOBLESS_MODES
 
 if TYPE_CHECKING:
     from cylc.flow.parsec.OrderedDict import OrderedDictWithDefaults
@@ -124,7 +125,8 @@ def get_platform(
     Returns:
         platform: A platform definition dictionary. Uses either
             get_platform() or platform_name_from_job_info(), but to the
-            user these look the same.
+            user these look the same. This will be None if the platform
+            definition uses a subshell.
 
     Raises:
         NoPlatformsError:
@@ -141,7 +143,7 @@ def get_platform(
 
     # NOTE: Do NOT use .get() on OrderedDictWithDefaults -
     # https://github.com/cylc/cylc-flow/pull/4975
-    elif 'platform' in task_conf and task_conf['platform']:
+    if 'platform' in task_conf and task_conf['platform']:
         # Check whether task has conflicting Cylc7 items.
         fail_if_platform_and_host_conflict(task_conf, task_name)
 
@@ -154,24 +156,22 @@ def get_platform(
         # If platform name exists and doesn't clash with Cylc7 Config items.
         return platform_from_name(task_conf['platform'], bad_hosts=bad_hosts)
 
-    else:
-        if get_platform_deprecated_settings(task_conf) == []:
-            # No deprecated items; platform is localhost
-            return platform_from_name()
-        else:
-            # Need to calculate platform
-            # NOTE: Do NOT use .get() on OrderedDictWithDefaults - see above
-            task_job_section = task_conf['job'] if 'job' in task_conf else {}
-            task_remote_section = (
-                task_conf['remote'] if 'remote' in task_conf else {})
-            return platform_from_name(
-                platform_name_from_job_info(
-                    glbl_cfg().get(['platforms']),
-                    task_job_section,
-                    task_remote_section
-                ),
-                bad_hosts=bad_hosts
-            )
+    if get_platform_deprecated_settings(task_conf) == []:
+        # No deprecated items; platform is localhost
+        return platform_from_name()
+
+    # Need to calculate platform
+    # NOTE: Do NOT use .get() on OrderedDictWithDefaults - see above
+    task_job_section = task_conf['job'] if 'job' in task_conf else {}
+    task_remote_section = task_conf['remote'] if 'remote' in task_conf else {}
+    return platform_from_name(
+        platform_name_from_job_info(
+            glbl_cfg().get(['platforms']),
+            task_job_section,
+            task_remote_section,
+        ),
+        bad_hosts=bad_hosts,
+    )
 
 
 def platform_from_name(
@@ -265,6 +265,12 @@ def platform_from_name(
             platform_data['name'] = platform_name
             return platform_data
 
+    # If platform name in run mode and not otherwise defined:
+    if platform_name in JOBLESS_MODES:
+        platform_data = deepcopy(platforms['localhost'])
+        platform_data['name'] = 'localhost'
+        return platform_data
+
     raise PlatformLookupError(
         f"No matching platform \"{platform_name}\" found")
 
@@ -302,9 +308,14 @@ def get_platform_from_group(
     else:
         platform_names = group['platforms']
 
-    # Return False if there are no platforms available to be selected.
+    # If there are no platforms available to be selected:
     if not platform_names:
-        raise NoPlatformsError(group_name)
+        hosts_consumed = {
+            host
+            for platform in group['platforms']
+            for host in platform_from_name(platform)['hosts']}
+        raise NoPlatformsError(
+            group_name, hosts_consumed)
 
     # Get the selection method
     method = group['selection']['method']
@@ -651,6 +662,7 @@ def get_install_target_to_platforms_map(
         else:
             install_target = get_install_target_from_platform(platform)
             ret.setdefault(install_target, []).append(platform)
+
     return ret
 
 

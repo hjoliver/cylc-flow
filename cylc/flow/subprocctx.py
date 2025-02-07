@@ -18,10 +18,38 @@
 Coerce more value type from string (to time point, duration, xtriggers, etc.).
 """
 
+from inspect import Parameter
 import json
 from shlex import quote
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 
 from cylc.flow.wallclock import get_current_time_string
+
+if TYPE_CHECKING:
+    from inspect import Signature
+
+
+def add_kwarg_to_sig(
+    sig: 'Signature', arg_name: str, default: Any
+) -> 'Signature':
+    """Return a new signature with a kwarg added."""
+    # Note: added kwarg has to be before **kwargs ("variadic") in the signature
+    positional_or_keyword: List[Parameter] = []
+    variadic: List[Parameter] = []
+    for param in sig.parameters.values():
+        if param.kind == Parameter.VAR_KEYWORD:
+            variadic.append(param)
+        else:
+            positional_or_keyword.append(param)
+    return sig.replace(parameters=[
+        *positional_or_keyword,
+        Parameter(
+            arg_name,
+            kind=Parameter.KEYWORD_ONLY,
+            default=default,
+        ),
+        *variadic,
+    ])
 
 
 class SubProcContext:  # noqa: SIM119 (not really relevant to this case)
@@ -115,25 +143,35 @@ class SubFuncContext(SubProcContext):
 
     Attributes:
         # See also parent class attributes.
-        .label (str):
+        .label:
             function label under [xtriggers] in flow.cylc
-        .func_name (str):
+        .func_name:
             function name
-        .func_args (list):
+        .func_args:
             function positional args
-        .func_kwargs (dict):
+        .func_kwargs:
             function keyword args
-        .intvl (float - seconds):
-            function call interval (how often to check the external trigger)
-        .ret_val (bool, dict)
+        .intvl:
+            function call interval in secs (how often to check the
+            external trigger)
+        .ret_val
             function return: (satisfied?, result to pass to trigger tasks)
     """
 
     DEFAULT_INTVL = 10.0
 
-    def __init__(self, label, func_name, func_args, func_kwargs, intvl=None):
+    def __init__(
+        self,
+        label: str,
+        func_name: str,
+        func_args: List[Any],
+        func_kwargs: Dict[str, Any],
+        intvl: Union[float, str] = DEFAULT_INTVL,
+        mod_name: Optional[str] = None
+    ):
         """Initialize a function context."""
         self.label = label
+        self.mod_name = mod_name or func_name
         self.func_name = func_name
         self.func_kwargs = func_kwargs
         self.func_args = func_args
@@ -141,13 +179,18 @@ class SubFuncContext(SubProcContext):
             self.intvl = float(intvl)
         except (TypeError, ValueError):
             self.intvl = self.DEFAULT_INTVL
-        self.ret_val = (False, None)  # (satisfied, broadcast)
+        self.ret_val: Tuple[
+            bool, Optional[dict]
+        ] = (False, None)  # (satisfied, broadcast)
         super(SubFuncContext, self).__init__(
-            'xtrigger-func', cmd=[], shell=False)
+            'xtrigger-func', cmd=[], shell=False
+        )
 
     def update_command(self, workflow_run_dir):
         """Update the function wrap command after changes."""
-        self.cmd = ['cylc', 'function-run', self.func_name,
+        self.cmd = ['cylc', 'function-run',
+                    self.mod_name,
+                    self.func_name,
                     json.dumps(self.func_args),
                     json.dumps(self.func_kwargs),
                     workflow_run_dir]
@@ -158,3 +201,17 @@ class SubFuncContext(SubProcContext):
         args = self.func_args + [
             "%s=%s" % (i, self.func_kwargs[i]) for i in skeys]
         return "%s(%s)" % (self.func_name, ", ".join([str(a) for a in args]))
+
+    def dump(self) -> str:
+        """Output for logging."""
+        return SubProcContext.__str__(self)
+
+    def __str__(self) -> str:
+        """
+        >>> str(SubFuncContext('label', 'my_func', [1, 2], {'a': 3}))
+        'my_func(1, 2, a=3):10.0'
+        """
+        return f"{self.get_signature()}:{self.intvl}"
+
+    def __repr__(self) -> str:
+        return f"<{type(self).__name__} {self}>"

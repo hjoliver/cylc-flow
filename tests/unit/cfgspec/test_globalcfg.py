@@ -74,9 +74,19 @@ def test_dump_platform_details(capsys, mock_global_config):
     assert expected == out
 
 
-def test_expand_platforms(tmp_path: Path, mock_global_config: Callable):
-    """It should expand comma separated platform definitions."""
+def test_expand_commas(tmp_path: Path, mock_global_config: Callable):
+    """It should expand comma separated platform and install target
+    definitions."""
     glblcfg: GlobalConfig = mock_global_config('''
+    [install]
+        [[symlink dirs]]
+            [[[foo, bar]]]
+                run = /x
+            [[[foo]]]
+                share = /y
+            [[[bar]]]
+                share = /z
+
     [platforms]
         [[foo]]
             [[[meta]]]
@@ -91,7 +101,7 @@ def test_expand_platforms(tmp_path: Path, mock_global_config: Callable):
             [[[meta]]]
                 x = 4
     ''')
-    glblcfg._expand_platforms()
+    glblcfg._expand_commas()
 
     # ensure the definition order is preserved
     assert glblcfg.get(['platforms']).keys() == [
@@ -102,11 +112,17 @@ def test_expand_platforms(tmp_path: Path, mock_global_config: Callable):
         'pub',
     ]
 
-    # ensure sections are correctly deep-merged
+    # ensure platform sections are correctly deep-merged
     assert glblcfg.get(['platforms', 'foo', 'meta', 'x']) == '1'
     assert glblcfg.get(['platforms', 'bar', 'meta', 'x']) == '3'
     assert glblcfg.get(['platforms', 'baz', 'meta', 'x']) == '3'
     assert glblcfg.get(['platforms', 'pub', 'meta', 'x']) == '4'
+
+    # ensure install target sections are correctly merged:
+    assert glblcfg.get(["install", "symlink dirs", "foo", "run"]) == "/x"
+    assert glblcfg.get(["install", "symlink dirs", "foo", "share"]) == "/y"
+    assert glblcfg.get(["install", "symlink dirs", "bar", "run"]) == "/x"
+    assert glblcfg.get(["install", "symlink dirs", "bar", "share"]) == "/z"
 
 
 @pytest.mark.parametrize(
@@ -148,3 +164,13 @@ def test_source_dir_validation(
         assert "must be an absolute path" in str(excinfo.value)
     else:
         glblcfg.load()
+
+def test_platform_ssh_forward_variables(mock_global_config):
+
+    glblcfg: GlobalConfig = mock_global_config('''
+    [platforms]
+        [[foo]]
+            ssh forward environment variables = "FOO", "BAR"
+    ''')
+
+    assert glblcfg.get(['platforms','foo','ssh forward environment variables']) == ["FOO", "BAR"]

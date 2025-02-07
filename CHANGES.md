@@ -11,6 +11,342 @@ $ towncrier create <PR-number>.<break|feat|fix>.md --content "Short description"
 
 <!-- towncrier release notes start -->
 
+## __cylc-8.4.0 (Released 2025-01-08)__
+
+### ⚠ Breaking Changes
+
+[#6476](https://github.com/cylc/cylc-flow/pull/6476) - Remove support for the EmPy template engine.
+
+### 🚀 Enhancements
+
+[#6039](https://github.com/cylc/cylc-flow/pull/6039) - Added a new task run mode "skip" in which tasks instantly generate their required outputs without actually running. This allows us to configure tasks to "skip" ahead of time, e.g. to skip a cycle of tasks that is no longer needed.
+
+[#6137](https://github.com/cylc/cylc-flow/pull/6137) - New Cylc lint rule: S014: Don't use job runner specific execution time limit directives, use execution time limit.
+
+[#6168](https://github.com/cylc/cylc-flow/pull/6168) - Allow symlinking log/job separately from log
+
+[#6289](https://github.com/cylc/cylc-flow/pull/6289) - Made the errors resulting from Jinja2 `raise` and `assert` statements more straight forward.
+
+[#6440](https://github.com/cylc/cylc-flow/pull/6440) - The "cylc dump" command now prints task IDs. Use "--legacy" if you need the old format.
+
+[#6444](https://github.com/cylc/cylc-flow/pull/6444) - The scheduler now traps the SIGINT, SIGTERM and SIGHUP signals and will respond by shutting down in --now mode. If the workflow is already shutting down in --now mode, it will escalate the shutdown to --now --now mode.
+
+[#6456](https://github.com/cylc/cylc-flow/pull/6456) - `cylc lint` now checks for unnecessary continuation characters in the graph section.
+
+[#6472](https://github.com/cylc/cylc-flow/pull/6472) - `cylc remove` improvements:
+  - It can now remove tasks that are no longer active, making it look like they never ran.
+  - Removing a submitted/running task will kill it.
+  - Added the `--flow` option.
+  - Removed tasks are now demoted to `flow=none` but retained in the workflow database for provenance.
+
+[#6475](https://github.com/cylc/cylc-flow/pull/6475) - Allow easy definition of multiple install targets in `global.cylc[install][symlink dirs]` using comma separated lists.
+
+[#6491](https://github.com/cylc/cylc-flow/pull/6491) - The "cylc show" command now says if the target task is held, queued, or runahead limited.
+
+[#6499](https://github.com/cylc/cylc-flow/pull/6499) - Manually triggered tasks now run immediately even if the workflow is paused.
+
+### 🔧 Fixes
+
+[#6081](https://github.com/cylc/cylc-flow/pull/6081) - Fix job submission when a batch of jobs is submitted to a runner that does
+  not return a newline with the job ID (did not affect built-in job runners).
+
+[#6511](https://github.com/cylc/cylc-flow/pull/6511) - cat-log command list-dir mode: fail gracefully if directory not found.
+
+[#6526](https://github.com/cylc/cylc-flow/pull/6526) - Output optionality validation now checks tasks with cycle offsets.
+
+[#6528](https://github.com/cylc/cylc-flow/pull/6528) - Make start-tasks wait on xtriggers (see "cylc play --start-task").
+
+## __cylc-8.3.6 (Released 2024-11-07)__
+
+### 🔧 Fixes
+
+[#4983](https://github.com/cylc/cylc-flow/pull/4983) - Ensure the runahead limit is recomputed when legacy "suicide-triggers" are used, to prevent erroneous stall in niche cases.
+
+[#6263](https://github.com/cylc/cylc-flow/pull/6263) - Fix bug that prevented changes to user-defined xtriggers taking effect after a reload.
+
+[#6326](https://github.com/cylc/cylc-flow/pull/6326) - Fix a rare issue where missing job records could cause tasks to become stuck in active states.
+
+[#6364](https://github.com/cylc/cylc-flow/pull/6364) - Fixed bug where `cylc clean <workflow> --rm share` would not take care of removing the target of the `share/cycle` symlink directory.
+
+[#6376](https://github.com/cylc/cylc-flow/pull/6376) - Fixes an issue that could cause Cylc to ignore the remaining hosts in a platform in response to an `ssh` error in some niche circumstances.
+
+[#6388](https://github.com/cylc/cylc-flow/pull/6388) - Fix task state filtering in Tui.
+
+[#6414](https://github.com/cylc/cylc-flow/pull/6414) - Broadcast will now reject truncated cycle points to aviod runtime errors.
+
+[#6422](https://github.com/cylc/cylc-flow/pull/6422) - Enabled jumping to the top/bottom of log files in Tui using the "home" and "end" keys.
+
+[#6431](https://github.com/cylc/cylc-flow/pull/6431) - The `cycle point format` was imposing an undesirable constraint on `wall_clock` offsets, this has been fixed.
+
+[#6433](https://github.com/cylc/cylc-flow/pull/6433) - Ignore requests to trigger or set active tasks with --flow=none.
+
+[#6445](https://github.com/cylc/cylc-flow/pull/6445) - Ensure `cylc trigger` does not fall back to `flow=none` when there are no active flows.
+
+[#6448](https://github.com/cylc/cylc-flow/pull/6448) - Fix the non-spawning of parentless sequential xtriggered tasks when outputs are set.
+
+## __cylc-8.3.5 (Released 2024-10-15)__
+
+### 🔧 Fixes
+
+[#6316](https://github.com/cylc/cylc-flow/pull/6316) - Fixed bug in `cylc vr` where an initial cycle point of `now`/`next()`/`previous()` would result in an error.
+
+[#6362](https://github.com/cylc/cylc-flow/pull/6362) - Fixed simulation mode bug where the task submit number would not increment
+
+[#6367](https://github.com/cylc/cylc-flow/pull/6367) - Fix bug where `cylc trigger` and `cylc set` would assign active flows to existing tasks by default.
+
+[#6397](https://github.com/cylc/cylc-flow/pull/6397) - Fix "dictionary changed size during iteration error" which could occur with broadcasts.
+
+## __cylc-8.3.4 (Released 2024-09-12)__
+
+### 🚀 Enhancements
+
+[#6266](https://github.com/cylc/cylc-flow/pull/6266) - 'cylc show' task output is now sorted by the task id
+
+### 🔧 Fixes
+
+[#6175](https://github.com/cylc/cylc-flow/pull/6175) - The workflow-state command and xtrigger will now reject invalid polling arguments.
+
+[#6214](https://github.com/cylc/cylc-flow/pull/6214) - `cylc lint` rules U013 & U015 now tell you which deprecated variables you are using
+
+[#6264](https://github.com/cylc/cylc-flow/pull/6264) - Fix bug where `cylc install` failed to prevent invalid run names.
+
+[#6267](https://github.com/cylc/cylc-flow/pull/6267) - Fixed bug in `cylc play` affecting run host reinvocation after interactively upgrading the workflow to a new Cylc version.
+
+[#6310](https://github.com/cylc/cylc-flow/pull/6310) - Fix a spurious traceback that could occur when running the `cylc play` command on Mac OS.
+
+[#6330](https://github.com/cylc/cylc-flow/pull/6330) - Fix bug where broadcasting failed to change platform selected after host selection failure.
+
+[#6332](https://github.com/cylc/cylc-flow/pull/6332) - Fixes unformatted string
+
+[#6335](https://github.com/cylc/cylc-flow/pull/6335) - Fix an issue that could cause broadcasts made to multiple namespaces to fail.
+
+[#6337](https://github.com/cylc/cylc-flow/pull/6337) - Fix potential duplicate job submissions when manually triggering unqueued active tasks.
+
+[#6345](https://github.com/cylc/cylc-flow/pull/6345) - Fix duplicate job submissions of tasks in the preparing state before reload.
+
+[#6351](https://github.com/cylc/cylc-flow/pull/6351) - Fix a bug where simulation mode tasks were not spawning children of task:started.
+
+[#6353](https://github.com/cylc/cylc-flow/pull/6353) - Prevent clock-expired tasks from being automatically retried.
+
+## __cylc-8.3.3 (Released 2024-07-23)__
+
+### 🔧 Fixes
+
+[#6103](https://github.com/cylc/cylc-flow/pull/6103) - Absolute dependencies (dependencies on tasks in a specified cycle rather than at a specified offset) are now visible in the GUI beyond the specified cycle.
+
+[#6213](https://github.com/cylc/cylc-flow/pull/6213) - Fix bug where the `-S`, `-O` and `-D` options in `cylc vr` would not be applied correctly when restarting a workflow.
+
+[#6241](https://github.com/cylc/cylc-flow/pull/6241) - Allow flow-merge when triggering n=0 tasks.
+
+[#6242](https://github.com/cylc/cylc-flow/pull/6242) - Put `share/bin` in the `PATH` of scheduler environment, event handlers therein will now be found.
+
+[#6249](https://github.com/cylc/cylc-flow/pull/6249), [#6252](https://github.com/cylc/cylc-flow/pull/6252) - Fix a race condition between global config reload and debug logging that caused "platform not defined" errors when running workflows that contained a "rose-suite.conf" file in verbose or debug mode.
+
+## __cylc-8.3.2 (Released 2024-07-10)__
+
+### 🔧 Fixes
+
+[#6186](https://github.com/cylc/cylc-flow/pull/6186) - Fixed bug where using flow numbers with `cylc set` would not work correctly.
+
+[#6200](https://github.com/cylc/cylc-flow/pull/6200) - Fixed bug where a stalled paused workflow would be incorrectly reported as running, not paused
+
+[#6206](https://github.com/cylc/cylc-flow/pull/6206) - Fixes the spawning of multiple parentless tasks off the same sequential wall-clock xtrigger.
+
+## __cylc-8.3.1 (Released 2024-07-04)__
+
+### 🔧 Fixes
+
+[#6130](https://github.com/cylc/cylc-flow/pull/6130) - Prevent commands accepting job IDs where it doesn't make sense.
+
+[#6170](https://github.com/cylc/cylc-flow/pull/6170) - Fix an issue where the Cylc logo could appear in the workflow log.
+
+[#6176](https://github.com/cylc/cylc-flow/pull/6176) - Fix bug where jobs which fail to submit are not shown in GUI/TUI if submission retries are set.
+
+[#6178](https://github.com/cylc/cylc-flow/pull/6178) - Fix an issue where Tui could hang when closing.
+
+## __cylc-8.3.0 (Released 2024-06-18)__
+
+### ⚠ Breaking Changes
+
+[#5600](https://github.com/cylc/cylc-flow/pull/5600) - The `cylc dump` command now only shows active tasks (e.g. running & queued
+  tasks). This restores its behaviour of only showing the tasks which currently
+  exist in the pool as it did in Cylc 7 and earlier versions of Cylc 8.
+
+[#5727](https://github.com/cylc/cylc-flow/pull/5727) - Cylc now ignores `PYTHONPATH` to make it more robust to task environments which set this value. If you want to add to the Cylc environment itself, e.g. to install a Cylc extension, use `CYLC_PYTHONPATH`.
+
+[#5794](https://github.com/cylc/cylc-flow/pull/5794) - Remove `cylc report-timings` from automatic installation with `pip install cylc-flow[all]`. If you now wish to install it use `pip install cylc-flow[report-timings]`. `cylc report-timings` is incompatible with Python 3.12.
+
+[#5836](https://github.com/cylc/cylc-flow/pull/5836) - Removed the 'CYLC_TASK_DEPENDENCIES' environment variable
+
+[#5956](https://github.com/cylc/cylc-flow/pull/5956) - `cylc lint`: deprecated `[cylc-lint]` section in favour of `[tool.cylc.lint]` in `pyproject.toml`
+
+[#6046](https://github.com/cylc/cylc-flow/pull/6046) - The `submit-fail` and `expire` task outputs must now be
+  [optional](https://cylc.github.io/cylc-doc/stable/html/glossary.html#term-optional-output)
+  and can no longer be
+  [required](https://cylc.github.io/cylc-doc/stable/html/glossary.html#term-required-output).
+
+### 🚀 Enhancements
+
+[#5571](https://github.com/cylc/cylc-flow/pull/5571) - Make workflow `CYLC_` variables available to the template processor during parsing.
+
+[#5658](https://github.com/cylc/cylc-flow/pull/5658) - New "cylc set" command for setting task prerequisites and outputs.
+
+[#5709](https://github.com/cylc/cylc-flow/pull/5709) - Forward arbitrary environment variables over SSH connections
+
+[#5721](https://github.com/cylc/cylc-flow/pull/5721) - Allow task simulation mode settings to be changed dynamically using `cylc broadcast`.
+
+[#5731](https://github.com/cylc/cylc-flow/pull/5731) - Major upgrade to `cylc tui` which now supports larger workflows and can browse installed workflows.
+
+[#5738](https://github.com/cylc/cylc-flow/pull/5738) - Optionally spawn parentless xtriggered tasks sequentially - i.e., one at a time, after the previous xtrigger is satisfied, instead of all at once out to the runahead limit. The `wall_clock` xtrigger is now sequential by default.
+
+[#5769](https://github.com/cylc/cylc-flow/pull/5769) - Include task messages and workflow port as appropriate in emails configured by "mail events".
+
+[#5803](https://github.com/cylc/cylc-flow/pull/5803) - Updated 'reinstall' functionality to support multiple workflows
+
+[#5809](https://github.com/cylc/cylc-flow/pull/5809) - The workflow-state command and xtrigger are now flow-aware and take universal IDs instead of separate arguments for cycle point, task name, etc. (which are still supported, but deprecated).
+
+[#5831](https://github.com/cylc/cylc-flow/pull/5831) - Add capability to install xtriggers via a new cylc.xtriggers entry point
+
+[#5864](https://github.com/cylc/cylc-flow/pull/5864) - Reimplemented the `suite-state` xtrigger for interoperability with Cylc 7.
+
+[#5872](https://github.com/cylc/cylc-flow/pull/5872) - Improvements to `cylc clean` remote timeout handling.
+
+[#5873](https://github.com/cylc/cylc-flow/pull/5873) - `cylc lint` improvements:
+  - Allow use of `#noqa: S001` comments to skip checks for a single line.
+  - Stop `cylc lint` objecting to `%include <file>` syntax.
+
+[#5879](https://github.com/cylc/cylc-flow/pull/5879) - `cylc lint` now warns of use of old templated items such as `%(suite)s`
+
+[#5890](https://github.com/cylc/cylc-flow/pull/5890) - Lint: Warn users that setting ``CYLC_VERSION``, ``ROSE_VERSION`` or
+  ``FCM_VERSION`` in the workflow config is deprecated.
+
+[#5943](https://github.com/cylc/cylc-flow/pull/5943) - The `stop after cycle point` can now be specified as an offset from the inital cycle point.
+
+[#5955](https://github.com/cylc/cylc-flow/pull/5955) - Support xtrigger argument validation.
+
+[#6029](https://github.com/cylc/cylc-flow/pull/6029) - Workflow graph window extent is now preserved on reload.
+
+[#6046](https://github.com/cylc/cylc-flow/pull/6046) - The condition that Cylc uses to evaluate task output completion can now be
+  customized in the `[runtime]` section with the new `completion` configuration.
+  This provides a more advanced way to check that tasks generate their required
+  outputs when run.
+
+### 🔧 Fixes
+
+[#5809](https://github.com/cylc/cylc-flow/pull/5809) - Fix bug where the "cylc workflow-state" command only polled for
+  task-specific status queries and custom outputs.
+
+[#6008](https://github.com/cylc/cylc-flow/pull/6008) - Fixed bug where the `[scheduler][mail]to/from` settings did not apply as defaults for task event mail.
+
+[#6036](https://github.com/cylc/cylc-flow/pull/6036) - Fixed bug in simulation mode where repeated submissions were not displaying correctly in TUI/GUI.
+
+[#6067](https://github.com/cylc/cylc-flow/pull/6067) - Fixed a bug that sometimes allowed suicide-triggered or manually removed tasks to be added back later.
+
+[#6109](https://github.com/cylc/cylc-flow/pull/6109) - Fixed bug affecting job submission where the list of bad hosts was not always reset correctly.
+
+[#6123](https://github.com/cylc/cylc-flow/pull/6123) - Allow long-format datetime cycle points in IDs used on the command line.
+
+## __cylc-8.2.7 (Released 2024-05-15)__
+
+### 🔧 Fixes
+
+[#6096](https://github.com/cylc/cylc-flow/pull/6096) - Fixed bug that caused graph arrows to go missing in the GUI when suicide triggers are present.
+
+[#6102](https://github.com/cylc/cylc-flow/pull/6102) - Fixed bug introduced in 8.2.6 in `cylc vip` & `cylc vr` when using cylc-rose options (`-S`, `-D`, `-O`).
+
+## __cylc-8.2.6 (Released 2024-05-02)__
+
+### ⚠ Breaking Changes
+
+[#6068](https://github.com/cylc/cylc-flow/pull/6068) - Removed the Rose Options (`-S`, `-O`, `-D`) from `cylc play`. If you need these use them with `cylc install`.
+
+### 🚀 Enhancements
+
+[#6072](https://github.com/cylc/cylc-flow/pull/6072) - Nano Syntax Highlighting now available.
+
+### 🔧 Fixes
+
+[#6071](https://github.com/cylc/cylc-flow/pull/6071) - `cylc config` now shows xtrigger function signatures.
+
+[#6078](https://github.com/cylc/cylc-flow/pull/6078) - Fixed bug where `cylc lint` could hang when checking `inherit` settings in `flow.cylc`.
+
+## __cylc-8.2.5 (Released 2024-04-04)__
+
+### 🔧 Fixes
+
+[#5924](https://github.com/cylc/cylc-flow/pull/5924) - Validation: a cycle offset can only appear on the right of a dependency if the task's cycling is defined elsewhere with no offset.
+
+[#5933](https://github.com/cylc/cylc-flow/pull/5933) - Fixed bug in `cylc broadcast` (and the GUI Edit Runtime command) where everything after a `#` character in a setting would be stripped out.
+
+[#5959](https://github.com/cylc/cylc-flow/pull/5959) - Fix an issue where workflow "timeout" events were not fired in all situations when they should have been.
+
+[#6011](https://github.com/cylc/cylc-flow/pull/6011) - Fixed a `cylc vip` bug causing remote re-invocation to fail if using `--workflow-name` option.
+
+[#6031](https://github.com/cylc/cylc-flow/pull/6031) - Fixed workflow-state command and xtrigger for alternate cylc-run directory.
+
+## __cylc-8.2.4 (Released 2024-01-11)__
+
+### 🚀 Enhancements
+
+[#5772](https://github.com/cylc/cylc-flow/pull/5772) - `cylc lint`: added a check for indentation being 4N spaces.
+
+[#5838](https://github.com/cylc/cylc-flow/pull/5838) - `cylc lint`: added rule to check for `rose date` usage (should be replaced with `isodatetime`).
+
+### 🔧 Fixes
+
+[#5789](https://github.com/cylc/cylc-flow/pull/5789) - Prevent the run mode from being changed on restart.
+
+[#5801](https://github.com/cylc/cylc-flow/pull/5801) - Fix traceback when using parentheses on right hand side of graph trigger.
+
+[#5821](https://github.com/cylc/cylc-flow/pull/5821) - Fixed issue where large uncommitted changes could cause `cylc install` to hang.
+
+[#5841](https://github.com/cylc/cylc-flow/pull/5841) - `cylc lint`: improved handling of S011 to not warn if the `#` is `#$` (e.g. shell base arithmetic).
+
+[#5885](https://github.com/cylc/cylc-flow/pull/5885) - Fixed bug in using a final cycle point with chained offsets e.g. 'final cycle point = +PT6H+PT1S'.
+
+[#5893](https://github.com/cylc/cylc-flow/pull/5893) - Fixed bug in computing a time interval-based runahead limit when future triggers are present.
+
+[#5902](https://github.com/cylc/cylc-flow/pull/5902) - Fixed a bug that prevented unsetting `execution time limit` by broadcast or reload.
+
+[#5908](https://github.com/cylc/cylc-flow/pull/5908) - Fixed bug causing redundant DB updates when many tasks depend on the same xtrigger.
+
+[#5909](https://github.com/cylc/cylc-flow/pull/5909) - Fix a bug where Cylc VIP did not remove --workflow-name=<name> from
+  Cylc play arguments.
+
+## __cylc-8.2.3 (Released 2023-11-02)__
+
+### 🔧 Fixes
+
+[#5660](https://github.com/cylc/cylc-flow/pull/5660) - Re-worked graph n-window algorithm for better efficiency.
+
+[#5753](https://github.com/cylc/cylc-flow/pull/5753) - Fixed bug where execution time limit polling intervals could end up incorrectly applied
+
+[#5776](https://github.com/cylc/cylc-flow/pull/5776) - Ensure that submit-failed tasks are marked as incomplete (so remain visible) when running in back-compat mode.
+
+[#5791](https://github.com/cylc/cylc-flow/pull/5791) - fix a bug where if multiple clock triggers are set for a task only one was being satisfied.
+
+## __cylc-8.2.2 (Released 2023-10-05)__
+
+### 🚀 Enhancements
+
+[#5237](https://github.com/cylc/cylc-flow/pull/5237) - Back-compat: allow workflow-state xtriggers (and the `cylc workflow-state`
+  command) to read Cylc 7 databases.
+
+### 🔧 Fixes
+
+[#5693](https://github.com/cylc/cylc-flow/pull/5693) - Log command issuer, if not the workflow owner, for all commands.
+
+[#5694](https://github.com/cylc/cylc-flow/pull/5694) - Don't fail config file parsing if current working directory does not exist.
+  (Note however this may not be enough to prevent file parsing commands failing
+  elsewhere in the Python library).
+
+[#5704](https://github.com/cylc/cylc-flow/pull/5704) - Fix off-by-one error in automatic upgrade of Cylc 7 "max active cycle points" to Cylc 8 "runahead limit".
+
+[#5708](https://github.com/cylc/cylc-flow/pull/5708) - Fix runahead limit at start-up, with recurrences that start beyond the limit.
+
+[#5755](https://github.com/cylc/cylc-flow/pull/5755) - Fixes an issue where submit-failed tasks could be incorrectly considered as completed rather than causing the workflow to stall.
+
+
 ## __cylc-8.2.1 (Released 2023-08-14)__
 
 ### 🔧 Fixes
@@ -248,11 +584,6 @@ workflows with many-to-many dependencies (e.g. `<a> => <b>`).
   restarted with Cylc 8.1 due to database changes.
 
 ### Enhancements
-
-[#5184](https://github.com/cylc/cylc-flow/pull/5184) - Scan for active
-runs of the same workflow at install time.
-
-[#5032](https://github.com/cylc/cylc-flow/pull/5032) - Set a default limit of
 
 [#5229](https://github.com/cylc/cylc-flow/pull/5229) -
 - Added a single command to validate a previously run workflow against changes

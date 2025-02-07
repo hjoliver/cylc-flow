@@ -18,11 +18,11 @@
 import os
 from pathlib import Path
 from sys import stderr
-from textwrap import dedent
+from textwrap import dedent, indent
 from typing import List, Optional, Tuple, Any, Union
 
 from contextlib import suppress
-from pkg_resources import parse_version
+from packaging.version import Version
 
 from cylc.flow import LOG
 from cylc.flow import __version__ as CYLC_VERSION
@@ -30,6 +30,7 @@ from cylc.flow.platforms import validate_platforms
 from cylc.flow.exceptions import GlobalConfigError
 from cylc.flow.hostuserutil import get_user_home
 from cylc.flow.network.client_factory import CommsMeth
+from cylc.flow.pathutil import SYMLINKABLE_LOCATIONS
 from cylc.flow.parsec.config import (
     ConfigNode as Conf,
     ParsecConfig,
@@ -165,9 +166,17 @@ EVENTS_SETTINGS = {  # workflow events
 
         Template variables can be used to configure handlers. For a full list
         of supported variables see :ref:`workflow_event_template_variables`.
+
+        .. seealso::
+
+           :ref:`user_guide.scheduler.workflow_events`
     ''',
     'handler events': '''
         Specify the events for which workflow event handlers should be invoked.
+
+        .. seealso::
+
+           :ref:`user_guide.scheduler.workflow_events`
     ''',
     'mail events': '''
         Specify the workflow events for which notification emails should
@@ -176,12 +185,20 @@ EVENTS_SETTINGS = {  # workflow events
     'startup handlers': f'''
         Handlers to run at scheduler startup.
 
+        .. seealso::
+
+           :ref:`user_guide.scheduler.workflow_events`
+
         .. versionchanged:: 8.0.0
 
            {REPLACES}``startup handler``.
     ''',
     'shutdown handlers': f'''
         Handlers to run at scheduler shutdown.
+
+        .. seealso::
+
+           :ref:`user_guide.scheduler.workflow_events`
 
         .. versionchanged:: 8.0.0
 
@@ -191,6 +208,10 @@ EVENTS_SETTINGS = {  # workflow events
         Handlers to run if the scheduler shuts down with error status due to
         a configured timeout or a fatal error condition.
 
+        .. seealso::
+
+           :ref:`user_guide.scheduler.workflow_events`
+
         .. versionchanged:: 8.0.0
 
            {REPLACES}``aborted handler``.
@@ -199,10 +220,18 @@ EVENTS_SETTINGS = {  # workflow events
         Workflow timeout interval. The timer starts counting down at scheduler
         startup. It resets on workflow restart.
 
+        .. seealso::
+
+           :ref:`user_guide.scheduler.workflow_events`
+
         .. versionadded:: 8.0.0
     ''',
     'workflow timeout handlers': '''
         Handlers to run if the workflow timer times out.
+
+        .. seealso::
+
+           :ref:`user_guide.scheduler.workflow_events`
 
         .. versionadded:: 8.0.0
     ''',
@@ -210,10 +239,18 @@ EVENTS_SETTINGS = {  # workflow events
         Whether the scheduler should shut down immediately with error status if
         the workflow timer times out.
 
+        .. seealso::
+
+           :ref:`user_guide.scheduler.workflow_events`
+
         .. versionadded:: 8.0.0
     ''',
     'stall handlers': f'''
         Handlers to run if the scheduler stalls.
+
+        .. seealso::
+
+           :ref:`user_guide.scheduler.workflow_events`
 
         .. versionchanged:: 8.0.0
 
@@ -222,12 +259,20 @@ EVENTS_SETTINGS = {  # workflow events
     'stall timeout': f'''
         The length of a timer which starts if the scheduler stalls.
 
+        .. seealso::
+
+           :ref:`user_guide.scheduler.workflow_events`
+
         .. versionchanged:: 8.0.0
 
            {REPLACES}``timeout``.
     ''',
     'stall timeout handlers': f'''
         Handlers to run if the stall timer times out.
+
+        .. seealso::
+
+           :ref:`user_guide.scheduler.workflow_events`
 
         .. versionchanged:: 8.0.0
 
@@ -237,6 +282,10 @@ EVENTS_SETTINGS = {  # workflow events
         Whether the scheduler should shut down immediately with error status if
         the stall timer times out.
 
+        .. seealso::
+
+           :ref:`user_guide.scheduler.workflow_events`
+
         .. versionchanged:: 8.0.0
 
            {REPLACES}``abort on timeout``.
@@ -245,12 +294,20 @@ EVENTS_SETTINGS = {  # workflow events
         Scheduler inactivity timeout interval. The timer resets when any
         workflow activity occurs.
 
+        .. seealso::
+
+           :ref:`user_guide.scheduler.workflow_events`
+
         .. versionchanged:: 8.0.0
 
            {REPLACES} ``inactivity``.
     ''',
     'inactivity timeout handlers': f'''
         Handlers to run if the inactivity timer times out.
+
+        .. seealso::
+
+           :ref:`user_guide.scheduler.workflow_events`
 
         .. versionchanged:: 8.0.0
 
@@ -260,6 +317,10 @@ EVENTS_SETTINGS = {  # workflow events
         Whether the scheduler should shut down immediately with error status if
         the inactivity timer times out.
 
+        .. seealso::
+
+           :ref:`user_guide.scheduler.workflow_events`
+
         .. versionchanged:: 8.0.0
 
            {REPLACES}``abort on inactivity``.
@@ -267,6 +328,10 @@ EVENTS_SETTINGS = {  # workflow events
     'restart timeout': '''
         How long to wait for intervention on restarting a completed workflow.
         The timer stops if any task is triggered.
+
+        .. seealso::
+
+           :ref:`user_guide.scheduler.workflow_events`
 
         .. versionadded:: 8.2.0
 
@@ -523,6 +588,47 @@ task_event_handling.template_variables`.
     '''
 }
 
+
+def comma_sep_section_note(version_changed: str = '') -> str:
+    note_text = "This section can be a comma separated list."
+    if version_changed:
+        note_text = (
+            f".. versionchanged:: {version_changed}\n\n" +
+            indent(note_text, 3 * ' ')
+        )
+
+    example = dedent('''
+
+    .. spoiler:: Example
+
+       For example:
+
+       .. code-block:: cylc
+
+          [a, b]
+              setting = x
+          [a]
+              another_setting = y
+
+       Will become:
+
+       .. code-block:: cylc
+
+          [a]
+              setting = x
+          [b]
+              setting = x
+          [a]
+              another_setting = y
+
+       Which will then be combined according to
+       :ref:`the rules for Cylc config syntax<syntax>`.
+
+    ''')
+
+    return "\n\n.. note::\n\n" + indent(note_text + example, 3 * ' ')
+
+
 # ----------------------------------------------------------------------------
 
 
@@ -610,6 +716,26 @@ with Conf('global.cylc', desc='''
        Prior to Cylc 8, ``global.cylc`` was named ``global.rc``, but that name
        is no longer supported.
 ''') as SPEC:
+    with Conf('hub', desc='''
+        Configure the public URL of Jupyter Hub.
+
+        If configured, the ``cylc gui`` command will open a web browser at this
+        location rather than starting a standalone server when called.
+
+
+        .. seealso::
+
+           * The cylc hub :ref:`architecture-reference` for fuller details.
+           * :ref:`UI_Server_config` for practical details.
+
+    '''):
+        Conf('url', VDR.V_STRING, '', desc='''
+            .. versionadded:: 8.3.0
+
+            Where Jupyter Hub is used a url can be provided for routing on
+            execution of ``cylc gui`` command.
+        ''')
+
     with Conf('scheduler', desc=(
         default_for(SCHEDULER_DESCR, "[scheduler]", section=True)
     )):
@@ -717,6 +843,11 @@ with Conf('global.cylc', desc='''
             Conf('ranking', VDR.V_STRING, desc=f'''
                 Rank and filter run hosts based on system information.
 
+                By default, when a workflow is started, Cylc will pick a host
+                for it to run on at random from :cylc:conf:`[..]available`.
+                If no hosts are specified in  :cylc:conf:`[..]available` it
+                will start the scheduler locally.
+
                 Ranking can be used to provide load balancing to ensure no
                 single run host is overloaded. It also provides thresholds
                 beyond which Cylc will not attempt to start new schedulers on
@@ -740,6 +871,11 @@ with Conf('global.cylc', desc='''
 
                    # rank hosts by 15min average of server load
                    getloadavg()[2]
+
+                   # rank hosts by the amount of available RAM (multiply by -1
+                   # to make it choose the host with the most available memory
+                   # rather than the least)
+                   -1 * virtual_memory().available
 
                    # rank hosts by the number of cores
                    # (multiple by -1 because the lowest value is chosen)
@@ -1047,9 +1183,12 @@ with Conf('global.cylc', desc='''
 
             .. versionadded:: 8.0.0
         """):
-            with Conf('<install target>', desc="""
+            with Conf('<install target>', desc=dedent("""
                 :ref:`Host <Install targets>` on which to create the symlinks.
-            """):
+
+                .. versionadded:: 8.0.0
+
+            """) + comma_sep_section_note(version_changed='8.4.0')):
                 Conf('run', VDR.V_STRING, None, desc="""
                     Alternative location for the run dir.
 
@@ -1064,55 +1203,21 @@ with Conf('global.cylc', desc='''
 
                     .. versionadded:: 8.0.0
                 """)
-                Conf('log', VDR.V_STRING, None, desc="""
-                    Alternative location for the log dir.
+                for folder, versionadded in SYMLINKABLE_LOCATIONS.items():
+                    Conf(folder, VDR.V_STRING, None, desc=f"""
+                        Alternative location for the {folder} dir.
 
-                    If specified the workflow log directory will be created in
-                    ``<this-path>/cylc-run/<workflow-id>/log`` and a
-                    symbolic link will be created from
-                    ``$HOME/cylc-run/<workflow-id>/log``. If not specified
-                    the workflow log directory will be created in
-                    ``$HOME/cylc-run/<workflow-id>/log``.
+                        If specified the workflow {folder} directory will
+                        be created in
+                        ``<this-path>/cylc-run/<workflow-id>/{folder}``
+                        and a symbolic link will be created from
+                        ``$HOME/cylc-run/<workflow-id>/{folder}``.
+                        If not specified the workflow log directory will
+                        be created in
+                        ``$HOME/cylc-run/<workflow-id>/{folder}``.
 
-                    .. versionadded:: 8.0.0
-                """)
-                Conf('share', VDR.V_STRING, None, desc="""
-                    Alternative location for the share dir.
-
-                    If specified the workflow share directory will be
-                    created in ``<this-path>/cylc-run/<workflow-id>/share``
-                    and a symbolic link will be created from
-                    ``<$HOME/cylc-run/<workflow-id>/share``. If not specified
-                    the workflow share directory will be created in
-                    ``$HOME/cylc-run/<workflow-id>/share``.
-
-                    .. versionadded:: 8.0.0
-                """)
-                Conf('share/cycle', VDR.V_STRING, None, desc="""
-                    Alternative directory for the share/cycle dir.
-
-                    If specified the workflow share/cycle directory
-                    will be created in
-                    ``<this-path>/cylc-run/<workflow-id>/share/cycle``
-                    and a symbolic link will be created from
-                    ``$HOME/cylc-run/<workflow-id>/share/cycle``. If not
-                    specified the workflow share/cycle directory will be
-                    created in ``$HOME/cylc-run/<workflow-id>/share/cycle``.
-
-                    .. versionadded:: 8.0.0
-                """)
-                Conf('work', VDR.V_STRING, None, desc="""
-                    Alternative directory for the work dir.
-
-                    If specified the workflow work directory will be created in
-                    ``<this-path>/cylc-run/<workflow-id>/work`` and a
-                    symbolic link will be created from
-                    ``$HOME/cylc-run/<workflow-id>/work``. If not specified
-                    the workflow work directory will be created in
-                    ``$HOME/cylc-run/<workflow-id>/work``.
-
-                    .. versionadded:: 8.0.0
-                """)
+                        .. versionadded:: {versionadded}
+                    """)
     with Conf('platforms', desc='''
         Platforms allow you to define compute resources available at your
         site.
@@ -1125,7 +1230,9 @@ with Conf('global.cylc', desc='''
 
         .. versionadded:: 8.0.0
     '''):
-        with Conf('<platform name>', desc='''
+        with Conf(
+            '<platform name>',
+            desc=dedent('''
             Configuration defining a platform.
 
             Many of these settings have replaced those of the same name from
@@ -1169,8 +1276,10 @@ with Conf('global.cylc', desc='''
                - :ref:`AdminGuide.PlatformConfigs`, an administrator's guide to
                  platform configurations.
 
-            .. versionadded:: 8.0.0
-        ''') as Platform:
+        ''')
+            + comma_sep_section_note()
+            + ".. versionadded:: 8.0.0",
+        ) as Platform:
             with Conf('meta', desc=PLATFORM_META_DESCR):
                 Conf('<custom metadata>', VDR.V_STRING, '', desc='''
                     Any user-defined metadata item.
@@ -1202,6 +1311,9 @@ with Conf('global.cylc', desc='''
 
                    {PLATFORM_REPLACES.format("[job]batch system")}
             ''')
+            replaces = PLATFORM_REPLACES.format(
+                "[job]batch submit command template"
+            )
             Conf('job runner command template', VDR.V_STRING, desc=f'''
                 Set the command used by the chosen job runner.
 
@@ -1210,9 +1322,7 @@ with Conf('global.cylc', desc='''
 
                 .. versionadded:: 8.0.0
 
-                   {PLATFORM_REPLACES.format(
-                       "[job]batch submit command template"
-                    )}
+                   {replaces}
             ''')
             Conf('shell', VDR.V_STRING, '/bin/bash', desc='''
 
@@ -1226,7 +1336,7 @@ with Conf('global.cylc', desc='''
                 The means by which task progress messages are reported back to
                 the running workflow.
 
-                Options:
+                ..rubric:: Options:
 
                 zmq
                    Direct client-server TCP communication via network ports
@@ -1234,6 +1344,8 @@ with Conf('global.cylc', desc='''
                    The workflow polls for task status (no task messaging)
                 ssh
                    Use non-interactive ssh for task communications
+
+                For more information, see :ref:`TaskComms`.
 
                 .. versionchanged:: 8.0.0
 
@@ -1445,6 +1557,8 @@ with Conf('global.cylc', desc='''
                    {REPLACES}``global.rc[hosts][<host>]retrieve job logs
                    command``.
             ''')
+            replaces = PLATFORM_REPLACES.format(
+                "[remote]retrieve job logs max size")
             Conf('retrieve job logs max size', VDR.V_STRING, desc=f'''
                 {LOG_RETR_SETTINGS['retrieve job logs max size']}
 
@@ -1452,9 +1566,10 @@ with Conf('global.cylc', desc='''
 
                    {REPLACES}``global.rc[hosts][<host>]retrieve job logs
                    max size``.
-                   {PLATFORM_REPLACES.format(
-                       "[remote]retrieve job logs max size")}
+                   {replaces}
             ''')
+            replaces = PLATFORM_REPLACES.format(
+                "[remote]retrieve job logs retry delays")
             Conf('retrieve job logs retry delays', VDR.V_INTERVAL_LIST,
                  desc=f'''
                 {LOG_RETR_SETTINGS['retrieve job logs retry delays']}
@@ -1463,8 +1578,7 @@ with Conf('global.cylc', desc='''
 
                    {REPLACES}``global.rc[hosts][<host>]retrieve job logs
                    retry delays``.
-                   {PLATFORM_REPLACES.format(
-                       "[remote]retrieve job logs retry delays")}
+                   {replaces}
             ''')
             Conf('tail command template',
                  VDR.V_STRING, 'tail -n +1 --follow=name %(filename)s',
@@ -1631,6 +1745,14 @@ with Conf('global.cylc', desc='''
                 of job submissions which can be batched together.
 
                 .. versionadded:: 8.0.0
+            ''')
+            Conf('ssh forward environment variables', VDR.V_STRING_LIST, '',
+                 desc='''
+                A list containing the names of the environment variables to
+                forward with SSH connections to the workflow host from
+                the host running 'cylc play'
+
+                .. versionadded:: 8.3.0
             ''')
             with Conf('selection', desc='''
                 How to select a host from the list of platform hosts.
@@ -1838,8 +1960,7 @@ def get_version_hierarchy(version: str) -> List[str]:
         ['', '8', '8.0', '8.0.1', '8.0.1a2', '8.0.1a2.dev']
 
     """
-    smart_ver: Any = parse_version(version)
-    # (No type anno. yet for Version in pkg_resources.extern.packaging.version)
+    smart_ver = Version(version)
     base = [str(i) for i in smart_ver.release]
     hierarchy = ['']
     hierarchy += ['.'.join(base[:i]) for i in range(1, len(base) + 1)]
@@ -1884,24 +2005,29 @@ class GlobalConfig(ParsecConfig):
         super().__init__(*args, **kwargs)
 
     @classmethod
-    def get_inst(cls, cached: bool = True) -> 'GlobalConfig':
+    def get_inst(
+        cls, cached: bool = True, reload: bool = False
+    ) -> 'GlobalConfig':
         """Return a GlobalConfig instance.
 
         Args:
-            cached (bool):
-                If cached create if necessary and return the singleton
-                instance, else return a new instance.
+            cached:
+                If True, return a cached instance if present. If False, return
+                a new instance.
+            reload:
+                If true, reload the cached instance (implies cached=True).
+
         """
-        if not cached:
-            # Return an up-to-date global config without affecting the
-            # singleton.
-            new_instance = cls(SPEC, upg, validator=cylc_config_validate)
-            new_instance.load()
-            return new_instance
-        elif not cls._DEFAULT:
-            cls._DEFAULT = cls(SPEC, upg, validator=cylc_config_validate)
-            cls._DEFAULT.load()
-        return cls._DEFAULT
+        if cached and cls._DEFAULT and not reload:
+            return cls._DEFAULT
+
+        new_instance = cls(SPEC, upg, validator=cylc_config_validate)
+        new_instance.load()
+
+        if cached or reload:
+            cls._DEFAULT = new_instance
+
+        return new_instance
 
     def _load(self, fname: Union[Path, str], conf_type: str) -> None:
         if not os.access(fname, os.F_OK | os.R_OK):
@@ -1914,11 +2040,12 @@ class GlobalConfig(ParsecConfig):
             raise
 
     def load(self) -> None:
-        """Load or reload configuration from files."""
+        """Load configuration from files."""
         self.sparse.clear()
         self.dense.clear()
         LOG.debug("Loading site/user config files")
         conf_path_str = os.getenv("CYLC_CONF_PATH")
+
         if conf_path_str:
             # Explicit config file override.
             fname = os.path.join(conf_path_str, self.CONF_BASENAME)
@@ -1931,7 +2058,7 @@ class GlobalConfig(ParsecConfig):
 
         # Expand platforms needs to be performed first because it
         # manipulates the sparse config.
-        self._expand_platforms()
+        self._expand_commas()
 
         # Flesh out with defaults
         self.expand()
@@ -1975,8 +2102,8 @@ class GlobalConfig(ParsecConfig):
                     msg += f'\n * {name}'
                 raise GlobalConfigError(msg)
 
-    def _expand_platforms(self):
-        """Expand comma separated platform names.
+    def _expand_commas(self):
+        """Expand comma separated section headers.
 
         E.G. turn [platforms][foo, bar] into [platforms][foo] and
         platforms[bar].
@@ -1984,6 +2111,12 @@ class GlobalConfig(ParsecConfig):
         if self.sparse.get('platforms'):
             self.sparse['platforms'] = expand_many_section(
                 self.sparse['platforms']
+            )
+        if (
+            self.sparse.get("install", {}).get("symlink dirs")
+        ):
+            self.sparse["install"]["symlink dirs"] = expand_many_section(
+                self.sparse["install"]["symlink dirs"]
             )
 
     def platform_dump(
@@ -1994,21 +2127,23 @@ class GlobalConfig(ParsecConfig):
         """Print informations about platforms currently defined.
         """
         if print_platform_names:
-            with suppress(ItemNotFoundError):
-                self.dump_platform_names(self)
+            self.dump_platform_names(self)
         if print_platforms:
-            with suppress(ItemNotFoundError):
-                self.dump_platform_details(self)
+            self.dump_platform_details(self)
 
     @staticmethod
     def dump_platform_names(cfg) -> None:
         """Print a list of defined platforms and groups.
         """
+        # [platforms] is always defined with at least localhost
         platforms = '\n'.join(cfg.get(['platforms']).keys())
-        platform_groups = '\n'.join(cfg.get(['platform groups']).keys())
         print(f'{PLATFORM_REGEX_TEXT}\n\nPlatforms\n---------', file=stderr)
         print(platforms)
-        print('\n\nPlatform Groups\n--------------', file=stderr)
+        try:
+            platform_groups = '\n'.join(cfg.get(['platform groups']).keys())
+        except ItemNotFoundError:
+            return
+        print('\nPlatform Groups\n--------------', file=stderr)
         print(platform_groups)
 
     @staticmethod
@@ -2016,4 +2151,5 @@ class GlobalConfig(ParsecConfig):
         """Print platform and platform group configs.
         """
         for config in ['platforms', 'platform groups']:
-            printcfg({config: cfg.get([config], sparse=True)})
+            with suppress(ItemNotFoundError):
+                printcfg({config: cfg.get([config], sparse=True)})

@@ -16,6 +16,7 @@
 """Unit tests for the GraphParser."""
 
 import logging
+from typing import Dict, List
 import pytest
 from itertools import product
 from pytest import param
@@ -86,45 +87,90 @@ def test_graph_syntax_errors_2(seq, graph, expected_err):
 @pytest.mark.parametrize(
     'graph, expected_err',
     [
-        [
+        (
             "a b => c",
             "Bad graph node format"
-        ],
-        [
+        ),
+        (
+            "a => b c",
+            "Bad graph node format"
+        ),
+        (
             "!foo => bar",
             "Suicide markers must be on the right of a trigger:"
-        ],
-        [
+        ),
+        (
             "( foo & bar => baz",
-            "Mismatched parentheses in:"
-        ],
-        [
+            'Mismatched parentheses in: "(foo&bar"'
+        ),
+        (
+            "a => b & c)",
+            'Mismatched parentheses in: "b&c)"'
+        ),
+        (
+            "(a => b & c)",
+            'Mismatched parentheses in: "(a"'
+        ),
+        (
+            "(a => b[+P1]",
+            'Mismatched parentheses in: "(a"'
+        ),
+        (
             """(a | b & c) => d
                foo => bar
                (a | b & c) => !d""",
             "can't trigger both d and !d"
-        ],
-        [
+        ),
+        (
             "a => b | c",
             "Illegal OR on right side"
-        ],
-        [
+        ),
+        (
             "foo && bar => baz",
             "The graph AND operator is '&'"
-        ],
-        [
+        ),
+        (
             "foo || bar => baz",
             "The graph OR operator is '|'"
-        ],
+        ),
+        param(
+            # See https://github.com/cylc/cylc-flow/issues/5844
+            "foo => bar[1649]",
+            'Invalid cycle point offsets only on right',
+            id='no-cycle-point-RHS'
+        ),
+        # See https://github.com/cylc/cylc-flow/issues/6523
+        # For the next 4 tests:
+        param(
+            # Yes I know it's circular, but it's here to
+            # demonstrate that the test below is broken:
+            "foo:finished => foo",
+            'Output foo:succeeded can\'t be both required and optional',
+            id='finish-implies-success-optional'
+        ),
+        param(
+            "foo[-P1]:finish => foo",
+            'Output foo:succeeded can\'t be both required and optional',
+            id='finish-implies-success-optional-offset'
+        ),
+        param(
+            "foo[-P1]:succeeded | foo[-P1]:failed => bar",
+            # order of outputs varies in the error message
+            'must both be optional if both are used',
+            id='succeed-or-failed-mustbe-optional'
+        ),
+        param(
+            "foo[-P1]:succeeded? | foo[-P1]:failed? => foo",
+            'Output foo:succeeded can\'t be both required and optional',
+            id='succeed-or-failed-implies-success-optional'
+        ),
     ]
 )
 def test_graph_syntax_errors(graph, expected_err):
     """Test various graph syntax errors."""
     with pytest.raises(GraphParseError) as cm:
         GraphParser().parse_graph(graph)
-    assert (
-        expected_err in str(cm.value)
-    )
+    assert expected_err in str(cm.value)
 
 
 def test_parse_graph_simple():
@@ -293,8 +339,9 @@ def test_inter_workflow_dependence_simple():
             'a': (
                 'WORKFLOW', 'TASK', 'failed', '<WORKFLOW::TASK:fail>'
             ),
+            # Default to "succeeded" is done in config module.
             'c': (
-                'WORKFLOW', 'TASK', 'succeeded', '<WORKFLOW::TASK>'
+                'WORKFLOW', 'TASK', None, '<WORKFLOW::TASK>'
             )
         }
     )
@@ -362,7 +409,16 @@ b => c"""
             foo => bar
             bar:succeed => baz
             """
-        ]
+        ],
+        [
+            """
+            foo => bar[1649] => baz
+            """,
+            """
+            foo => bar[1649]
+            bar[1649] => baz
+            """
+        ],
     ]
 )
 def test_trigger_equivalence(graph1, graph2):
@@ -705,7 +761,6 @@ def test_task_optional_outputs():
         ('succeed', TASK_OUTPUT_SUCCEEDED),
         ('fail', TASK_OUTPUT_FAILED),
         ('submit', TASK_OUTPUT_SUBMITTED),
-        ('submit-fail', TASK_OUTPUT_SUBMIT_FAILED),
     ]
 )
 def test_family_optional_outputs(qual, task_output):
@@ -736,6 +791,26 @@ def test_family_optional_outputs(qual, task_output):
         assert gp.task_output_opt[(member, task_output)][0] == optional
 
 
+def test_cannot_be_required():
+    """Is should not allow :expired or :submit-failed to be required.
+
+    See proposal point 4:
+    https://cylc.github.io/cylc-admin/proposal-optional-output-extension.html#proposal
+    """
+    gp = GraphParser({})
+
+    # outputs can be optional
+    gp.parse_graph('a:expired? => b')
+    gp.parse_graph('a:submit-failed? => b')
+
+    # but cannot be required
+    with pytest.raises(GraphParseError, match='must be optional'):
+        gp.parse_graph('a:expired => b')
+    with pytest.raises(GraphParseError, match='must be optional'):
+        gp.parse_graph('a:submit-failed => b')
+
+
+
 @pytest.mark.parametrize(
     'graph, error',
     [
@@ -762,6 +837,10 @@ def test_family_optional_outputs(qual, task_output):
         [
             "FAM => foo",  # bare family on LHS
             "Illegal family trigger"
+        ],
+        [
+            "FAM:expire-all => foo",
+            "must be optional"
         ],
     ]
 )
@@ -804,6 +883,10 @@ def test_family_trigger_errors(graph, error):
             "a:finish? => b",
             "Pseudo-output a:finished can't be optional",
         ],
+        [
+            "a:expire => b",
+            "must be optional",
+        ],
     ]
 )
 def test_task_optional_output_errors_order(
@@ -845,3 +928,62 @@ def test_fail_family_triggers_on_tasks(ftrig):
                 "family trigger on non-family namespace"
             )
         )
+
+
+@pytest.mark.parametrize(
+    'graph, expected_triggers',
+    [
+        param(
+            'a => b & c',
+            {'a': [''], 'b': ['a:succeeded'], 'c': ['a:succeeded']},
+            id="simple"
+        ),
+        param(
+            'a => (b & c)',
+            {'a': [''], 'b': ['a:succeeded'], 'c': ['a:succeeded']},
+            id="simple w/ parentheses"
+        ),
+        param(
+            'a => (b & (c & d))',
+            {
+                'a': [''],
+                'b': ['a:succeeded'],
+                'c': ['a:succeeded'],
+                'd': ['a:succeeded'],
+            },
+            id="more parentheses"
+        ),
+    ]
+)
+def test_RHS_AND(graph: str, expected_triggers: Dict[str, List[str]]):
+    """Test '&' operator on right hand side of trigger expression."""
+    gp = GraphParser()
+    gp.parse_graph(graph)
+    triggers = {
+        task: list(trigs.keys())
+        for task, trigs in gp.triggers.items()
+    }
+    assert triggers == expected_triggers
+
+
+@pytest.mark.parametrize(
+    'args, err',
+    (
+        # Error if offset in terminal RHS:
+        param((('a', 'b[-P42M]'), {'b[-P42M]'}), 'Invalid cycle point offset'),
+        # No error if offset in NON-terminal RHS:
+        param((('a', 'b[-P42M]'), {}), None),
+        # Check the left hand side if this has a non-terminal RHS:
+        param((('a &', 'b[-P42M]'), {}), 'Null task name in graph'),
+    )
+)
+def test_proc_dep_pair(args, err):
+    """
+    Unit tests for _proc_dep_pair.
+    """
+    gp = GraphParser()
+    if err:
+        with pytest.raises(GraphParseError, match=err):
+            gp._proc_dep_pair(*args)
+    else:
+        assert gp._proc_dep_pair(*args) is None

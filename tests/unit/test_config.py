@@ -17,12 +17,11 @@
 import os
 import sys
 from optparse import Values
-from typing import Any, Callable, Dict, List, Optional, Tuple, Type
-from pathlib import Path
+from typing import (
+    TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, Type)
 import pytest
 import logging
 from types import SimpleNamespace
-from unittest.mock import Mock
 from contextlib import suppress
 
 from cylc.flow import CYLC_LOG
@@ -30,26 +29,27 @@ from cylc.flow.config import WorkflowConfig
 from cylc.flow.cycling import loader
 from cylc.flow.cycling.loader import INTEGER_CYCLING_TYPE, ISO8601_CYCLING_TYPE
 from cylc.flow.exceptions import (
+    GraphParseError,
     PointParsingError,
     InputError,
     WorkflowConfigError,
     XtriggerConfigError,
 )
-from cylc.flow.parsec.exceptions import Jinja2Error, EmPyError
+from cylc.flow.parsec.exceptions import Jinja2Error
 from cylc.flow.scheduler_cli import RunOptions
 from cylc.flow.scripts.validate import ValidateOptions
 from cylc.flow.workflow_files import WorkflowFiles
 from cylc.flow.wallclock import get_utc_mode, set_utc_mode
-from cylc.flow.xtrigger_mgr import XtriggerManager
 from cylc.flow.task_outputs import (
     TASK_OUTPUT_SUBMITTED,
-    TASK_OUTPUT_SUCCEEDED
+    TASK_OUTPUT_SUCCEEDED,
 )
 
 from cylc.flow.cycling.iso8601 import ISO8601Point
 
-
-Fixture = Any
+if TYPE_CHECKING:
+    from pathlib import Path
+    Fixture = Any
 
 
 def _tmp_flow_config(tmp_run_dir: Callable):
@@ -61,8 +61,8 @@ def _tmp_flow_config(tmp_run_dir: Callable):
 
     Returns the path to the flow file.
     """
-    def __tmp_flow_config(id_: str, config: str) -> Path:
-        run_dir: Path = tmp_run_dir(id_)
+    def __tmp_flow_config(id_: str, config: str) -> 'Path':
+        run_dir: 'Path' = tmp_run_dir(id_)
         flow_file = run_dir / WorkflowFiles.FLOW_FILE
         flow_file.write_text(config)
         return flow_file
@@ -83,8 +83,7 @@ class TestWorkflowConfig:
     """Test class for the Cylc WorkflowConfig object."""
 
     def test_xfunction_imports(
-            self, mock_glbl_cfg: Fixture, tmp_path: Path,
-            xtrigger_mgr: XtriggerManager):
+            self, mock_glbl_cfg: 'Fixture', tmp_path: 'Path'):
         """Test for a workflow configuration with valid xtriggers"""
         mock_glbl_cfg(
             'cylc.flow.platforms.glbl_cfg',
@@ -112,10 +111,9 @@ class TestWorkflowConfig:
         """
         flow_file.write_text(flow_config)
         workflow_config = WorkflowConfig(
-            workflow="name_a_tree", fpath=flow_file, options=Mock(spec=[]),
-            xtrigger_mgr=xtrigger_mgr
+            workflow="name_a_tree", fpath=flow_file, options=SimpleNamespace()
         )
-        assert 'tree' in workflow_config.xtrigger_mgr.functx_map
+        assert 'tree' in workflow_config.xtrigger_collator.functx_map
 
     def test_xfunction_import_error(self, mock_glbl_cfg, tmp_path):
         """Test for error when a xtrigger function cannot be imported."""
@@ -146,9 +144,9 @@ class TestWorkflowConfig:
             WorkflowConfig(
                 workflow="caiman_workflow",
                 fpath=flow_file,
-                options=Mock(spec=[])
+                options=SimpleNamespace()
             )
-        assert "not found" in str(excinfo.value)
+        assert "No module named 'piranha'" in str(excinfo.value)
 
     def test_xfunction_attribute_error(self, mock_glbl_cfg, tmp_path):
         """Test for error when a xtrigger function cannot be imported."""
@@ -177,8 +175,9 @@ class TestWorkflowConfig:
         flow_file.write_text(flow_config)
         with pytest.raises(XtriggerConfigError) as excinfo:
             WorkflowConfig(workflow="capybara_workflow", fpath=flow_file,
-                           options=Mock(spec=[]))
-        assert "not found" in str(excinfo.value)
+                           options=SimpleNamespace())
+        assert "module 'capybara' has no attribute 'capybara'" in str(
+            excinfo.value)
 
     def test_xfunction_not_callable(self, mock_glbl_cfg, tmp_path):
         """Test for error when a xtrigger function is not callable."""
@@ -209,7 +208,7 @@ class TestWorkflowConfig:
             WorkflowConfig(
                 workflow="workflow_with_not_callable",
                 fpath=flow_file,
-                options=Mock(spec=[])
+                options=SimpleNamespace()
             )
         assert "callable" in str(excinfo.value)
 
@@ -270,7 +269,7 @@ def test_family_inheritance_and_quotes(
 
 
 @pytest.mark.parametrize(
-    ('cycling_type', 'scheduling_cfg', 'expected_icp', 'expected_opt_icp',
+    ('cycling_type', 'scheduling_cfg', 'expected_icp', 'expected_eval_icp',
      'expected_err'),
     [
         pytest.param(
@@ -359,9 +358,9 @@ def test_process_icp(
     cycling_type: str,
     scheduling_cfg: Dict[str, Any],
     expected_icp: Optional[str],
-    expected_opt_icp: Optional[str],
+    expected_eval_icp: Optional[str],
     expected_err: Optional[Tuple[Type[Exception], str]],
-    monkeypatch: pytest.MonkeyPatch, set_cycling_type: Fixture
+    monkeypatch: pytest.MonkeyPatch, set_cycling_type: 'Fixture'
 ) -> None:
     """Test WorkflowConfig.process_initial_cycle_point().
 
@@ -371,19 +370,21 @@ def test_process_icp(
         cycling_type: Workflow cycling type.
         scheduling_cfg: 'scheduling' section of workflow config.
         expected_icp: The expected icp value that gets set.
-        expected_opt_icp: The expected value of options.icp that gets set
+        expected_eval_icp: The expected value of options.icp that gets set
             (this gets stored in the workflow DB).
         expected_err: Exception class expected to be raised plus the message.
     """
     set_cycling_type(cycling_type, time_zone="+0530")
-    mocked_config = Mock(cycling_type=cycling_type)
-    mocked_config.cfg = {
-        'scheduling': {
-            'initial cycle point constraints': [],
-            **scheduling_cfg
-        }
-    }
-    mocked_config.options.icp = None
+    mocked_config = SimpleNamespace(
+        cycling_type=cycling_type,
+        options=SimpleNamespace(icp=None),
+        cfg={
+            'scheduling': {
+                'initial cycle point constraints': [],
+                **scheduling_cfg
+            },
+        },
+    )
     monkeypatch.setattr('cylc.flow.config.get_current_time_string',
                         lambda: '20050102T0615+0530')
 
@@ -397,10 +398,10 @@ def test_process_icp(
         assert mocked_config.cfg[
             'scheduling']['initial cycle point'] == expected_icp
         assert str(mocked_config.initial_point) == expected_icp
-        opt_icp = mocked_config.options.icp
-        if opt_icp is not None:
-            opt_icp = str(loader.get_point(opt_icp).standardise())
-        assert opt_icp == expected_opt_icp
+        eval_icp = mocked_config.evaluated_icp
+        if eval_icp is not None:
+            eval_icp = str(loader.get_point(eval_icp).standardise())
+        assert eval_icp == expected_eval_icp
 
 
 @pytest.mark.parametrize(
@@ -446,7 +447,7 @@ def test_process_startcp(
     starttask: Optional[str],
     expected: str,
     expected_err: Optional[Tuple[Type[Exception], str]],
-    monkeypatch: pytest.MonkeyPatch, set_cycling_type: Fixture
+    monkeypatch: pytest.MonkeyPatch, set_cycling_type: 'Fixture'
 ) -> None:
     """Test WorkflowConfig.process_start_cycle_point().
 
@@ -459,9 +460,10 @@ def test_process_startcp(
         expected_err: Expected exception.
     """
     set_cycling_type(ISO8601_CYCLING_TYPE, time_zone="+0530")
-    mocked_config = Mock(initial_point='18990501T0000+0530')
-    mocked_config.options.startcp = startcp
-    mocked_config.options.starttask = starttask
+    mocked_config = SimpleNamespace(
+        initial_point='18990501T0000+0530',
+        options=SimpleNamespace(startcp=startcp, starttask=starttask),
+    )
     monkeypatch.setattr('cylc.flow.config.get_current_time_string',
                         lambda: '20050102T0615+0530')
     if expected_err is not None:
@@ -533,6 +535,17 @@ def test_process_startcp(
             '20170215T0000+0530',
             None,
             id="Relative fcp"
+        ),
+        pytest.param(
+            ISO8601_CYCLING_TYPE,
+            {
+                'initial cycle point': '2017-02-11',
+                'final cycle point': '+P4D+PT3H-PT2H',
+            },
+            None,
+            '20170215T0100+0530',
+            None,
+            id="Relative fcp chained"
         ),
         pytest.param(
             ISO8601_CYCLING_TYPE,
@@ -637,7 +650,7 @@ def test_process_fcp(
     options_fcp: Optional[str],
     expected_fcp: Optional[str],
     expected_err: Optional[Tuple[Type[Exception], str]],
-    set_cycling_type: Fixture
+    set_cycling_type: 'Fixture'
 ) -> None:
     """Test WorkflowConfig.process_final_cycle_point().
 
@@ -649,17 +662,20 @@ def test_process_fcp(
         expected_err: Exception class expected to be raised plus the message.
     """
     set_cycling_type(cycling_type, time_zone='+0530')
-    mocked_config = Mock(cycling_type=cycling_type)
-    mocked_config.cfg = {
-        'scheduling': {
-            'final cycle point constraints': [],
-            **scheduling_cfg
-        }
-    }
-    mocked_config.initial_point = loader.get_point(
-        scheduling_cfg['initial cycle point']).standardise()
-    mocked_config.final_point = None
-    mocked_config.options.fcp = options_fcp
+    mocked_config = SimpleNamespace(
+        cycling_type=cycling_type,
+        cfg={
+            'scheduling': {
+                'final cycle point constraints': [],
+                **scheduling_cfg,
+            },
+        },
+        initial_point=loader.get_point(
+            scheduling_cfg['initial cycle point']
+        ).standardise(),
+        final_point=None,
+        options=SimpleNamespace(fcp=options_fcp),
+    )
 
     if expected_err:
         err, msg = expected_err
@@ -679,24 +695,28 @@ def test_process_fcp(
     [
         pytest.param(
             None, None, None, None, None,
-            id="No stopcp"
+            id="no-stopcp"
         ),
         pytest.param(
             '1993', None, '1993', None, None,
-            id="From config by default"
+            id="stopcp"
         ),
         pytest.param(
             '1993', '1066', '1066', '1066', None,
-            id="From options"
+            id="stop-cp-and-cli-option"
         ),
         pytest.param(
             '1993', 'reload', '1993', None, None,
-            id="From cfg if --stopcp=reload on restart"
+            id="stop-cp-and-cli-reload-option"
         ),
         pytest.param(
             '3000', None, None, None,
             "will have no effect as it is after the final cycle point",
-            id="stopcp > fcp"
+            id="stopcp-beyond-fcp"
+        ),
+        pytest.param(
+            '+P12Y -P2Y', None, '2000', None, None,
+            id="stopcp-relative-to-icp"
         ),
     ]
 )
@@ -721,12 +741,13 @@ def test_process_stop_cycle_point(
     set_cycling_type(ISO8601_CYCLING_TYPE, dump_format='CCYY')
     caplog.set_level(logging.WARNING, CYLC_LOG)
     fcp = loader.get_point('2012').standardise()
-    mock_config = Mock(
+    mock_config = SimpleNamespace(
         cfg={
             'scheduling': {
                 'stop after cycle point': cfg_stopcp
             }
         },
+        initial_point=ISO8601Point('1990'),
         final_point=fcp,
         stop_point=None,
         options=RunOptions(stopcp=options_stopcp),
@@ -793,7 +814,7 @@ def test_stopcp_after_fcp(
     cycle point is handled correctly."""
     caplog.set_level(logging.WARNING, CYLC_LOG)
     id_ = 'cassini'
-    flow_file: Path = tmp_flow_config(id_, f"""
+    flow_file: 'Path' = tmp_flow_config(id_, f"""
     [scheduler]
         allow implicit tasks = True
     [scheduling]
@@ -874,7 +895,7 @@ def test_prelim_process_graph(
             processing.
         expected_err: Exception class expected to be raised plus the message.
     """
-    mock_config = Mock(cfg={
+    mock_config = SimpleNamespace(cfg={
         'scheduling': scheduling_cfg
     })
 
@@ -900,13 +921,15 @@ def test_utc_mode(caplog, mock_glbl_cfg):
                 UTC mode = {utc_mode['glbl']}
             '''
         )
-        mock_config = Mock()
-        mock_config.cfg = {
-            'scheduler': {
-                'UTC mode': utc_mode['workflow']
-            }
-        }
-        mock_config.options.utc_mode = utc_mode['stored']
+        mock_config = SimpleNamespace(
+            cfg={
+                'scheduler': {
+                    'UTC mode': utc_mode['workflow']
+                }
+            },
+            options=SimpleNamespace(utc_mode=utc_mode['stored']),
+        )
+
         WorkflowConfig.process_utc_mode(mock_config)
         assert mock_config.cfg['scheduler']['UTC mode'] is expected
         assert get_utc_mode() is expected
@@ -950,13 +973,15 @@ def test_cycle_point_tz(caplog, monkeypatch):
 
     def _test(cp_tz, utc_mode, expected, expected_warnings=0):
         set_utc_mode(utc_mode)
-        mock_config = Mock()
-        mock_config.cfg = {
-            'scheduler': {
-                'cycle point time zone': cp_tz['workflow']
-            }
-        }
-        mock_config.options.cycle_point_tz = cp_tz['stored']
+        mock_config = SimpleNamespace(
+            cfg={
+                'scheduler': {
+                    'cycle point time zone': cp_tz['workflow'],
+                },
+            },
+            options=SimpleNamespace(cycle_point_tz=cp_tz['stored']),
+        )
+
         WorkflowConfig.process_cycle_point_tz(mock_config)
         assert mock_config.cfg['scheduler'][
             'cycle point time zone'] == expected
@@ -1051,47 +1076,6 @@ def test_jinja2_cylc_vars(tmp_flow_config, cylc_var, expected_err):
         assert expected_err[1] in str(exc)
 
 
-@pytest.mark.parametrize(
-    'cylc_var, expected_err',
-    [
-        ["CYLC_WORKFLOW_NAME", None],
-        ["CYLC_BEEF_WELLINGTON", (EmPyError, "is not defined")],
-    ]
-)
-def test_empy_cylc_vars(tmp_flow_config, cylc_var, expected_err):
-    """Defined CYLC_ variables should be available to empy during parsing.
-
-    This test is not located in the empy_support unit test module because
-    CYLC_ variables are only defined during workflow config parsing.
-    """
-    reg = 'nodule'
-    flow_file = tmp_flow_config(reg, """#!empy
-    # @(""" + cylc_var + """)
-    [scheduler]
-        allow implicit tasks = True
-    [scheduling]
-        [[graph]]
-            R1 = foo
-    """)
-
-    # empy replaces sys.stdout with a "proxy". And pytest needs it for capture?
-    # (clue: "pytest --capture=no" avoids the error)
-    stdout = sys.stdout
-    sys.stdout._testProxy = lambda: ''
-    sys.stdout.pop = lambda _: ''
-    sys.stdout.push = lambda _: ''
-    sys.stdout.clear = lambda _: ''
-
-    if expected_err is None:
-        WorkflowConfig(workflow=reg, fpath=flow_file, options=Values())
-    else:
-        with pytest.raises(expected_err[0]) as exc:
-            WorkflowConfig(workflow=reg, fpath=flow_file, options=Values())
-        assert expected_err[1] in str(exc)
-
-    sys.stdout = stdout
-
-
 def test_valid_rsync_includes_returns_correct_list(tmp_flow_config):
     """Test that the rsync includes in the correct """
     id_ = 'rsynctest'
@@ -1135,7 +1119,7 @@ def test_process_runahead_limit(
     set_cycling_type: Callable
 ) -> None:
     set_cycling_type(cycling_type)
-    mock_config = Mock(cycling_type=cycling_type)
+    mock_config = SimpleNamespace(cycling_type=cycling_type)
     mock_config.cfg = {
         'scheduling': {
             'runahead limit': runahead_limit
@@ -1157,7 +1141,7 @@ def test_check_circular(opt, monkeypatch, caplog, tmp_flow_config):
     # ----- Setup -----
     caplog.set_level(logging.WARNING, CYLC_LOG)
 
-    options = Mock(spec=[], is_validate=True)
+    options = SimpleNamespace(is_validate=True)
     if opt:
         setattr(options, opt, True)
 
@@ -1290,28 +1274,6 @@ def test_implicit_success_required(tmp_flow_config, graph):
 
 
 @pytest.mark.parametrize(
-    'graph',
-    [
-        "foo:submit? => bar",
-        "foo:submit-fail? => bar",
-    ]
-)
-def test_success_after_optional_submit(tmp_flow_config, graph):
-    """Check foo:succeed is not required if foo:submit is optional."""
-    id_ = 'blargh'
-    flow_file = tmp_flow_config(id_, f"""
-    [scheduling]
-        [[graph]]
-            R1 = {graph}
-    [runtime]
-        [[bar]]
-        [[foo]]
-    """)
-    cfg = WorkflowConfig(workflow=id_, fpath=flow_file, options=None)
-    assert not cfg.taskdefs['foo'].outputs[TASK_OUTPUT_SUCCEEDED][1]
-
-
-@pytest.mark.parametrize(
     'allow_implicit_tasks',
     [
         pytest.param(True, id="allow implicit tasks = True"),
@@ -1365,7 +1327,7 @@ def test_implicit_tasks(
     """
     # Setup
     id_ = 'rincewind'
-    flow_file: Path = tmp_flow_config(id_, f"""
+    flow_file: 'Path' = tmp_flow_config(id_, f"""
     [scheduler]
         {
             f'allow implicit tasks = {allow_implicit_tasks}'
@@ -1399,7 +1361,7 @@ def test_implicit_tasks(
 
 @pytest.mark.parametrize('workflow_meta', [True, False])
 @pytest.mark.parametrize('url_type', ['good', 'bad', 'ugly', 'broken'])
-def test_process_urls(caplog, log_filter, workflow_meta, url_type):
+def test_process_urls(log_filter, workflow_meta, url_type):
 
     if url_type == 'good':
         # valid cylc 8 syntax
@@ -1435,7 +1397,6 @@ def test_process_urls(caplog, log_filter, workflow_meta, url_type):
     elif url_type == 'ugly':
         WorkflowConfig.process_metadata_urls(config)
         assert log_filter(
-            caplog,
             contains='Detected deprecated template variables',
         )
 
@@ -1463,13 +1424,12 @@ def test_zero_interval(
     should_warn: bool,
     opts: Values,
     tmp_flow_config: Callable,
-    caplog: pytest.LogCaptureFixture,
     log_filter: Callable,
 ):
     """Test that a zero-duration recurrence with >1 repetition gets an
     appropriate warning."""
     id_ = 'ordinary'
-    flow_file: Path = tmp_flow_config(id_, f"""
+    flow_file: 'Path' = tmp_flow_config(id_, f"""
     [scheduler]
         UTC mode = True
         allow implicit tasks = True
@@ -1481,7 +1441,6 @@ def test_zero_interval(
     """)
     WorkflowConfig(id_, flow_file, options=opts)
     logged = log_filter(
-        caplog,
         level=logging.WARNING,
         contains="Cannot have more than 1 repetition for zero-duration"
     )
@@ -1502,11 +1461,7 @@ def test_zero_interval(
         ('1988-02-29', '+P1M+P1Y', '1989-03-29'),
         ('1910-08-14', '+P2D-PT6H', '1910-08-15T18:00'),
         ('1850-04-10', '+P1M-P1D+PT1H', '1850-05-09T01:00'),
-        pytest.param(
-            '1066-10-14', '+PT1H+PT1M', '1066-10-14T01:01',
-            marks=pytest.mark.xfail
-            # https://github.com/cylc/cylc-flow/issues/5047
-        ),
+        ('1066-10-14', '+PT1H+PT1M', '1066-10-14T01:01'),
     ]
 )
 def test_chain_expr(
@@ -1517,7 +1472,7 @@ def test_chain_expr(
     Note the order matters when "nominal" units (years, months) are used.
     """
     id_ = 'osgiliath'
-    flow_file: Path = tmp_flow_config(id_, f"""
+    flow_file: 'Path' = tmp_flow_config(id_, f"""
         [scheduler]
             UTC mode = True
             allow implicit tasks = True
@@ -1696,7 +1651,7 @@ def test__warn_if_queues_have_implicit_tasks(caplog):
     ]
 )
 def test_cylc_env_at_parsing(
-    tmp_path: Path,
+    tmp_path: 'Path',
     monkeypatch: pytest.MonkeyPatch,
     installed,
     run_dir,
@@ -1730,7 +1685,7 @@ def test_cylc_env_at_parsing(
 
     # Parse the workflow config then check the environment.
     WorkflowConfig(
-        workflow="name", fpath=flow_file, options=Mock(spec=[]),
+        workflow="name", fpath=flow_file, options=SimpleNamespace(),
         run_dir=run_dir
     )
 
@@ -1741,3 +1696,20 @@ def test_cylc_env_at_parsing(
             assert var in cylc_env
         else:
             assert var not in cylc_env
+
+
+def test_force_workflow_compat_mode(tmp_path):
+    fpath = (tmp_path / 'flow.cylc')
+    from textwrap import dedent
+    fpath.write_text(dedent("""
+        [scheduler]
+            allow implicit tasks = true
+        [scheduling]
+            [[graph]]
+                R1 = a:succeeded | a:failed => b
+    """))
+    # It fails without compat mode:
+    with pytest.raises(GraphParseError, match='Opposite outputs'):
+        WorkflowConfig('foo', str(fpath), {})
+    # It succeeds with compat mode:
+    WorkflowConfig('foo', str(fpath), {}, force_compat_mode=True)

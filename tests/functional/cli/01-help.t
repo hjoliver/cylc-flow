@@ -19,7 +19,7 @@
 
 . "$(dirname "$0")/test_header"
 # Number of tests depends on the number of 'cylc' commands.
-set_test_number 26
+set_test_number 28
 
 # Top help
 run_ok "${TEST_NAME_BASE}-0" cylc
@@ -73,14 +73,13 @@ run_ok "${TEST_NAME_BASE}-version.stdout" \
 cmp_ok "${TEST_NAME_BASE}-version.stdout" "${TEST_NAME_BASE}---version.stdout"
 cmp_ok "${TEST_NAME_BASE}-version.stdout" "${TEST_NAME_BASE}-V.stdout"
 
+# Supplementary help
+run_ok "${TEST_NAME_BASE}-all" cylc help all
+run_ok "${TEST_NAME_BASE}-id" cylc help id
+
 # Check "cylc version --long" output is correct.
 cylc version --long | head -n 1 > long1
-WHICH="$(command -v cylc)"
-PARENT1="$(dirname "${WHICH}")"
-PARENT2="$(dirname "${PARENT1}")"
-echo "$(cylc version) (${PARENT2})" > long2
-# the concise version of the above is a bash quoting nightmare:
-# echo "$(cylc version) ($(dirname $(dirname $(which cylc))))" > long2
+echo "$(cylc version) ($(command -v cylc))" > long2
 cmp_ok long1 long2
 
 # --help with no DISPLAY

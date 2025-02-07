@@ -1,6 +1,3 @@
-[scheduler]
-    UTC mode = True # Ignore DST
-
 [scheduling]
     [[graph]]
         R1 = start => roll_doubles => win
@@ -16,8 +13,8 @@
             DIE_2=$((RANDOM%6 + 1))
             echo "Rolled $DIE_1 and $DIE_2..."
             if (($DIE_1 == $DIE_2)); then
-               echo "doubles!"
+                echo "doubles!"
             else
-               exit 1
+                exit 1
             fi
         """

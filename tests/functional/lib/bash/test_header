@@ -69,8 +69,8 @@
 #     named_grep_ok NAME PATTERN FILE [$OPTS]
 #         Run grep_ok with a custom test name.
 #         OPTS: put grep options like '-E' (extended regex) at end of line.
-#     grep_fail PATTERN FILE
-#         Run "grep -q -e PATTERN FILE", expect no match.
+#     grep_fail PATTERN FILE [$OPTS]
+#         Run "grep [$OPTS] -q -e PATTERN FILE", expect no match.
 #     count_ok PATTERN FILE COUNT
 #         Test that PATTERN occurs in exactly COUNT lines of FILE.
 #     exists_ok FILE
@@ -90,6 +90,7 @@
 #         tries grepping for each PATTERN in turn. Tests will only pass if the
 #         PATTERNs appear in FILE in the correct order. Runs one test per
 #         pattern, each prefixed by TEST_NAME.
+#         set LOG_SCAN_GREP_OPTS in the environment, e.g. "-E" for "grep -E"
 #     make_rnd_workflow
 #         Create a randomly-named workflow source directory.
 #     mock_smtpd_init
@@ -385,7 +386,7 @@ contains_ok() {
     local FILE_CONTROL="${2:--}"
     local TEST_NAME
     TEST_NAME="$(basename "${FILE_TEST}")-contains-ok"
-    comm -13 <(sort "${FILE_TEST}") <(sort "${FILE_CONTROL}") \
+    LANG=C comm -13 <(LANG=C sort "${FILE_TEST}") <(LANG=C sort "${FILE_CONTROL}") \
         1>"${TEST_NAME}.stdout" 2>"${TEST_NAME}.stderr"
     if [[ -s "${TEST_NAME}.stdout" ]]; then
         mkdir -p "${TEST_LOG_DIR}"
@@ -458,7 +459,7 @@ named_grep_ok() {
     local BRE="$2"
     local FILE="$3"
     shift 3
-    OPTS="$*"
+    local OPTS="$*"
     local TEST_NAME
     TEST_NAME="grep-ok: ${NAME}"
     # shellcheck disable=SC2086
@@ -484,13 +485,16 @@ __ERR__
 grep_fail() {
     local BRE="$1"
     local FILE="$2"
+    shift 2
+    local OPTS="$*"
     local TEST_NAME
     TEST_NAME="$(basename "${FILE}")-grep-fail"
     if [[ ! -f "${FILE}" ]]; then
         fail "${TEST_NAME}-file to be grepped does not exist."
         return
     fi
-    if grep -q -e "${BRE}" "${FILE}"; then
+    # shellcheck disable=SC2086
+    if grep ${OPTS} -q -e "${BRE}" "${FILE}"; then
         mkdir -p "${TEST_LOG_DIR}"
         echo "ERROR: Found ${BRE} in ${FILE}" \
           >"${TEST_LOG_DIR}/${TEST_NAME}.stderr"
@@ -579,6 +583,7 @@ log_scan () {
     local FILE="$2"
     local REPS=$3
     local DELAY=$4
+    local OPTS=${LOG_SCAN_GREP_OPTS:-}
     if ${CYLC_TEST_DEBUG:-false}; then
         local ERR=2
     else
@@ -595,7 +600,8 @@ log_scan () {
         echo -n "scanning for '${pattern:0:30}'" >& $ERR
         for _ in $(seq 1 "${REPS}"); do
             echo -n '.' >& $ERR
-            newposition=$(grep -n "$pattern" "$FILE" | \
+            # shellcheck disable=SC2086
+            newposition=$(grep -n $OPTS "$pattern" "$FILE" | \
                 tail -n 1 | cut -d ':' -f 1)
             if (( newposition > position )); then
                 position=$newposition
@@ -779,6 +785,13 @@ skip_all() {
     exit
 }
 
+skip_macos_gh_actions() {
+    # https://github.com/cylc/cylc-flow/issues/6276
+    if [[ "${CI:-}" && "$OSTYPE" == "darwin"* ]]; then
+        skip_all "Skipped due to performance issues on GH Actions MacOS runner"
+    fi
+}
+
 ssh_install_cylc() {
     local RHOST="$1"
     local RHOST_CYLC_DIR=
@@ -807,10 +820,13 @@ mock_smtpd_init() {  # Logic borrowed from Rose
         local SMTPD_LOG="${TEST_DIR}/smtpd.log"
         local SMTPD_HOST="localhost:${SMTPD_PORT}"
         # Set up fake SMTP server to catch outgoing mail & redirect to log:
-        python3 -u -m 'smtpd' -c 'DebuggingServer' -d -n "${SMTPD_HOST}" \
+        python3 -u -m 'aiosmtpd' \
+            --class aiosmtpd.handlers.Debugging stdout \
+            --debug --nosetuid \
+            --listen "${SMTPD_HOST}" \
             1>"${SMTPD_LOG}" 2>&1 &  # Runs in background
         local SMTPD_PID="$!"
-        while ! grep -q 'DebuggingServer started' "${SMTPD_LOG}" 2>'/dev/null'
+        while ! grep -q 'is listening' "${SMTPD_LOG}" 2>'/dev/null'
         do
             if ps "${SMTPD_PID}" 1>/dev/null 2>&1; then
                 sleep 1  # Still waiting for fake server to start
@@ -1147,7 +1163,6 @@ for SKIP in ${CYLC_TEST_SKIP}; do
         # Deliberately print variable substitution syntax unexpanded
         # shellcheck disable=SC2016
         skip_all 'this test is in $CYLC_TEST_SKIP.'
-        break
     fi
 done
 

@@ -22,21 +22,25 @@ See also:
 
 """
 
+from enum import Enum
+import errno
 import os
+from pathlib import Path
 import re
 import shutil
-from enum import Enum
-from pathlib import Path
 from subprocess import (
     PIPE,
     Popen,
     TimeoutExpired,
 )
 from typing import (
+    Callable,
     Dict,
     Optional,
     Tuple,
     Union,
+    NoReturn,
+    Type,
 )
 
 import cylc.flow.flags
@@ -48,24 +52,35 @@ from cylc.flow.exceptions import (
     InputError,
     ServiceFileError,
     WorkflowFilesError,
-    handle_rmtree_err,
+    FileRemovalError,
 )
 from cylc.flow.hostuserutil import (
     get_user,
     is_remote_host,
 )
 from cylc.flow.pathutil import (
+    SYMLINKABLE_LOCATIONS,
     expand_path,
     get_cylc_run_dir,
     get_workflow_run_dir,
+    get_alt_workflow_run_dir,
     make_localhost_symlinks,
 )
-from cylc.flow.remote import (
-    construct_cylc_server_ssh_cmd,
-)
-from cylc.flow.terminal import parse_dirty_json
 from cylc.flow.unicode_rules import WorkflowNameValidator
 from cylc.flow.util import cli_format
+
+
+def handle_rmtree_err(
+    function: Callable,
+    path: str,
+    excinfo: Tuple[Type[Exception], Exception, object]
+) -> NoReturn:
+    """Error handler for shutil.rmtree."""
+    exc = excinfo[1]
+    if isinstance(exc, OSError) and exc.errno == errno.ENOTEMPTY:
+        # "Directory not empty", likely due to filesystem lag
+        raise FileRemovalError(exc)
+    raise exc
 
 
 class KeyType(Enum):
@@ -97,15 +112,21 @@ class KeyInfo():  # noqa: SIM119 (not really relevant here)
 
     """
 
-    def __init__(self, key_type, key_owner, full_key_path=None,
-                 workflow_srv_dir=None, install_target=None, server_held=True):
+    def __init__(
+        self,
+        key_type: KeyType,
+        key_owner: KeyOwner,
+        full_key_path: Optional[str] = None,
+        workflow_srv_dir: Optional[str] = None,
+        install_target: Optional[str] = None,
+        server_held: bool = True
+    ):
         self.key_type = key_type
         self.key_owner = key_owner
-        self.full_key_path = full_key_path
         self.workflow_srv_dir = workflow_srv_dir
         self.install_target = install_target
-        if self.full_key_path is not None:
-            self.key_path, self.file_name = os.path.split(self.full_key_path)
+        if full_key_path is not None:
+            self.key_path, self.file_name = os.path.split(full_key_path)
         elif self.workflow_srv_dir is not None:  # noqa: SIM106
             # Build key filename
             file_name = key_owner.value
@@ -116,7 +137,7 @@ class KeyInfo():  # noqa: SIM119 (not really relevant here)
                     and self.install_target is not None):
                 file_name = f"{file_name}_{self.install_target}"
 
-            if key_type == KeyType.PRIVATE:
+            if key_type is KeyType.PRIVATE:
                 file_extension = WorkflowFiles.Service.PRIVATE_FILE_EXTENSION
             else:
                 file_extension = WorkflowFiles.Service.PUBLIC_FILE_EXTENSION
@@ -183,6 +204,11 @@ class WorkflowFiles:
         DB = 'db'
         """The public database"""
 
+        JOB = 'job'
+        """The job log directory."""
+
+    LOG_JOB_DIR = os.path.join(LogDir.DIRNAME, LogDir.JOB)
+
     SHARE_DIR = 'share'
     """Workflow share directory."""
 
@@ -238,9 +264,7 @@ class WorkflowFiles:
     RESERVED_NAMES = frozenset([FLOW_FILE, SUITE_RC, *RESERVED_DIRNAMES])
     """Reserved filenames that cannot be used as run names."""
 
-    SYMLINK_DIRS = frozenset([
-        SHARE_CYCLE_DIR, SHARE_DIR, LogDir.DIRNAME, WORK_DIR, ''
-    ])
+    SYMLINK_DIRS = frozenset(list(SYMLINKABLE_LOCATIONS) + [''])
     """The paths of the symlink dirs that may be set in
     global.cylc[install][symlink dirs], relative to the run dir
     ('' represents the run dir)."""
@@ -320,12 +344,11 @@ CONTACT_FILE_EXISTS_MSG = r"""workflow contact file exists: %(fname)s
 
 Workflow "%(workflow)s" is already running, listening at "%(host)s:%(port)s".
 
-To start a new run, stop the old one first with one or more of these:
+If you like, you can stop it with one or more of the following commands:
 * cylc stop %(workflow)s              # wait for active tasks/event handlers
 * cylc stop --kill %(workflow)s       # kill active tasks and wait
-
 * cylc stop --now %(workflow)s        # don't wait for active tasks
-* cylc stop --now --now %(workflow)s  # don't wait
+* cylc stop --now --now %(workflow)s  # don't wait for tasks or handlers
 * ssh -n "%(host)s" kill %(pid)s      # final brute force!
 """
 
@@ -382,6 +405,9 @@ def _is_process_running(
         False
 
     """
+    from cylc.flow.remote import construct_cylc_server_ssh_cmd
+    from cylc.flow.terminal import parse_dirty_json
+
     # See if the process is still running or not.
     metric = f'[["Process", {pid}]]'
     if is_remote_host(host):
@@ -401,8 +427,9 @@ def _is_process_running(
         out, err = proc.communicate(timeout=10, input=metric)
     except TimeoutExpired:
         raise CylcError(
-            f'Cannot determine whether workflow is running on {host}.'
-        )
+            f'Attempt to determine whether workflow is running on {host}'
+            ' timed out after 10 seconds.'
+        ) from None
 
     if proc.returncode == 2:
         # the psutil call failed to gather metrics on the process
@@ -412,7 +439,7 @@ def _is_process_running(
     error = False
     if proc.returncode:
         # the psutil call failed in some other way e.g. network issues
-        LOG.debug(
+        LOG.warning(
             f'$ {cli_format(cmd)}  # returned {proc.returncode}\n{err}'
         )
         error = True
@@ -481,7 +508,7 @@ def detect_old_contact_file(
         # this can happen if contact file is from an outdated version of Cylc
         raise ServiceFileError(
             f'Found contact file with incomplete data:\n{exc}.'
-        )
+        ) from None
 
     # check if the workflow process is running ...
     # NOTE: can raise CylcError
@@ -606,8 +633,8 @@ def load_contact_file(id_: str, run_dir=None) -> Dict[str, str]:
     try:
         with open(path) as f:
             file_content = f.read()
-    except IOError:
-        raise ServiceFileError("Couldn't load contact file")
+    except IOError as exc:
+        raise ServiceFileError("Couldn't load contact file") from exc
     data: Dict[str, str] = {}
     for line in file_content.splitlines():
         key, value = [item.strip() for item in line.split("=", 1)]
@@ -778,10 +805,19 @@ def get_workflow_title(id_):
     return title
 
 
-def check_deprecation(path, warn=True):
+def check_deprecation(path, warn=True, force_compat_mode=False):
     """Warn and turn on back-compat flag if Cylc 7 suite.rc detected.
 
     Path can point to config file or parent directory (i.e. workflow name).
+
+    Args:
+        warn:
+            If True, then a warning will be logged when compatibility
+            mode is activated.
+        force_compat_mode:
+            If True, forces Cylc to use compatibility mode
+            overriding compatibility mode checks.
+            See https://github.com/cylc/cylc-rose/issues/319
     """
     if (
         # Don't want to log if it's already been set True.
@@ -789,6 +825,7 @@ def check_deprecation(path, warn=True):
         and (
             path.resolve().name == WorkflowFiles.SUITE_RC
             or (path / WorkflowFiles.SUITE_RC).is_file()
+            or force_compat_mode
         )
     ):
         cylc.flow.flags.cylc7_back_compat = True
@@ -840,9 +877,15 @@ def check_reserved_dir_names(name: Union[Path, str]) -> None:
             raise WorkflowFilesError(err_msg.format('run<number>'))
 
 
-def infer_latest_run_from_id(workflow_id: str) -> str:
-    run_dir = Path(get_workflow_run_dir(workflow_id))
-    _, id_ = infer_latest_run(run_dir)
+def infer_latest_run_from_id(
+    workflow_id: str, alt_run_dir: Optional[str] = None
+) -> str:
+    """Wrapper to make the workflow run-dir absolute."""
+    if alt_run_dir is not None:
+        run_dir = Path(get_alt_workflow_run_dir(alt_run_dir, workflow_id))
+    else:
+        run_dir = Path(get_workflow_run_dir(workflow_id))
+    _, id_ = infer_latest_run(run_dir, alt_run_dir=alt_run_dir)
     return id_
 
 
@@ -850,6 +893,7 @@ def infer_latest_run(
     path: Path,
     implicit_runN: bool = True,
     warn_runN: bool = True,
+    alt_run_dir: Optional[str] = None,
 ) -> Tuple[Path, str]:
     """Infer the numbered run dir if the workflow has a runN symlink.
 
@@ -858,6 +902,7 @@ def infer_latest_run(
         implicit_runN: If True, add runN on the end of the path if the path
             doesn't include it.
         warn_runN: If True, warn that explicit use of runN is unnecessary.
+        alt_run_dir: Path to alternate cylc-run location (e.g. for other user).
 
     Returns:
         path: Absolute path of the numbered run dir if applicable, otherwise
@@ -868,15 +913,17 @@ def infer_latest_run(
         - WorkflowFilesError if the runN symlink is not valid.
         - InputError if the path does not exist.
     """
-    cylc_run_dir = get_cylc_run_dir()
+    cylc_run_dir = get_cylc_run_dir(alt_run_dir)
     try:
         id_ = str(path.relative_to(cylc_run_dir))
     except ValueError:
-        raise ValueError(f"{path} is not in the cylc-run directory")
+        raise ValueError(f"{path} is not in the cylc-run directory") from None
+
     if not path.exists():
         raise InputError(
             f'Workflow ID not found: {id_}\n(Directory not found: {path})'
         )
+
     if path.name == WorkflowFiles.RUN_N:
         runN_path = path
         if warn_runN:

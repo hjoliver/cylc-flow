@@ -21,12 +21,14 @@ Each task may have multiple sequences, e.g. 12-hourly and 6-hourly.
 
 from typing import Optional, Type, overload
 
-from cylc.flow.cycling import PointBase, integer, iso8601
+from cylc.flow.cycling import PointBase, integer, iso8601, nocycle
 from metomi.isodatetime.data import Calendar
 
 
 ISO8601_CYCLING_TYPE = iso8601.CYCLER_TYPE_ISO8601
 INTEGER_CYCLING_TYPE = integer.CYCLER_TYPE_INTEGER
+NOCYCLE_CYCLING_TYPE = nocycle.CYCLER_TYPE_NOCYCLE
+
 
 IS_OFFSET_ABSOLUTE_IMPLS = {
     INTEGER_CYCLING_TYPE: integer.is_offset_absolute,
@@ -158,13 +160,13 @@ def standardise_point_string(
 
 
 def standardise_point_string(
-    point_string: Optional[str], cycling_type: Optional[str] = None
+    point_string: Optional[str], cycling_type: Optional[str] = None,
 ) -> Optional[str]:
     """Return a standardised version of point_string."""
     if point_string is None:
         return None
     point = get_point(point_string, cycling_type=cycling_type)
     if point is not None:
-        point.standardise()
+        point.standardise(allow_truncated=False)
         point_string = str(point)
     return point_string

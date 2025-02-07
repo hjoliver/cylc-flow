@@ -24,13 +24,7 @@ from cylc.flow.id import Tokens
 from cylc.flow.subprocctx import SubFuncContext
 from cylc.flow.task_proxy import TaskProxy
 from cylc.flow.taskdef import TaskDef
-from cylc.flow.xtrigger_mgr import RE_STR_TMPL
-
-
-def test_constructor(xtrigger_mgr):
-    """Test creating an XtriggerManager, and its initial state."""
-    # the dict with normal xtriggers starts empty
-    assert not xtrigger_mgr.functx_map
+from cylc.flow.xtrigger_mgr import RE_STR_TMPL, XtriggerCollator
 
 
 def test_extract_templates():
@@ -44,62 +38,90 @@ def test_extract_templates():
     )
 
 
-def test_add_xtrigger(xtrigger_mgr):
-    """Test for adding an xtrigger."""
+def test_add_missing_func():
+    """Test for adding an xtrigger that can't be found."""
+    xtriggers = XtriggerCollator()
+    xtrig = SubFuncContext(
+        label="fooble",
+        func_name="fooble123",  # no such module
+        func_args=["name", "age"],
+        func_kwargs={"location": "soweto"}
+    )
+    with pytest.raises(
+        XtriggerConfigError,
+        match=r"\[@xtrig\] fooble123\(.*\)\nNo module named 'fooble123'"
+    ):
+        xtriggers.add_trig("xtrig", xtrig, 'fdir')
+
+
+def test_add_xtrigger():
+    """Test for adding and validating an xtrigger."""
+    xtriggers = XtriggerCollator()
     xtrig = SubFuncContext(
         label="echo",
         func_name="echo",
         func_args=["name", "age"],
         func_kwargs={"location": "soweto"}
     )
-    xtrigger_mgr.add_trig("xtrig", xtrig, 'fdir')
-    assert xtrig == xtrigger_mgr.functx_map["xtrig"]
+    with pytest.raises(
+        XtriggerConfigError,
+        match="Requires 'succeed=True/False' arg"
+    ):
+        xtriggers.add_trig("xtrig", xtrig, 'fdir')
+
+    xtrig = SubFuncContext(
+        label="echo",
+        func_name="echo",
+        func_args=["name", "age"],
+        func_kwargs={"location": "soweto", "succeed": True}
+    )
+    xtriggers.add_trig("xtrig", xtrig, 'fdir')
+    assert xtrig == xtriggers.functx_map["xtrig"]
 
 
-def test_add_xtrigger_with_params(xtrigger_mgr):
-    """Test for adding an xtrigger."""
+def test_add_xtrigger_with_template_good():
+    """Test adding an xtrigger with a valid string template arg value."""
+    xtriggers = XtriggerCollator()
+    xtrig = SubFuncContext(
+        label="echo",
+        func_name="echo",
+        func_args=["name", "%(point)s"],  # valid template
+        func_kwargs={"location": "soweto", "succeed": True}
+    )
+    xtriggers.add_trig("xtrig", xtrig, 'fdir')
+    assert xtrig == xtriggers.functx_map["xtrig"]
+
+
+def test_add_xtrigger_with_template_bad():
+    """Test adding an xtrigger with an invalid string template arg value."""
+    xtriggers = XtriggerCollator()
     xtrig = SubFuncContext(
         label="echo",
         func_name="echo",
         func_args=["name", "%(point)s"],
-        func_kwargs={"%(location)s": "soweto"}  # no problem with the key!
+        # invalid template:
+        func_kwargs={"location": "%(what_is_this)s", "succeed": True}
     )
-    xtrigger_mgr.add_trig("xtrig", xtrig, 'fdir')
-    assert xtrig == xtrigger_mgr.functx_map["xtrig"]
+    with pytest.raises(
+        XtriggerConfigError,
+        match="Illegal template in xtrigger: what_is_this"
+    ):
+        xtriggers.add_trig("xtrig", xtrig, 'fdir')
 
 
-def test_add_xtrigger_with_unknown_params(xtrigger_mgr):
-    """Test for adding an xtrigger with an unknown parameter.
-
-    The XTriggerManager contains a list of specific parameters that are
-    available in the function template.
-
-    Values that are not strings raise a TypeError during regex matching, but
-    are ignored, so we should not have any issue with TypeError.
-
-    If a value in the format %(foo)s appears in the parameters, and 'foo'
-    is not in this list of parameters, then a ValueError is expected.
-    """
-    xtrig = SubFuncContext(
-        label="echo",
-        func_name="echo",
-        func_args=[1, "name", "%(what_is_this)s"],
-        func_kwargs={"location": "soweto"}
-    )
-    with pytest.raises(XtriggerConfigError):
-        xtrigger_mgr.add_trig("xtrig", xtrig, 'fdir')
-
-
-def test_add_xtrigger_with_deprecated_params(xtrigger_mgr, caplog):
+def test_add_xtrigger_with_deprecated_params(
+    caplog: pytest.LogCaptureFixture
+):
     """It should flag deprecated template variables."""
+    xtriggers = XtriggerCollator()
     xtrig = SubFuncContext(
         label="echo",
         func_name="echo",
         func_args=[1, "name", "%(suite_name)s"],
-        func_kwargs={"location": "soweto"}
+        func_kwargs={"succeed": True}
     )
     caplog.set_level(logging.WARNING, CYLC_LOG)
-    xtrigger_mgr.add_trig("xtrig", xtrig, 'fdir')
+    xtriggers.add_trig("xtrig", xtrig, 'fdir')
     assert caplog.messages == [
         'Xtrigger "xtrig" uses deprecated template variables: suite_name'
     ]
@@ -130,6 +152,7 @@ def test_housekeeping_nothing_satisfied(xtrigger_mgr):
     are kept."""
     row = "get_name", "{\"name\": \"function\"}"
     # now XtriggerManager#sat_xtrigger will contain the get_name xtrigger
+    xtrigger_mgr.add_xtriggers(XtriggerCollator())
     xtrigger_mgr.load_xtrigger_for_restart(row_idx=0, row=row)
     assert xtrigger_mgr.sat_xtrig
     xtrigger_mgr.housekeep([])
@@ -139,31 +162,38 @@ def test_housekeeping_nothing_satisfied(xtrigger_mgr):
 def test_housekeeping_with_xtrigger_satisfied(xtrigger_mgr):
     """The housekeeping method makes sure only satisfied xtrigger function
     are kept."""
-    xtrigger_mgr.validate_xtrigger = lambda *a, **k: True  # Ignore validation
+
+    xtriggers = XtriggerCollator()
+
     xtrig = SubFuncContext(
         label="get_name",
-        func_name="get_name",
+        func_name="echo",
         func_args=[],
-        func_kwargs={}
+        func_kwargs={"succeed": True}
     )
-    xtrigger_mgr.add_trig("get_name", xtrig, 'fdir')
+    xtriggers.add_trig("get_name", xtrig, 'fdir')
+    xtrigger_mgr.add_xtriggers(xtriggers)
+
     xtrig.out = "[\"True\", {\"name\": \"Yossarian\"}]"
     tdef = TaskDef(
         name="foo",
-        rtcfg=None,
-        run_mode="live",
+        rtcfg={'completion': None},
         start_point=1,
-        initial_point=1
+        initial_point=1,
     )
+
     init()
     sequence = ISO8601Sequence('P1D', '2019')
     tdef.xtrig_labels[sequence] = ["get_name"]
     start_point = ISO8601Point('2019')
     itask = TaskProxy(Tokens('~user/workflow'), tdef, start_point)
     # pretend the function has been activated
+
     xtrigger_mgr.active.append(xtrig.get_signature())
+
     xtrigger_mgr.callback(xtrig)
     assert xtrigger_mgr.sat_xtrig
+
     xtrigger_mgr.housekeep([itask])
     # here we still have the same number as before
     assert xtrigger_mgr.sat_xtrig
@@ -171,31 +201,36 @@ def test_housekeeping_with_xtrigger_satisfied(xtrigger_mgr):
 
 def test__call_xtriggers_async(xtrigger_mgr):
     """Test _call_xtriggers_async"""
-    xtrigger_mgr.validate_xtrigger = lambda *a, **k: True  # Ignore validation
+
+    xtriggers = XtriggerCollator()
+
     # the echo1 xtrig (not satisfied)
     echo1_xtrig = SubFuncContext(
         label="echo1",
-        func_name="echo1",
+        func_name="echo",
         func_args=[],
-        func_kwargs={}
+        func_kwargs={"succeed": False}
     )
 
     echo1_xtrig.out = "[\"True\", {\"name\": \"herminia\"}]"
-    xtrigger_mgr.add_trig("echo1", echo1_xtrig, "fdir")
+    xtriggers.add_trig("echo1", echo1_xtrig, "fdir")
+
     # the echo2 xtrig (satisfied through callback later)
     echo2_xtrig = SubFuncContext(
         label="echo2",
-        func_name="echo2",
+        func_name="echo",
         func_args=[],
-        func_kwargs={}
+        func_kwargs={"succeed": True}
     )
     echo2_xtrig.out = "[\"True\", {\"name\": \"herminia\"}]"
-    xtrigger_mgr.add_trig("echo2", echo2_xtrig, "fdir")
+    xtriggers.add_trig("echo2", echo2_xtrig, "fdir")
+
+    xtrigger_mgr.add_xtriggers(xtriggers)
+
     # create a task
     tdef = TaskDef(
         name="foo",
-        rtcfg=None,
-        run_mode="live",
+        rtcfg={'completion': None},
         start_point=1,
         initial_point=1
     )
@@ -281,58 +316,3 @@ def test_callback(xtrigger_mgr):
     xtrigger_mgr.callback(get_name)
     # this means that the xtrigger was satisfied
     assert xtrigger_mgr.sat_xtrig
-
-
-def test_check_xtriggers(xtrigger_mgr):
-    """Test process_xtriggers call."""
-
-    xtrigger_mgr.validate_xtrigger = lambda *a, **k: True  # Ignore validation
-    # add an xtrigger
-    get_name = SubFuncContext(
-        label="get_name",
-        func_name="get_name",
-        func_args=[],
-        func_kwargs={}
-    )
-    xtrigger_mgr.add_trig("get_name", get_name, 'fdir')
-    get_name.out = "[\"True\", {\"name\": \"Yossarian\"}]"
-    tdef1 = TaskDef(
-        name="foo",
-        rtcfg=None,
-        run_mode="live",
-        start_point=1,
-        initial_point=1
-    )
-    init()
-    sequence = ISO8601Sequence('P1D', '2019')
-    tdef1.xtrig_labels[sequence] = ["get_name"]
-    start_point = ISO8601Point('2019')
-    itask1 = TaskProxy(Tokens('~user/workflow'), tdef1, start_point)
-    itask1.state.xtriggers["get_name"] = False  # satisfied?
-
-    # add a clock xtrigger
-    wall_clock = SubFuncContext(
-        label="wall_clock",
-        func_name="wall_clock",
-        func_args=[],
-        func_kwargs={}
-    )
-    wall_clock.out = "[\"True\", \"1\"]"
-    xtrigger_mgr.add_trig("wall_clock", wall_clock, "fdir")
-    # create a task
-    tdef2 = TaskDef(
-        name="foo",
-        rtcfg=None,
-        run_mode="live",
-        start_point=1,
-        initial_point=1
-    )
-    tdef2.xtrig_labels[sequence] = ["wall_clock"]
-    init()
-    start_point = ISO8601Point('20000101T0000+05')
-    # create task proxy
-    TaskProxy(Tokens('~user/workflow'), tdef2, start_point)
-
-    xtrigger_mgr.check_xtriggers(itask1, lambda foo: None)
-    # won't be satisfied, as it is async, we are are not calling callback
-    assert not xtrigger_mgr.sat_xtrig

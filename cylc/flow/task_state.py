@@ -1,6 +1,6 @@
 # THIS FILE IS PART OF THE CYLC WORKFLOW ENGINE.
 # Copyright (C) NIWA & British Crown (Met Office) & Contributors.
-#
+
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
@@ -16,14 +16,34 @@
 
 """Task state related logic."""
 
+from typing import (
+    TYPE_CHECKING,
+    Dict,
+    Iterable,
+    List,
+    Optional,
+    Set,
+)
 
-from typing import List
 from cylc.flow.prerequisite import Prerequisite
 from cylc.flow.task_outputs import (
+    TASK_OUTPUT_EXPIRED,
+    TASK_OUTPUT_FAILED,
+    TASK_OUTPUT_STARTED,
+    TASK_OUTPUT_SUBMIT_FAILED,
+    TASK_OUTPUT_SUBMITTED,
+    TASK_OUTPUT_SUCCEEDED,
     TaskOutputs,
-    TASK_OUTPUT_EXPIRED, TASK_OUTPUT_SUBMITTED, TASK_OUTPUT_SUBMIT_FAILED,
-    TASK_OUTPUT_STARTED, TASK_OUTPUT_SUCCEEDED, TASK_OUTPUT_FAILED)
+)
 from cylc.flow.wallclock import get_current_time_string
+
+
+if TYPE_CHECKING:
+    from cylc.flow.cycling import PointBase
+    from cylc.flow.id import Tokens
+    from cylc.flow.prerequisite import PrereqTuple
+    from cylc.flow.run_modes import RunMode
+    from cylc.flow.taskdef import TaskDef
 
 
 # Task status names and meanings.
@@ -144,13 +164,17 @@ TASK_STATUSES_ACTIVE = {
     TASK_STATUS_RUNNING,
 }
 
-# Task statuses that can be manually triggered.
-TASK_STATUSES_TRIGGERABLE = {
-    TASK_STATUS_WAITING,
-    TASK_STATUS_EXPIRED,
-    TASK_STATUS_SUBMIT_FAILED,
-    TASK_STATUS_SUCCEEDED,
-    TASK_STATUS_FAILED,
+# Mapping between task outputs and their corresponding states
+TASK_STATE_MAP = {
+    # status: trigger
+    TASK_STATUS_WAITING: None,
+    TASK_STATUS_EXPIRED: TASK_OUTPUT_EXPIRED,
+    TASK_STATUS_PREPARING: None,
+    TASK_STATUS_SUBMIT_FAILED: TASK_OUTPUT_SUBMIT_FAILED,
+    TASK_STATUS_SUBMITTED: TASK_OUTPUT_SUBMITTED,
+    TASK_STATUS_RUNNING: TASK_OUTPUT_STARTED,
+    TASK_STATUS_FAILED: TASK_OUTPUT_FAILED,
+    TASK_STATUS_SUCCEEDED: TASK_OUTPUT_SUCCEEDED,
 }
 
 
@@ -195,10 +219,6 @@ class TaskState:
             Time string of latest update time.
         .xtriggers (dict):
             xtriggers as {trigger (str): satisfied (boolean), ...}.
-        ._is_satisfied (boolean):
-            Are prerequisites satisfied?
-        ._suicide_is_satisfied (boolean):
-            Are prerequisites to trigger suicide satisfied?
     """
 
     # Memory optimization - constrain possible attributes to this list.
@@ -215,8 +235,6 @@ class TaskState:
         "suicide_prerequisites",
         "time_updated",
         "xtriggers",
-        "_is_satisfied",
-        "_suicide_is_satisfied",
     ]
 
     def __init__(self, tdef, point, status, is_held):
@@ -226,9 +244,6 @@ class TaskState:
         self.is_runahead = True
         self.is_updated = False
         self.time_updated = None
-
-        self._is_satisfied = None
-        self._suicide_is_satisfied = None
 
         # Prerequisites.
         self.prerequisites: List[Prerequisite] = []
@@ -263,33 +278,31 @@ class TaskState:
             ret += '(runahead)'
         return ret
 
+    def __repr__(self) -> str:
+        return f"<{type(self).__name__} {self}>"
+
     def __call__(
-            self, *status, is_held=None, is_queued=None, is_runahead=None):
+        self,
+        *status: Optional[str],
+        is_held: Optional[bool] = None,
+        is_queued: Optional[bool] = None,
+        is_runahead: Optional[bool] = None,
+    ) -> bool:
         """Compare task state attributes.
 
         Args:
-            status (str/list/None):
-                ``str``
-                    Check if the task status is the same as the one provided
-                ``list``
-                    Check if the task status is one of the ones provided
-                ``None``
-                    Do not check the task state.
-            is_held (bool):
-                ``bool``
-                    Check the task is_held attribute is the same as provided
-                ``None``
-                    Do not check the is_held attribute
-            is_queued (bool):
-                ``bool``
-                    Check the task is_queued attribute is the same as provided
-                ``None``
-                    Do not check the is_queued attribute
-            is_runahead (bool):
-                ``bool``
-                    Check the task is_runahead attribute is as provided
-                ``None``
-                    Do not check the is_runahead attribute
+            status:
+                Check if the task status is one of the ones provided, or
+                do not check the task state if None.
+            is_held:
+                Check the task is_held attribute is the same as provided, or
+                do not check the is_held attribute if None.
+            is_queued:
+                Check the task is_queued attribute is the same as provided, or
+                do not check the is_queued attribute if None.
+            is_runahead:
+                Check the task is_runahead attribute is as provided, or
+                do not check the is_runahead attribute if None.
 
         """
         return (
@@ -308,13 +321,22 @@ class TaskState:
             )
         )
 
-    def satisfy_me(self, all_task_outputs):
-        """Attempt to get my prerequisites satisfied."""
-        for prereqs in [self.prerequisites, self.suicide_prerequisites]:
-            for prereq in prereqs:
-                if prereq.satisfy_me(all_task_outputs):
-                    self._is_satisfied = None
-                    self._suicide_is_satisfied = None
+    def satisfy_me(
+        self,
+        outputs: Iterable['Tokens'],
+        mode: 'Optional[RunMode]',
+        forced: bool = False,
+    ) -> Set['Tokens']:
+        """Try to satisfy my prerequisites with given outputs.
+
+        Return which outputs I actually depend on.
+        """
+        valid: Set[Tokens] = set()
+        for prereq in (*self.prerequisites, *self.suicide_prerequisites):
+            valid.update(
+                prereq.satisfy_me(outputs, mode=mode, forced=forced)
+            )
+        return valid
 
     def xtriggers_all_satisfied(self):
         """Return True if all xtriggers are satisfied."""
@@ -326,10 +348,7 @@ class TaskState:
 
     def prerequisites_all_satisfied(self):
         """Return True if (non-suicide) prerequisites are fully satisfied."""
-        if self._is_satisfied is None:
-            self._is_satisfied = all(
-                preq.is_satisfied() for preq in self.prerequisites)
-        return self._is_satisfied
+        return all(preq.is_satisfied() for preq in self.prerequisites)
 
     def prerequisites_are_not_all_satisfied(self):
         """Return True if (any) prerequisites are not fully satisfied."""
@@ -338,10 +357,7 @@ class TaskState:
 
     def suicide_prerequisites_all_satisfied(self):
         """Return True if all suicide prerequisites are satisfied."""
-        if self._suicide_is_satisfied is None:
-            self._suicide_is_satisfied = all(
-                preq.is_satisfied() for preq in self.suicide_prerequisites)
-        return self._suicide_is_satisfied
+        return all(preq.is_satisfied() for preq in self.suicide_prerequisites)
 
     def prerequisites_get_target_points(self):
         """Return a list of cycle points targeted by each prerequisite."""
@@ -351,9 +367,12 @@ class TaskState:
             for point in prerequisite.get_target_points()
         }
 
-    def prerequisites_eval_all(self):
-        """Set all prerequisites to satisfied."""
-        # (Validation: will abort on illegal trigger expressions.)
+    def prerequisites_eval_all(self) -> None:
+        """Evaluate satisifaction of all prerequisites and
+        suicide prerequisites.
+
+        Provides validation - will abort on illegal trigger expressions.
+        """
         for preqs in [self.prerequisites, self.suicide_prerequisites]:
             for preq in preqs:
                 preq.is_satisfied()
@@ -362,10 +381,10 @@ class TaskState:
         """Set prerequisites to all satisfied."""
         for prereq in self.prerequisites:
             prereq.set_satisfied()
-        self._is_satisfied = None
 
     def get_resolved_dependencies(self):
-        """Return a list of dependencies which have been met for this task.
+        """Return a list of dependencies which have been met for this task
+        (ignoring the specific output in the depedency).
 
         E.G: ['1/foo', '2/bar']
 
@@ -374,18 +393,17 @@ class TaskState:
 
         """
         return sorted(
-            dep
+            task_output.get_id()
             for prereq in self.prerequisites
-            for dep in prereq.get_resolved_dependencies()
+            for task_output, satisfied in prereq._satisfied.items()
+            if satisfied
         )
 
     def reset(
-            self, status=None, is_held=None, is_queued=None, is_runahead=None):
-        """Change status, and manipulate outputs and prerequisites accordingly.
-
-        Outputs are manipulated on manual state reset to reflect the new task
-        status. Since spawn-on-demand implementation, state reset is only used
-        for internal state changes.
+        self, status=None, is_held=None, is_queued=None, is_runahead=None,
+        forced=False
+    ):
+        """Change status.
 
         Args:
             status (str):
@@ -393,11 +411,19 @@ class TaskState:
             is_held (bool):
                 Set the task to be held or not, or None to leave this property
                 unchanged.
+            forced (bool):
+                If called as a result of a forced change (via "cylc set")
 
         Returns:
-            returns: whether state change or not (bool)
+            Whether state changed or not (bool)
 
         """
+        req = status
+
+        if forced and req in [TASK_STATUS_SUBMITTED, TASK_STATUS_RUNNING]:
+            # Can't force change to an active state because there's no job.
+            return False
+
         current_status = (
             self.status,
             self.is_held,
@@ -414,39 +440,18 @@ class TaskState:
             # no change - do nothing
             return False
 
-        # perform the actual state change
+        # perform the state change
         self.status, self.is_held, self.is_queued, self.is_runahead = (
             requested_status
         )
 
         self.time_updated = get_current_time_string()
         self.is_updated = True
-
-        if is_held:
-            # only reset task outputs if not setting task to held
-            # https://github.com/cylc/cylc-flow/pull/2116
-            return True
-
         self.kill_failed = False
 
-        # Set standard outputs in accordance with task state.
         if status is None:
             # NOTE: status is None if the task is being released
             status = self.status
-        if status_leq(status, TASK_STATUS_SUBMITTED):
-            self.outputs.set_all_incomplete()
-        self.outputs.set_completion(
-            TASK_OUTPUT_EXPIRED, status == TASK_STATUS_EXPIRED)
-        self.outputs.set_completion(
-            TASK_OUTPUT_SUBMITTED, status_geq(status, TASK_STATUS_SUBMITTED))
-        self.outputs.set_completion(
-            TASK_OUTPUT_STARTED, status_geq(status, TASK_STATUS_RUNNING))
-        self.outputs.set_completion(
-            TASK_OUTPUT_SUBMIT_FAILED, status == TASK_STATUS_SUBMIT_FAILED)
-        self.outputs.set_completion(
-            TASK_OUTPUT_SUCCEEDED, status == TASK_STATUS_SUCCEEDED)
-        self.outputs.set_completion(
-            TASK_OUTPUT_FAILED, status == TASK_STATUS_FAILED)
 
         return True
 
@@ -455,17 +460,20 @@ class TaskState:
         return (TASK_STATUSES_ORDERED.index(self.status) >
                 TASK_STATUSES_ORDERED.index(status))
 
-    def _add_prerequisites(self, point, tdef):
+    def is_gte(self, status):
+        """"Return True if self.status >= status."""
+        return (TASK_STATUSES_ORDERED.index(self.status) >=
+                TASK_STATUSES_ORDERED.index(status))
+
+    def _add_prerequisites(self, point: 'PointBase', tdef: 'TaskDef'):
         """Add task prerequisites."""
         # Triggers for sequence_i only used if my cycle point is a
         # valid member of sequence_i's sequence of cycle points.
-        self._is_satisfied = None
-        self._suicide_is_satisfied = None
 
         # Use dicts to avoid generating duplicate prerequisites from sequences
         # with coincident cycle points.
-        prerequisites = {}
-        suicide_prerequisites = {}
+        prerequisites: Dict[int, Prerequisite] = {}
+        suicide_prerequisites: Dict[int, Prerequisite] = {}
 
         for sequence, dependencies in tdef.dependencies.items():
             if not sequence.is_valid(point):
@@ -488,9 +496,10 @@ class TaskState:
             if adjusted:
                 p_prev = max(adjusted)
                 cpre = Prerequisite(point)
-                cpre.add(tdef.name, p_prev, TASK_STATUS_SUCCEEDED,
-                         p_prev < tdef.start_point)
-                cpre.set_condition(tdef.name)
+                cpre[(p_prev, tdef.name, TASK_STATUS_SUCCEEDED)] = (
+                    p_prev < tdef.start_point
+                )
+                cpre.set_conditional_expr(tdef.name)
                 prerequisites[cpre.instantaneous_hash()] = cpre
 
         self.suicide_prerequisites = list(suicide_prerequisites.values())
@@ -515,13 +524,18 @@ class TaskState:
             for xtrig_label in xtrig_labels:
                 self.add_xtrigger(xtrig_label)
 
-    def get_unsatisfied_prerequisites(self):
-        unsat = []
-        for prereq in self.prerequisites:
-            if prereq.is_satisfied():
-                continue
-            for key, val in prereq.satisfied.items():
-                if val:
-                    continue
-                unsat.append(key)
-        return unsat
+    def get_unsatisfied_prerequisites(self) -> List['PrereqTuple']:
+        return [
+            key
+            for prereq in self.prerequisites if not prereq.is_satisfied()
+            for key, satisfied in prereq.items() if not satisfied
+        ]
+
+    def any_satisfied_prerequisite_outputs(self) -> bool:
+        """Return True if any of this task's prerequisite outputs are
+        satisfied."""
+        return any(
+            satisfied
+            for prereq in self.prerequisites
+            for satisfied in prereq._satisfied.values()
+        )

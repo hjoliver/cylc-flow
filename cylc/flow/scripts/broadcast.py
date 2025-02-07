@@ -80,8 +80,10 @@ Broadcast cannot change [runtime] inheritance.
 """
 
 from ansimarkup import parse as cparse
+import asyncio
 from copy import deepcopy
 from functools import partial
+import os.path
 import re
 import sys
 from tempfile import NamedTemporaryFile
@@ -94,7 +96,7 @@ from cylc.flow.broadcast_report import (
 from cylc.flow.cfgspec.workflow import SPEC, upg
 from cylc.flow.exceptions import InputError
 from cylc.flow.network.client_factory import get_client
-from cylc.flow.network.multi import call_multi
+from cylc.flow.network.multi import call_multi_async
 from cylc.flow.option_parsers import (
     WORKFLOW_ID_MULTI_ARG_DOC,
     CylcOptionParser as COP,
@@ -203,7 +205,7 @@ def files_to_settings(settings, setting_files, cancel_mode=False):
                 handle.seek(0, 0)
                 cfg.loadcfg(handle.name)
         else:
-            cfg.loadcfg(setting_file)
+            cfg.loadcfg(os.path.abspath(setting_file))
     stack = [([], cfg.get(sparse=True))]
     while stack:
         keys, item = stack.pop()
@@ -323,6 +325,10 @@ async def run(options: 'Values', workflow_id):
     """Implement cylc broadcast."""
     pclient = get_client(workflow_id, timeout=options.comms_timeout)
 
+    # remove any duplicate namespaces
+    # see https://github.com/cylc/cylc-flow/issues/6334
+    namespaces = list(set(options.namespaces))
+
     ret: Dict[str, Any] = {
         'stdout': [],
         'stderr': [],
@@ -335,7 +341,7 @@ async def run(options: 'Values', workflow_id):
             'wFlows': [workflow_id],
             'bMode': 'Set',
             'cPoints': options.point_strings,
-            'nSpaces': options.namespaces,
+            'nSpaces': namespaces,
             'bSettings': options.settings,
             'bCutoff': options.expire,
         }
@@ -358,7 +364,7 @@ async def run(options: 'Values', workflow_id):
                 # TODO validate showtask?
                 raise InputError(
                     'TASK_ID_GLOB must be in the format: cycle/task'
-                )
+                ) from None
         result = await pclient.async_request('graphql', query_kwargs)
         for wflow in result['workflows']:
             settings = wflow['broadcasts']
@@ -380,7 +386,6 @@ async def run(options: 'Values', workflow_id):
         mutation_kwargs['variables']['bMode'] = 'Expire'
 
     # implement namespace and cycle point defaults here
-    namespaces = options.namespaces
     if not namespaces:
         namespaces = ["root"]
     point_strings = options.point_strings
@@ -450,25 +455,24 @@ async def run(options: 'Values', workflow_id):
     return ret
 
 
-def report(ret):
-    for line in ret['stdout']:
-        print(line)
-    for line in ret['stderr']:
-        if line is not None:
-            print(line, file=sys.stderr)
+def report(response):
+    return (
+        '\n'.join(response['stdout']),
+        '\n'.join(line for line in response['stderr'] if line is not None),
+        response['exit'] == 0,
+    )
 
 
 @cli_function(get_option_parser)
 def main(_, options: 'Values', *ids) -> None:
-    rets = call_multi(
+    rets = asyncio.run(_main(options, *ids))
+    sys.exit(all(rets.values()) is False)
+
+
+async def _main(options: 'Values', *ids):
+    return await call_multi_async(
         partial(run, options),
         *ids,
         constraint='workflows',
         report=report,
     )
-    if all(
-        ret['exit'] == 0
-        for ret in rets
-    ):
-        sys.exit(0)
-    sys.exit(1)

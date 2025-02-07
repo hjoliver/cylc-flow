@@ -42,6 +42,7 @@ from typing import (
     Optional,
     Set,
     Union,
+    cast,
 )
 
 from cylc.flow import LOG
@@ -56,6 +57,7 @@ from cylc.flow.exceptions import (
 )
 from cylc.flow.pathutil import (
     get_workflow_run_dir,
+    is_relative_to,
     parse_rm_dirs,
     remove_dir_and_target,
     remove_dir_or_file,
@@ -115,12 +117,8 @@ def _clean_check(opts: 'Values', id_: str, run_dir: Path) -> None:
     # Thing to clean must be a dir or broken symlink:
     if not run_dir.is_dir() and not run_dir.is_symlink():
         raise FileNotFoundError(f"No directory to clean at {run_dir}")
-    db_path = (
-        run_dir / WorkflowFiles.Service.DIRNAME / WorkflowFiles.Service.DB
-    )
-    if opts.local_only and not db_path.is_file():
-        # Will reach here if this is cylc clean re-invoked on remote host
-        # (workflow DB only exists on scheduler host); don't need to worry
+    if opts.no_scan:
+        # This is cylc clean re-invoked on remote host; don't need to worry
         # about contact file.
         return
     try:
@@ -128,7 +126,7 @@ def _clean_check(opts: 'Values', id_: str, run_dir: Path) -> None:
     except ContactFileExists as exc:
         raise ServiceFileError(
             f"Cannot clean running workflow {id_}.\n\n{exc}"
-        )
+        ) from None
 
 
 def init_clean(id_: str, opts: 'Values') -> None:
@@ -172,7 +170,7 @@ def init_clean(id_: str, opts: 'Values') -> None:
             try:
                 platform_names = get_platforms_from_db(local_run_dir)
             except ServiceFileError as exc:
-                raise ServiceFileError(f"Cannot clean {id_} - {exc}")
+                raise ServiceFileError(f"Cannot clean {id_} - {exc}") from None
             except sqlite3.OperationalError as exc:
                 # something went wrong with the query
                 # e.g. the table/field we need isn't there
@@ -181,13 +179,15 @@ def init_clean(id_: str, opts: 'Values') -> None:
                     ' this version of "cylc clean".'
                     '\nTry using the version of Cylc the workflow was last ran'
                     ' with to remove it.'
-                    '\nOtherwise please delete the database file.'
+                    '\nOtherwise, use the "--local-only" option to remove'
+                    ' local files (you may need to remove files on other'
+                    ' platforms manually).'
                 )
-                raise ServiceFileError(f"Cannot clean {id_} - {exc}")
+                raise ServiceFileError(f"Cannot clean {id_} - {exc}") from exc
 
         if platform_names and platform_names != {'localhost'}:
             remote_clean(
-                id_, platform_names, opts.rm_dirs, opts.remote_timeout
+                id_, platform_names, opts.remote_timeout, opts.rm_dirs
             )
 
     if not opts.remote_only:
@@ -256,7 +256,7 @@ def glob_in_run_dir(
     """Execute a (recursive) glob search in the given run directory.
 
     Returns list of any absolute paths that match the pattern. However:
-    * Does not follow symlinks (apart from the spcedified symlink dirs).
+    * Does not follow symlinks (apart from the specified symlink dirs).
     * Also does not return matching subpaths of matching directories (because
         that would be redundant).
 
@@ -278,6 +278,9 @@ def glob_in_run_dir(
     results: List[Path] = []
     subpath_excludes: Set[Path] = set()
     for path in matches:
+        # Iterate down through ancestors (starting at the run dir) to
+        # weed out redundant subpaths of matched directories and subpaths of
+        # non-standard symlinks
         for rel_ancestor in reversed(path.relative_to(run_dir).parents):
             ancestor = run_dir / rel_ancestor
             if ancestor in subpath_excludes:
@@ -323,13 +326,19 @@ def _clean_using_glob(
         LOG.info(f"No files matching '{pattern}' in {run_dir}")
         return
     # First clean any matching symlink dirs
-    for path in abs_symlink_dirs:
-        if path in matches:
-            remove_dir_and_target(path)
-            if path == run_dir:
+    for symlink_dir in abs_symlink_dirs:
+        # Note: must clean e.g. share/cycle/ before share/ if the former
+        # is a symlink even if only the latter was specified.
+        if (
+            any(is_relative_to(symlink_dir, path) for path in matches)
+            and symlink_dir.is_symlink()
+        ):
+            remove_dir_and_target(symlink_dir)
+            if symlink_dir == run_dir:
                 # We have deleted the run dir
                 return
-            matches.remove(path)
+            if symlink_dir in matches:
+                matches.remove(symlink_dir)
     # Now clean the rest
     for path in matches:
         remove_dir_or_file(path)
@@ -338,8 +347,8 @@ def _clean_using_glob(
 def remote_clean(
     id_: str,
     platform_names: Iterable[str],
+    timeout: str,
     rm_dirs: Optional[List[str]] = None,
-    timeout: str = '120'
 ) -> None:
     """Run subprocesses to clean a workflow on its remote install targets
     (skip localhost), given a set of platform names to look up.
@@ -348,8 +357,9 @@ def remote_clean(
         id_: Workflow name.
         platform_names: List of platform names to look up in the global
             config, in order to determine the install targets to clean on.
+        timeout: ISO 8601 duration or number of seconds to wait before
+            cancelling.
         rm_dirs: Sub dirs to remove instead of the whole run dir.
-        timeout: Number of seconds to wait before cancelling.
     """
     try:
         install_targets_map = (
@@ -357,7 +367,9 @@ def remote_clean(
     except PlatformLookupError as exc:
         raise PlatformLookupError(
             f"Cannot clean {id_} on remote platforms as the workflow database "
-            f"is out of date/inconsistent with the global config - {exc}")
+            f"is out of date/inconsistent with the global config - {exc}"
+        ) from None
+
     queue: Deque[RemoteCleanQueueTuple] = deque()
     remote_clean_cmd = partial(
         _remote_clean_cmd, id_=id_, rm_dirs=rm_dirs, timeout=timeout
@@ -376,7 +388,7 @@ def remote_clean(
                 remote_clean_cmd(platform=platforms[0]), target, platforms
             )
         )
-    failed_targets: Dict[str, PlatformError] = {}
+    failed_targets: Dict[str, Union[PlatformError, str]] = {}
     # Handle subproc pool results almost concurrently:
     while queue:
         item = queue.popleft()
@@ -387,12 +399,17 @@ def remote_clean(
         out, err = item.proc.communicate()
         if out:
             LOG.info(f"[{item.install_target}]\n{out}")
-        if ret_code:
+        if ret_code == 124:
+            failed_targets[item.install_target] = (
+                f"cylc clean timed out after {timeout}s. You can increase "
+                "this timeout using the --timeout option."
+            )
+        elif ret_code:
             this_platform = item.platforms.pop(0)
             excp = PlatformError(
                 PlatformError.MSG_TIDY,
                 this_platform['name'],
-                cmd=item.proc.args,
+                cmd=cast('List[str]', item.proc.args),
                 ret_code=ret_code,
                 out=out,
                 err=err,
@@ -415,9 +432,9 @@ def remote_clean(
             LOG.debug(f"[{item.install_target}]\n{err}")
         sleep(0.2)
     if failed_targets:
-        for target, excp in failed_targets.items():
+        for target, info in failed_targets.items():
             LOG.error(
-                f"Could not clean {id_} on install target: {target}\n{excp}"
+                f"Could not clean {id_} on install target: {target}\n{info}"
             )
         raise CylcError(f"Remote clean failed for {id_}")
 

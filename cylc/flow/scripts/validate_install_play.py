@@ -28,15 +28,9 @@ This script is equivalent to:
 
 """
 
+import asyncio
 import sys
 
-from cylc.flow.scripts.validate import (
-    VALIDATE_OPTIONS,
-    _main as validate_main
-)
-from cylc.flow.scripts.install import (
-    INSTALL_OPTIONS, install_cli as cylc_install, get_source_location
-)
 from cylc.flow import LOG
 from cylc.flow.scheduler_cli import PLAY_OPTIONS
 from cylc.flow.loggingutil import set_timestamps
@@ -46,7 +40,16 @@ from cylc.flow.option_parsers import (
     cleanup_sysargv,
     log_subcommand,
 )
-from cylc.flow.scheduler_cli import _play
+from cylc.flow.scheduler_cli import cylc_play
+from cylc.flow.scripts.validate import (
+    VALIDATE_OPTIONS,
+    run as cylc_validate,
+)
+from cylc.flow.scripts.install import (
+    INSTALL_OPTIONS,
+    install_cli as cylc_install,
+    get_source_location,
+)
 from cylc.flow.terminal import cli_function
 
 from typing import TYPE_CHECKING, Optional
@@ -83,35 +86,38 @@ def get_option_parser() -> COP:
         # no sense in a VIP context.
         if option.kwargs.get('dest') != 'against_source':
             parser.add_option(*option.args, **option.kwargs)
-
+    parser.set_defaults(is_validate=True)
     return parser
 
 
 @cli_function(get_option_parser)
 def main(parser: COP, options: 'Values', workflow_id: Optional[str] = None):
     """Run Cylc validate - install - play in sequence."""
+    # NOTE: We call each of the stages in its own event loop because there is a
+    # strange interaction whereby the cylc.flow.network.scan coroutine pipe can
+    # cause sys.exit to hang on the original process post-daemonization
     if not workflow_id:
         workflow_id = '.'
     orig_source = workflow_id
     source = get_source_location(workflow_id)
     log_subcommand('validate', source)
-    validate_main(parser, options, str(source))
+    asyncio.run(cylc_validate(parser, options, str(source)))
+
+    # Unset is validate after validation.
+    delattr(options, 'is_validate')
 
     log_subcommand('install', source)
-    _, workflow_id = cylc_install(options, workflow_id)
+    _, workflow_id = asyncio.run(cylc_install(options, workflow_id))
 
     cleanup_sysargv(
         'play',
         workflow_id,
         options,
         compound_script_opts=VIP_OPTIONS,
-        script_opts=(
-            PLAY_OPTIONS + CYLC_ROSE_OPTIONS
-            + parser.get_std_options()
-        ),
+        script_opts=(*PLAY_OPTIONS, *parser.get_std_options()),
         source=orig_source,
     )
 
     set_timestamps(LOG, options.log_timestamp)
     log_subcommand(*sys.argv[1:])
-    _play(parser, options, workflow_id)
+    cylc_play(options, workflow_id)

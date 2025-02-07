@@ -31,9 +31,10 @@ from pathlib import Path
 import re
 import sys
 import textwrap
+from time import time
 from typing import List, Optional, Union
 
-from ansimarkup import parse as cparse
+from ansimarkup import parse as cparse, strip as cstrip
 
 from cylc.flow.cfgspec.glbl_cfg import glbl_cfg
 from cylc.flow.wallclock import get_time_string_from_unix_time
@@ -53,10 +54,10 @@ class CylcLogFormatter(logging.Formatter):
     """
 
     COLORS = {
-        'CRITICAL': cparse('<red><bold>{0}</bold></red>'),
-        'ERROR': cparse('<red>{0}</red>'),
-        'WARNING': cparse('<yellow>{0}</yellow>'),
-        'DEBUG': cparse('<fg #888888>{0}</fg #888888>')
+        'CRITICAL': '<red><bold>{0}</bold></red>',
+        'ERROR': '<red>{0}</red>',
+        'WARNING': '<yellow>{0}</yellow>',
+        'DEBUG': '<fg #888888>{0}</fg #888888>'
     }
 
     # default hard-coded max width for log entries
@@ -99,7 +100,9 @@ class CylcLogFormatter(logging.Formatter):
         if not self.timestamp:
             _, text = text.split(' ', 1)  # ISO8601 time points have no spaces
         if self.color and record.levelname in self.COLORS:
-            text = self.COLORS[record.levelname].format(text)
+            text = cparse(self.COLORS[record.levelname].format(text))
+        elif not self.color:
+            text = cstrip(text)
         if self.max_width:
             return '\n'.join(
                 line
@@ -136,7 +139,6 @@ class RotatingLogFileHandler(logging.FileHandler):
 
     FILE_HEADER_FLAG = 'cylc_log_file_header'
     ROLLOVER_NUM = 'cylc_log_num'
-    MIN_BYTES = 1024
 
     header_extra = {FILE_HEADER_FLAG: True}
     """Use to indicate the log msg is a header that should be logged on
@@ -144,7 +146,7 @@ class RotatingLogFileHandler(logging.FileHandler):
 
     def __init__(
         self,
-        log_file_path: str,
+        log_file_path: Union[Path, str],
         no_detach: bool = False,
         restart_num: int = 0,
         timestamp: bool = True,
@@ -153,10 +155,20 @@ class RotatingLogFileHandler(logging.FileHandler):
         self.no_detach = no_detach
         self.formatter = CylcLogFormatter(timestamp=timestamp)
         # Header records get appended to when calling
-        # LOG.info(extra=RotatingLogFileHandler.[rollover_]header_extra)
+        # `LOG.info(extra=RotatingLogFileHandler.[rollover_]header_extra)`:
         self.header_records: List[logging.LogRecord] = []
         self.restart_num = restart_num
         self.log_num: Optional[int] = None  # null value until log file created
+        # Get & cache properties from global config (note: we should not access
+        # the global config object when emitting log messages as as doing so
+        # can have the side effect of expanding the global config):
+        self.max_bytes: int = max(
+            glbl_cfg().get(['scheduler', 'logging', 'maximum size in bytes']),
+            1024  # Max size must be >= 1KB
+        )
+        self.arch_len: Optional[int] = glbl_cfg().get([
+            'scheduler', 'logging', 'rolling archive length'
+        ])
 
     def emit(self, record):
         """Emit a record, rollover log if necessary."""
@@ -194,18 +206,14 @@ class RotatingLogFileHandler(logging.FileHandler):
         """Should rollover?"""
         if self.log_num is None or self.stream is None:
             return True
-        max_bytes = glbl_cfg().get(
-            ['scheduler', 'logging', 'maximum size in bytes'])
-        if max_bytes < self.MIN_BYTES:  # No silly value
-            max_bytes = self.MIN_BYTES
         msg = "%s\n" % self.format(record)
         try:
             # due to non-posix-compliant Windows feature
             self.stream.seek(0, 2)
         except ValueError as exc:
             # intended to catch - ValueError: I/O operation on closed file
-            raise SystemExit(exc)
-        return self.stream.tell() + len(msg.encode('utf8')) >= max_bytes
+            raise SystemExit(exc) from None
+        return self.stream.tell() + len(msg.encode('utf8')) >= self.max_bytes
 
     @property
     def load_type(self) -> str:
@@ -219,10 +227,8 @@ class RotatingLogFileHandler(logging.FileHandler):
         # Create new log file
         self.new_log_file()
         # Housekeep old log files
-        arch_len = glbl_cfg().get(
-            ['scheduler', 'logging', 'rolling archive length'])
-        if arch_len:
-            self.update_log_archive(arch_len)
+        if self.arch_len:
+            self.update_log_archive(self.arch_len)
         # Reopen stream, redirect STDOUT and STDERR to log
         if self.stream:
             self.stream.close()
@@ -233,18 +239,25 @@ class RotatingLogFileHandler(logging.FileHandler):
             os.dup2(self.stream.fileno(), sys.stderr.fileno())
         # Emit header records (should only do this for subsequent log files)
         for header_record in self.header_records:
+            now = time()
             if self.ROLLOVER_NUM in header_record.__dict__:
                 # A hack to increment the rollover number that gets logged in
                 # the log file. (Rollover number only applies to a particular
                 # workflow run; note this is different from the log count
                 # number in the log filename.)
+
                 header_record.__dict__[self.ROLLOVER_NUM] += 1
                 header_record.args = (
                     header_record.__dict__[self.ROLLOVER_NUM],
                 )
+
+            # patch the record time (otherwise this will be logged with the
+            # original timestamp)
+            header_record.created = now
+
             logging.FileHandler.emit(self, header_record)
 
-    def update_log_archive(self, arch_len):
+    def update_log_archive(self, arch_len: int) -> None:
         """Maintain configured log file archive.
             - Sort logs by file modification time
             - Delete old log files in line with archive length configured in
@@ -329,7 +342,7 @@ LOG_LEVEL_REGEXES = [
 def re_formatter(log_string):
     """Read in an uncoloured log_string file and apply colour formatting."""
     for sub, repl in LOG_LEVEL_REGEXES:
-        log_string = sub.sub(repl, log_string)
+        log_string = cparse(sub.sub(repl, log_string))
     return log_string
 
 
@@ -425,7 +438,7 @@ def patch_log_level(logger: logging.Logger, level: int = logging.INFO):
 
     Defaults to INFO.
     """
-    orig_level = logger.getEffectiveLevel()
+    orig_level = logger.level
     if level < orig_level:
         logger.setLevel(level)
         yield

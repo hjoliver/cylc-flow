@@ -65,7 +65,6 @@ from cylc.flow.workflow_files import (
     check_flow_file,
     get_cylc_run_abs_path,
     is_valid_run_dir,
-    check_reserved_dir_names,
     validate_workflow_name,
 )
 
@@ -91,8 +90,7 @@ def _get_logger(rund, log_name, open_file=True):
 
     """
     logger = logging.getLogger(log_name)
-    if logger.getEffectiveLevel != logging.INFO:
-        logger.setLevel(logging.INFO)
+    logger.setLevel(logging.INFO)
     if open_file and not logger.hasHandlers():
         _open_install_log(rund, logger)
     return logger
@@ -285,13 +283,17 @@ def install_workflow(
     source = Path(expand_path(source)).resolve()
     if not workflow_name:
         workflow_name = get_source_workflow_name(source)
-    validate_workflow_name(workflow_name, check_reserved_names=True)
     if run_name is not None:
         if len(Path(run_name).parts) != 1:
             raise WorkflowFilesError(
                 f'Run name cannot be a path. (You used {run_name})'
             )
-        check_reserved_dir_names(run_name)
+        validate_workflow_name(
+            os.path.join(workflow_name, run_name),
+            check_reserved_names=True
+        )
+    else:
+        validate_workflow_name(workflow_name, check_reserved_names=True)
     validate_source_dir(source, workflow_name)
     run_path_base = Path(get_workflow_run_dir(workflow_name))
     relink, run_num, rundir = get_run_dir_info(
@@ -328,7 +330,7 @@ def install_workflow(
         # This occurs when the file exists but is _not_ a directory.
         raise WorkflowFilesError(
             f"Cannot install as there is an existing file at {rundir}."
-        )
+        ) from None
     if relink:
         link_runN(rundir)
     rsync_cmd = get_rsync_rund_cmd(source, rundir)
@@ -529,7 +531,7 @@ def parse_cli_sym_dirs(symlink_dirs: str) -> Dict[str, Dict[str, Any]]:
                 'There is an error in --symlink-dirs option:'
                 f' {pair}. Try entering option in the form '
                 '--symlink-dirs=\'log=$DIR, share=$DIR2, ...\''
-            )
+            ) from None
         if key not in possible_symlink_dirs:
             dirs = ', '.join(possible_symlink_dirs)
             raise InputError(

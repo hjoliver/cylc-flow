@@ -26,59 +26,7 @@ from typing import Callable, Optional
 
 
 class Timer:
-    """Simple timer class for workflow timers.
-
-    Examples:
-        >>> from time import sleep
-
-        # Patch LOG.warning to capture warning messages
-        >>> warnings = []
-        >>> orig_log_warning = LOG.warning
-        >>> LOG.warning = lambda msg: warnings.append(msg)
-
-        >>> timer = Timer("bob timeout", 1.0)
-
-        # timer attributes
-        >>> timer.name
-        'bob timer'
-        >>> timer.interval
-        'PT1S'
-
-        # start timer
-        >>> timer.reset()
-        >>> warnings[-1]
-        'PT1S bob timer starts NOW'
-
-        # check timeout
-        >>> sleep(2)
-        >>> timer.timed_out()
-        True
-        >>> warnings[-1]
-        'bob timer timed out after PT1S'
-
-        # stop should do nothing after timeou
-        >>> warnings = []
-        >>> timer.stop()
-        >>> warnings
-        []
-
-        # start timer again, then stop it
-        >>> timer.reset()
-        >>> warnings[-1]
-        'PT1S bob timer starts NOW'
-        >>> timer.stop()
-        >>> warnings[-1]
-        'bob timer stopped'
-
-        # another stop should do nothing
-        >>> warnings = []
-        >>> timer.stop()
-        >>> warnings
-        []
-
-        # Un-patch LOG.warning to avoid breaking subsequent unit tests!
-        >>> LOG.warning = orig_log_warning
-    """
+    """Simple timer class for workflow timers."""
 
     def __init__(
         self, name: str, interval: float,
@@ -104,7 +52,7 @@ class Timer:
         if self.timeout is None:
             return
         self.timeout = None
-        LOG.warning(f"{self.name} stopped")
+        LOG.info(f"{self.name} stopped")
 
     def timed_out(self) -> bool:
         """Return whether timed out yet."""

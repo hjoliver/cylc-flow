@@ -62,6 +62,7 @@ from cylc.flow.cycling.nocycle import (
 from cylc.flow.id import Tokens
 from cylc.flow.cycling.integer import IntegerInterval
 from cylc.flow.cycling.iso8601 import ingest_time, ISO8601Interval
+
 from cylc.flow.exceptions import (
     CylcError,
     InputError,
@@ -73,19 +74,20 @@ from cylc.flow.exceptions import (
 import cylc.flow.flags
 from cylc.flow.graph_parser import GraphParser
 from cylc.flow.listify import listify
-from cylc.flow.option_parsers import verbosity_to_env
+from cylc.flow.log_level import verbosity_to_env
 from cylc.flow.graphnode import GraphNodeParser
 from cylc.flow.param_expand import NameExpander
 from cylc.flow.parsec.exceptions import ItemNotFoundError
 from cylc.flow.parsec.OrderedDict import OrderedDictWithDefaults
-from cylc.flow.parsec.util import replicate
+from cylc.flow.parsec.util import dequote, replicate
 from cylc.flow.pathutil import (
     get_workflow_name_from_id,
     get_cylc_run_dir,
     is_relative_to,
 )
-from cylc.flow.platforms import FORBIDDEN_WITH_PLATFORM
-from cylc.flow.print_tree import print_tree
+from cylc.flow.task_qualifiers import ALT_QUALIFIERS
+from cylc.flow.run_modes.simulation import configure_sim_mode
+from cylc.flow.run_modes.skip import skip_mode_validate
 from cylc.flow.subprocctx import SubFuncContext
 from cylc.flow.task_events_mgr import (
     EventData,
@@ -93,9 +95,16 @@ from cylc.flow.task_events_mgr import (
 )
 from cylc.flow.task_id import TaskID
 from cylc.flow.task_outputs import (
+    TASK_OUTPUT_FAILED,
+    TASK_OUTPUT_FINISHED,
     TASK_OUTPUT_SUCCEEDED,
-    TaskOutputs
+    TaskOutputs,
+    get_completion_expression,
+    get_optional_outputs,
+    get_trigger_completion_variable_maps,
+    trigger_to_completion_variable,
 )
+from cylc.flow.run_modes import RunMode
 from cylc.flow.task_trigger import TaskTrigger, Dependency
 from cylc.flow.taskdef import TaskDef
 from cylc.flow.unicode_rules import (
@@ -111,7 +120,7 @@ from cylc.flow.workflow_files import (
     WorkflowFiles,
     check_deprecation,
 )
-from cylc.flow.xtrigger_mgr import XtriggerManager
+from cylc.flow.xtrigger_mgr import XtriggerCollator
 
 if TYPE_CHECKING:
     from optparse import Values
@@ -195,34 +204,11 @@ def interpolate_template(tmpl, params_dict):
     try:
         return tmpl % params_dict
     except KeyError:
-        raise ParamExpandError('bad parameter')
+        raise ParamExpandError('bad parameter') from None
     except TypeError:
-        raise ParamExpandError('wrong data type for parameter')
+        raise ParamExpandError('wrong data type for parameter') from None
     except ValueError:
-        raise ParamExpandError('bad template syntax')
-
-
-def dequote(string):
-    """Strip quotes off a string.
-
-    Examples:
-        >>> dequote('"foo"')
-        'foo'
-        >>> dequote("'foo'")
-        'foo'
-        >>> dequote('foo')
-        'foo'
-        >>> dequote('"f')
-        '"f'
-        >>> dequote('f')
-        'f'
-
-    """
-    if len(string) < 2:
-        return string
-    if (string[0] == string[-1]) and string.startswith(("'", '"')):
-        return string[1:-1]
-    return string
+        raise ParamExpandError('bad template syntax') from None
 
 
 class WorkflowConfig:
@@ -239,12 +225,12 @@ class WorkflowConfig:
         options: 'Values',
         template_vars: Optional[Mapping[str, Any]] = None,
         output_fname: Optional[str] = None,
-        xtrigger_mgr: Optional[XtriggerManager] = None,
         mem_log_func: Optional[Callable[[str], None]] = None,
         run_dir: Optional[str] = None,
         log_dir: Optional[str] = None,
         work_dir: Optional[str] = None,
-        share_dir: Optional[str] = None
+        share_dir: Optional[str] = None,
+        force_compat_mode: bool = False,
     ) -> None:
         """
         Initialize the workflow config object.
@@ -253,8 +239,13 @@ class WorkflowConfig:
             workflow: workflow ID
             fpath: workflow config file path
             options: CLI options
+            force_compat_mode:
+                If True, forces Cylc to use compatibility mode
+                overriding compatibility mode checks.
+                See https://github.com/cylc/cylc-rose/issues/319
+
         """
-        check_deprecation(Path(fpath))
+        check_deprecation(Path(fpath), force_compat_mode=force_compat_mode)
         self.mem_log = mem_log_func
         if self.mem_log is None:
             self.mem_log = lambda x: None
@@ -275,7 +266,7 @@ class WorkflowConfig:
         self.taskdefs: Dict[str, TaskDef] = {}
         self.expiration_offsets = {}
         self.ext_triggers = {}  # Old external triggers (client/server)
-        self.xtrigger_mgr = xtrigger_mgr
+        self.xtrigger_collator = XtriggerCollator()
         self.workflow_polling_tasks = {}  # type: ignore # TODO figure out type
 
         self.initial_point: 'PointBase'
@@ -371,7 +362,6 @@ class WorkflowConfig:
 
         # parameter values and templates are normally needed together.
         self.parameters = (parameter_values, parameter_templates)
-
         LOG.debug("Expanding [runtime] namespace lists and parameters")
 
         # Set default parameter expansion templates if necessary.
@@ -495,8 +485,8 @@ class WorkflowConfig:
                             get_interval(offset_string).standardise())
                     except IntervalParsingError:
                         raise WorkflowConfigError(
-                            "Illegal %s spec: %s" % (
-                                s_type, offset_string))
+                            "Illegal %s spec: %s" % (s_type, offset_string)
+                        ) from None
                     extn = "(" + offset_string + ")"
 
                 # Replace family names with members.
@@ -524,10 +514,14 @@ class WorkflowConfig:
         self.load_graph()
         self.mem_log("config.py: after load_graph()")
 
+        self._set_completion_expressions()
+
         self.process_runahead_limit()
 
-        if self.run_mode('simulation', 'dummy'):
-            self.configure_sim_modes()
+        run_mode = RunMode.get(self.options)
+        if run_mode in {RunMode.SIMULATION, RunMode.DUMMY}:
+            for taskdef in self.taskdefs.values():
+                configure_sim_mode(taskdef.rtconfig, None, False)
 
         self.configure_workflow_state_polling_tasks()
 
@@ -578,6 +572,8 @@ class WorkflowConfig:
             self.mem_log("config.py: after _check_circular()")
 
         self.mem_log("config.py: end init config")
+
+        skip_mode_validate(self.taskdefs)
 
     @staticmethod
     def _warn_if_queues_have_implicit_tasks(
@@ -709,7 +705,7 @@ class WorkflowConfig:
         Sets:
             self.initial_point
             self.cfg['scheduling']['initial cycle point']
-            self.options.icp
+            self.evaluated_icp
         Raises:
             WorkflowConfigError - if it fails to validate
         """
@@ -728,11 +724,12 @@ class WorkflowConfig:
                 try:
                     icp = ingest_time(orig_icp, get_current_time_string())
                 except IsodatetimeError as exc:
-                    raise WorkflowConfigError(str(exc))
-        if orig_icp != icp:
+                    raise WorkflowConfigError(str(exc)) from None
+        self.evaluated_icp = None
+        if icp != orig_icp:
             # now/next()/previous() was used, need to store
             # evaluated point in DB
-            self.options.icp = icp
+            self.evaluated_icp = icp
         self.initial_point = get_point(icp).standardise()
         self.cfg['scheduling']['initial cycle point'] = str(self.initial_point)
 
@@ -780,7 +777,7 @@ class WorkflowConfig:
                     for taskid in self.options.starttask
                 ]
             except ValueError as exc:
-                raise InputError(str(exc))
+                raise InputError(str(exc)) from None
             self.start_point = min(
                 get_point(cycle).standardise()
                 for cycle in cycle_points if cycle
@@ -863,9 +860,16 @@ class WorkflowConfig:
         if stopcp_str is None:
             stopcp_str = self.cfg['scheduling']['stop after cycle point']
 
-        if stopcp_str is not None:
-            self.stop_point = get_point(stopcp_str).standardise()
-            if self.final_point and (self.stop_point > self.final_point):
+        if stopcp_str:
+            self.stop_point = get_point_relative(
+                stopcp_str,
+                self.initial_point,
+            ).standardise()
+            if (
+                self.final_point is not None
+                and self.stop_point is not None
+                and self.stop_point > self.final_point
+            ):
                 LOG.warning(
                     f"Stop cycle point '{self.stop_point}' will have no "
                     "effect as it is after the final cycle "
@@ -1010,6 +1014,216 @@ class WorkflowConfig:
                     f"initial cycle point {self.start_point}"
                 )
             LOG.warning(msg)
+
+    def _set_completion_expressions(self):
+        """Sets and checks completion expressions for each task.
+
+        If a task does not have a user-defined completion expression, then set
+        one according to the default rules.
+
+        If a task does have a used-defined completion expression, then ensure
+        it is consistent with the use of outputs in the graph.
+        """
+        for name, taskdef in self.taskdefs.items():
+            expr = taskdef.rtconfig['completion']
+            if expr:
+                # check the user-defined expression
+                self._check_completion_expression(name, expr)
+            else:
+                # derive a completion expression for this taskdef
+                expr = get_completion_expression(taskdef)
+
+            # update both the sparse and dense configs to make these values
+            # visible to "cylc config" to make the completion expression more
+            # transparent to users.
+            # NOTE: we have to update both because we are setting this value
+            # late on in the process after the dense copy has been made
+            self.pcfg.sparse.setdefault(
+                'runtime', {}
+            ).setdefault(
+                name, {}
+            )['completion'] = expr
+            self.pcfg.dense['runtime'][name]['completion'] = expr
+
+            # update the task's runtime config to make this value visible to
+            # the data store
+            # NOTE: we have to do this because we are setting this value late
+            # on after the TaskDef has been created
+            taskdef.rtconfig['completion'] = expr
+
+    def _check_completion_expression(self, task_name: str, expr: str) -> None:
+        """Checks a user-defined completion expression.
+
+        Args:
+            task_name:
+                The name of the task we are checking.
+            expr:
+                The completion expression as defined in the config.
+
+        """
+        # check completion expressions are not being used in compat mode
+        if cylc.flow.flags.cylc7_back_compat:
+            raise WorkflowConfigError(
+                '[runtime][<namespace>]completion cannot be used'
+                ' in Cylc 7 compatibility mode.'
+            )
+
+        # check for invalid triggers in the expression
+        if 'submit-failed' in expr:
+            raise WorkflowConfigError(
+                f'Error in [runtime][{task_name}]completion:'
+                f'\nUse "submit_failed" rather than "submit-failed"'
+                ' in completion expressions.'
+            )
+        elif '-' in expr:
+            raise WorkflowConfigError(
+                f'Error in [runtime][{task_name}]completion:'
+                f'\n  {expr}'
+                '\nReplace hyphens with underscores in task outputs when'
+                ' used in completion expressions.'
+            )
+
+        # get the outputs and completion expression for this task
+        try:
+            outputs = self.taskdefs[task_name].outputs
+        except KeyError:
+            # this is a family -> we'll check integrity for each task that
+            # inherits from it
+            return
+
+        (
+            _trigger_to_completion_variable,
+            _completion_variable_to_trigger,
+        ) = get_trigger_completion_variable_maps(outputs.keys())
+
+        # get the optional/required outputs defined in the graph
+        graph_optionals = {
+            # completion_variable: is_optional
+            _trigger_to_completion_variable[trigger]: (
+                None if is_required is None else not is_required
+            )
+            for trigger, (_, is_required)
+            in outputs.items()
+        }
+        if (
+            graph_optionals[TASK_OUTPUT_SUCCEEDED] is True
+            and graph_optionals[TASK_OUTPUT_FAILED] is None
+        ):
+            # failed is implicitly optional if succeeded is optional
+            # https://github.com/cylc/cylc-flow/pull/6046#issuecomment-2059266086
+            graph_optionals[TASK_OUTPUT_FAILED] = True
+
+        # get the optional/required outputs defined in the expression
+        try:
+            # this involves running the expression which also validates it
+            expression_optionals = get_optional_outputs(expr, outputs)
+        except NameError as exc:
+            # expression references an output which has not been registered
+            error = exc.args[0][5:]
+
+            if f"'{TASK_OUTPUT_FINISHED}'" in error:
+                # the finished output cannot be used in completion expressions
+                # see proposal point 5::
+                # https://cylc.github.io/cylc-admin/proposal-optional-output-extension.html#proposal
+                raise WorkflowConfigError(
+                    f'Error in [runtime][{task_name}]completion:'
+                    f'\n  {expr}'
+                    '\nThe "finished" output cannot be used in completion'
+                    ' expressions, use "succeeded or failed".'
+                ) from None
+
+            for alt_qualifier, qualifier in ALT_QUALIFIERS.items():
+                _alt_compvar = trigger_to_completion_variable(alt_qualifier)
+                _compvar = trigger_to_completion_variable(qualifier)
+                if re.search(rf'\b{_alt_compvar}\b', error):
+                    raise WorkflowConfigError(
+                        f'Error in [runtime][{task_name}]completion:'
+                        f'\n  {expr}'
+                        f'\nUse "{_compvar}" not "{_alt_compvar}" '
+                        'in completion expressions.'
+                    ) from None
+
+            raise WorkflowConfigError(
+                # NOTE: str(exc) == "name 'x' is not defined" tested in
+                # tests/integration/test_optional_outputs.py
+                f'Error in [runtime][{task_name}]completion:'
+                f'\n{error}'
+            ) from None
+        except Exception as exc:  # includes InvalidCompletionExpression
+            # expression contains non-whitelisted syntax or any other error in
+            # the expression e.g. SyntaxError
+            raise WorkflowConfigError(
+                f'Error in [runtime][{task_name}]completion:'
+                f'\n{str(exc)}'
+            ) from None
+
+        # ensure consistency between the graph and the completion expression
+        for compvar in (
+            {
+                *graph_optionals,
+                *expression_optionals
+            }
+        ):
+            # is the output optional in the graph?
+            graph_opt = graph_optionals.get(compvar)
+            # is the output optional in the completion expression?
+            expr_opt = expression_optionals.get(compvar)
+
+            # True = is optional
+            # False = is required
+            # None = is not referenced
+
+            # graph_opt  expr_opt
+            # True       True       ok
+            # True       False      not ok
+            # True       None       not ok [1]
+            # False      True       not ok [1]
+            # False      False      ok
+            # False      None       not ok
+            # None       True       ok
+            # None       False      ok
+            # None       None       ok
+
+            # [1] applies only to "submit-failed" and "expired"
+
+            trigger = _completion_variable_to_trigger[compvar]
+
+            if graph_opt is True and expr_opt is False:
+                raise WorkflowConfigError(
+                    f'{task_name}:{trigger} is optional in the graph'
+                    ' (? symbol), but required in the completion'
+                    f' expression:\n{expr}'
+                )
+
+            if graph_opt is False and expr_opt is None:
+                raise WorkflowConfigError(
+                    f'{task_name}:{trigger} is required in the graph,'
+                    ' but not referenced in the completion'
+                    f' expression\n{expr}'
+                )
+
+            if (
+                graph_opt is True
+                and expr_opt is None
+                and compvar in {'submit_failed', 'expired'}
+            ):
+                raise WorkflowConfigError(
+                    f'{task_name}:{trigger} is permitted in the graph'
+                    ' but is not referenced in the completion'
+                    ' expression (so is not permitted by it).'
+                    f'\nTry: completion = "{expr} or {compvar}"'
+                )
+
+            if (
+                graph_opt is False
+                and expr_opt is True
+                and compvar not in {'submit_failed', 'expired'}
+            ):
+                raise WorkflowConfigError(
+                    f'{task_name}:{trigger} is required in the graph,'
+                    ' but optional in the completion expression'
+                    f'\n{expr}'
+                )
 
     def _expand_name_list(self, orig_names):
         """Expand any parameters in lists of names."""
@@ -1217,11 +1431,12 @@ class WorkflowConfig:
                     c3_single.mro(name))
             except RecursionError:
                 raise WorkflowConfigError(
-                    "circular [runtime] inheritance?")
+                    "circular [runtime] inheritance?"
+                ) from None
             except Exception as exc:
                 # catch inheritance errors
                 # TODO - specialise MRO exceptions
-                raise WorkflowConfigError(str(exc))
+                raise WorkflowConfigError(str(exc)) from None
 
         for name in self.cfg['runtime']:
             ancestors = self.runtime['linearized ancestors'][name]
@@ -1314,6 +1529,19 @@ class WorkflowConfig:
             self.runtime['linearized ancestors'][orphan] = [orphan, 'root']
 
     def configure_workflow_state_polling_tasks(self):
+
+        # Deprecation warning - automatic workflow state polling tasks don't
+        # necessarily have deprecated config items outside the graph string.
+        if (
+            self.workflow_polling_tasks and
+            getattr(self.options, 'is_validate', False)
+        ):
+            LOG.warning(
+                "Workflow state polling tasks are deprecated."
+                " Please convert to workflow_state xtriggers:\n * "
+                + "\n * ".join(self.workflow_polling_tasks)
+            )
+
         # Check custom script not defined for automatic workflow polling tasks.
         for l_task in self.workflow_polling_tasks:
             try:
@@ -1327,93 +1555,48 @@ class WorkflowConfig:
                         "script cannot be defined for automatic" +
                         " workflow polling task '%s':\n%s" % (l_task, cs))
         # Generate the automatic scripting.
-        for name, tdef in list(self.taskdefs.items()):
+        for name, tdef in self.taskdefs.items():
             if name not in self.workflow_polling_tasks:
                 continue
             rtc = tdef.rtconfig
             comstr = (
-                "cylc workflow-state"
-                f" --task={tdef.workflow_polling_cfg['task']}"
-                " --point=$CYLC_TASK_CYCLE_POINT"
+                "cylc workflow-state "
+                f"{tdef.workflow_polling_cfg['workflow']}//"
+                "$CYLC_TASK_CYCLE_POINT/"
+                f"{tdef.workflow_polling_cfg['task']}"
             )
+            graph_selector = tdef.workflow_polling_cfg['status']
+            config_message = rtc['workflow state polling']['message']
+            if (
+                graph_selector is not None and
+                (
+                    config_message is not None
+                ) and (
+                    graph_selector != config_message
+                )
+            ):
+                raise WorkflowConfigError(
+                    f'Polling task "{name}" must configure a target status or'
+                    f' output message in the graph (:{graph_selector}) or task'
+                    f' definition (message = "{config_message}") but not both.'
+                )
+            if graph_selector is not None:
+                comstr += f":{graph_selector}"
+            elif config_message is not None:
+                # quote: may contain spaces
+                comstr += f':"{config_message}" --messages'
+            else:
+                # default to :succeeded
+                comstr += f":{TASK_OUTPUT_SUCCEEDED}"
+
             for key, fmt in [
-                    ('user', ' --%s=%s'),
-                    ('host', ' --%s=%s'),
                     ('interval', ' --%s=%d'),
                     ('max-polls', ' --%s=%s'),
-                    ('run-dir', ' --%s=%s')]:
+                    ('alt-cylc-run-dir', ' --%s=%s')]:
                 if rtc['workflow state polling'][key]:
                     comstr += fmt % (key, rtc['workflow state polling'][key])
-            if rtc['workflow state polling']['message']:
-                comstr += " --message='%s'" % (
-                    rtc['workflow state polling']['message'])
-            else:
-                comstr += " --status=" + tdef.workflow_polling_cfg['status']
-            comstr += " " + tdef.workflow_polling_cfg['workflow']
-            script = "echo " + comstr + "\n" + comstr
+            script = f"echo {comstr}\n{comstr}"
             rtc['script'] = script
-
-    def configure_sim_modes(self):
-        """Adjust task defs for simulation and dummy mode."""
-        for tdef in self.taskdefs.values():
-            # Compute simulated run time by scaling the execution limit.
-            rtc = tdef.rtconfig
-            limit = rtc['execution time limit']
-            speedup = rtc['simulation']['speedup factor']
-            if limit and speedup:
-                sleep_sec = (DurationParser().parse(
-                    str(limit)).get_seconds() / speedup)
-            else:
-                sleep_sec = DurationParser().parse(
-                    str(rtc['simulation']['default run length'])
-                ).get_seconds()
-            rtc['execution time limit'] = (
-                sleep_sec + DurationParser().parse(str(
-                    rtc['simulation']['time limit buffer'])).get_seconds()
-            )
-            rtc['job']['simulated run length'] = sleep_sec
-
-            # Generate dummy scripting.
-            rtc['init-script'] = ""
-            rtc['env-script'] = ""
-            rtc['pre-script'] = ""
-            rtc['post-script'] = ""
-            scr = "sleep %d" % sleep_sec
-            # Dummy message outputs.
-            for msg in rtc['outputs'].values():
-                scr += "\ncylc message '%s'" % msg
-            if rtc['simulation']['fail try 1 only']:
-                arg1 = "true"
-            else:
-                arg1 = "false"
-            arg2 = " ".join(rtc['simulation']['fail cycle points'])
-            scr += "\ncylc__job__dummy_result %s %s || exit 1" % (arg1, arg2)
-            rtc['script'] = scr
-
-            # Dummy mode jobs should run on platform localhost
-            # All Cylc 7 config items which conflict with platform are removed.
-            for section, keys in FORBIDDEN_WITH_PLATFORM.items():
-                if section in rtc:
-                    for key in keys:
-                        if key in rtc[section]:
-                            rtc[section][key] = None
-
-            rtc['platform'] = 'localhost'
-
-            # Disable environment, in case it depends on env-script.
-            rtc['environment'] = {}
-
-            # Simulation mode tasks should fail in which cycle points?
-            f_pts = []
-            f_pts_orig = rtc['simulation']['fail cycle points']
-            if 'all' in f_pts_orig:
-                # None for "fail all points".
-                f_pts = None
-            else:
-                # (And [] for "fail no points".)
-                for point_str in f_pts_orig:
-                    f_pts.append(get_point(point_str).standardise())
-            rtc['simulation']['fail cycle points'] = f_pts
 
     def get_parent_lists(self):
         return self.runtime['parents']
@@ -1435,18 +1618,6 @@ class WorkflowConfig:
 
     def get_first_parent_descendants(self):
         return self.runtime['first-parent descendants']
-
-    @staticmethod
-    def define_inheritance_tree(tree, hierarchy):
-        """Combine inheritance hierarchies into a tree structure."""
-        for rt_ in hierarchy:
-            hier = copy(hierarchy[rt_])
-            hier.reverse()
-            cur_tree = tree
-            for item in hier:
-                if item not in cur_tree:
-                    cur_tree[item] = {}
-                cur_tree = cur_tree[item]
 
     def add_tree_titles(self, tree):
         for key, val in tree.items():
@@ -1482,34 +1653,6 @@ class WorkflowConfig:
         except KeyError:
             mro = ["no such namespace: " + ns]
         return mro
-
-    def print_first_parent_tree(self, pretty=False, titles=False):
-        # find task namespaces (no descendants)
-        tasks = []
-        for ns in self.cfg['runtime']:
-            if ns not in self.runtime['descendants']:
-                tasks.append(ns)
-
-        pruned_ancestors = self.get_first_parent_ancestors(pruned=True)
-        tree = {}
-        self.define_inheritance_tree(tree, pruned_ancestors)
-        padding = ''
-        if titles:
-            self.add_tree_titles(tree)
-            # compute pre-title padding
-            maxlen = 0
-            for namespace in pruned_ancestors:
-                items = copy(pruned_ancestors[namespace])
-                items.reverse()
-                for itt, item in enumerate(items):
-                    tmp = 2 * itt + 1 + len(item)
-                    if itt == 0:
-                        tmp -= 1
-                    if tmp > maxlen:
-                        maxlen = tmp
-            padding = maxlen * ' '
-
-        print_tree(tree, padding=padding, use_unicode=pretty)
 
     def process_workflow_env(self):
         """Export Workflow context to the local environment.
@@ -1557,23 +1700,21 @@ class WorkflowConfig:
         os.environ['CYLC_CYCLING_MODE'] = self.cfg['scheduling'][
             'cycling mode']
         # Add workflow bin directory to PATH for workflow and event handlers
-        os.environ['PATH'] = os.pathsep.join([
-            os.path.join(self.fdir, 'bin'), os.environ['PATH']])
-
-    def run_mode(self, *reqmodes):
-        """Return the run mode.
-
-        Combine command line option with configuration setting.
-        If "reqmodes" is specified, return the boolean (mode in reqmodes).
-        Otherwise, return the mode as a str.
-        """
-        mode = getattr(self.options, 'run_mode', None)
-        if not mode:
-            mode = 'live'
-        if reqmodes:
-            return mode in reqmodes
+        if self.share_dir is not None:
+            os.environ['PATH'] = os.pathsep.join(
+                [
+                    os.path.join(self.share_dir, 'bin'),
+                    os.path.join(self.fdir, 'bin'),
+                    os.environ['PATH']
+                ]
+            )
         else:
-            return mode
+            os.environ['PATH'] = os.pathsep.join(
+                [
+                    os.path.join(self.fdir, 'bin'),
+                    os.environ['PATH']
+                ]
+            )
 
     def _check_task_event_handlers(self):
         """Check custom event handler templates can be expanded.
@@ -1603,7 +1744,7 @@ class WorkflowConfig:
                                     f' {taskdef.name}:'
                                     f' {handler_template}:'
                                     f' {repr(exc)}'
-                                )
+                                ) from None
 
     def _check_special_tasks(self):
         """Check declared special tasks are valid, and detect special
@@ -1710,7 +1851,9 @@ class WorkflowConfig:
         try:
             expr_list = listify(lexpression)
         except SyntaxError:
-            raise WorkflowConfigError('Error in expression "%s"' % lexpression)
+            raise WorkflowConfigError(
+                'Error in expression "%s"' % lexpression
+            ) from None
 
         triggers = {}
         xtrig_labels = set()
@@ -1771,42 +1914,39 @@ class WorkflowConfig:
             self.taskdefs[right].add_dependency(dependency, seq)
 
         validator = XtriggerNameValidator.validate
-        for label in self.cfg['scheduling']['xtriggers']:
+        xtrigs = self.cfg['scheduling']['xtriggers']
+        for label in xtrigs:
             valid, msg = validator(label)
             if not valid:
                 raise WorkflowConfigError(
                     f'Invalid xtrigger name "{label}" - {msg}'
                 )
 
+        self.xtrigger_collator.sequential_xtriggers_default = (
+            self.cfg['scheduling']['sequential xtriggers']
+        )
         for label in xtrig_labels:
             try:
-                xtrig = self.cfg['scheduling']['xtriggers'][label]
+                xtrig = xtrigs[label]
             except KeyError:
                 if label != 'wall_clock':
-                    raise WorkflowConfigError(f"xtrigger not defined: {label}")
-                else:
-                    # Allow "@wall_clock" in the graph as an undeclared
-                    # zero-offset clock xtrigger.
-                    xtrig = SubFuncContext(
-                        'wall_clock', 'wall_clock', [], {})
-
-            if xtrig.func_name == 'wall_clock':
-                if self.cycling_type == INTEGER_CYCLING_TYPE:
                     raise WorkflowConfigError(
-                        "Clock xtriggers require datetime cycling:"
-                        f" {label} = {xtrig.get_signature()}"
-                    )
+                        f"xtrigger not defined: {label}"
+                    ) from None
                 else:
-                    # Convert offset arg to kwarg for certainty later.
-                    if "offset" not in xtrig.func_kwargs:
-                        xtrig.func_kwargs["offset"] = None
-                        with suppress(IndexError):
-                            xtrig.func_kwargs["offset"] = xtrig.func_args[0]
+                    # Allow "@wall_clock" in graph as implicit zero-offset.
+                    xtrig = SubFuncContext('wall_clock', 'wall_clock', [], {})
 
-            if self.xtrigger_mgr is None:
-                XtriggerManager.validate_xtrigger(label, xtrig, self.fdir)
-            else:
-                self.xtrigger_mgr.add_trig(label, xtrig, self.fdir)
+            if (
+                xtrig.func_name == 'wall_clock'
+                and self.cycling_type == INTEGER_CYCLING_TYPE
+            ):
+                raise WorkflowConfigError(
+                    "Clock xtriggers require datetime cycling:"
+                    f" {label} = {xtrig.get_signature()}"
+                )
+
+            self.xtrigger_collator.add_trig(label, xtrig, self.fdir)
             self.taskdefs[right].add_xtrig_label(label, seq)
 
     def get_actual_first_point(self, start_point):
@@ -2131,7 +2271,7 @@ class WorkflowConfig:
                     )
                     if isinstance(exc, CylcError):
                         msg += ' %s' % exc.args[0]
-                    raise WorkflowConfigError(msg)
+                    raise WorkflowConfigError(msg) from None
                 else:
                     self.nocycle_sequences.add(seq)
             else:
@@ -2290,12 +2430,21 @@ class WorkflowConfig:
             except TaskDefError as exc:
                 if orig_expr:
                     LOG.error(orig_expr)
-                raise WorkflowConfigError(str(exc))
+                raise WorkflowConfigError(str(exc)) from None
             else:
                 # Record custom message outputs from [runtime].
+                messages = set(self.cfg['runtime'][name]['outputs'].values())
                 for output, message in (
                     self.cfg['runtime'][name]['outputs'].items()
                 ):
+                    try:
+                        messages.remove(message)
+                    except KeyError:
+                        raise WorkflowConfigError(
+                            'Duplicate task message in'
+                            f' "[runtime][{name}][outputs]'
+                            f'{output} = {message}" - messages must be unique'
+                        ) from None
                     valid, msg = TaskOutputValidator.validate(output)
                     if not valid:
                         raise WorkflowConfigError(
@@ -2321,13 +2470,15 @@ class WorkflowConfig:
         try:
             rtcfg = self.cfg['runtime'][name]
         except KeyError:
-            raise WorkflowConfigError("Task not defined: %s" % name)
+            raise WorkflowConfigError("Task not defined: %s" % name) from None
         # We may want to put in some handling for cases of changing the
         # initial cycle via restart (accidentally or otherwise).
 
         # Get the taskdef object for generating the task proxy class
         taskd = TaskDef(
-            name, rtcfg, self.run_mode(), self.start_point,
+            name,
+            rtcfg,
+            self.start_point,
             self.initial_point)
 
         # TODO - put all taskd.foo items in a single config dict
@@ -2413,7 +2564,9 @@ class WorkflowConfig:
                     'workflow': self.workflow,
                 }
             except (KeyError, ValueError):
-                raise InputError(f'Invalid template [meta]URL: {url}')
+                raise InputError(
+                    f'Invalid template [meta]URL: {url}'
+                ) from None
             else:
                 LOG.warning(
                     'Detected deprecated template variables in [meta]URL.'
@@ -2449,7 +2602,9 @@ class WorkflowConfig:
                         'task': name,
                     }
                 except (KeyError, ValueError):
-                    raise InputError(f'Invalid template [meta]URL: {url}')
+                    raise InputError(
+                        f'Invalid template [meta]URL: {url}'
+                    ) from None
                 else:
                     LOG.warning(
                         'Detected deprecated template variables in'
@@ -2503,12 +2658,9 @@ class WorkflowConfig:
             # Derive an xtrigger label.
             label = '_'.join(('_cylc', 'wall_clock', task_name))
             # Define the xtrigger function.
-            xtrig = SubFuncContext(label, 'wall_clock', [], {})
-            xtrig.func_kwargs["offset"] = offset
-            if self.xtrigger_mgr is None:
-                XtriggerManager.validate_xtrigger(label, xtrig, self.fdir)
-            else:
-                self.xtrigger_mgr.add_trig(label, xtrig, self.fdir)
+            args = [] if offset is None else [offset]
+            xtrig = SubFuncContext(label, 'wall_clock', args, {})
+            self.xtrigger_collator.add_trig(label, xtrig, self.fdir)
             # Add it to the task, for each sequence that the task appears in.
             taskdef = self.get_taskdef(task_name)
             for seq in taskdef.sequences:

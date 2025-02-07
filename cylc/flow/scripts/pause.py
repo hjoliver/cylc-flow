@@ -18,9 +18,10 @@
 
 """cylc pause [OPTIONS] ARGS
 
-Pause a workflow.
+Suspend automatic job submission.
 
-This suspends submission of all tasks in a workflow.
+Manual triggering can still run tasks immediately, even if the workflow is
+paused.
 
 Examples:
   # pause my_workflow
@@ -35,6 +36,7 @@ tasks within a workflow).
 
 from functools import partial
 from typing import TYPE_CHECKING
+import sys
 
 from cylc.flow.option_parsers import (
     WORKFLOW_ID_MULTI_ARG_DOC,
@@ -72,7 +74,7 @@ def get_option_parser() -> COP:
     return parser
 
 
-async def run(options: 'Values', workflow_id: str) -> None:
+async def run(options: 'Values', workflow_id: str):
     pclient = WorkflowRuntimeClient(workflow_id, timeout=options.comms_timeout)
 
     mutation_kwargs = {
@@ -82,13 +84,14 @@ async def run(options: 'Values', workflow_id: str) -> None:
         }
     }
 
-    await pclient.async_request('graphql', mutation_kwargs)
+    return await pclient.async_request('graphql', mutation_kwargs)
 
 
 @cli_function(get_option_parser)
 def main(parser: COP, options: 'Values', *ids) -> None:
-    call_multi(
+    rets = call_multi(
         partial(run, options),
         *ids,
         constraint='workflows',
     )
+    sys.exit(all(rets.values()) is False)

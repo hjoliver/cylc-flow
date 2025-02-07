@@ -27,7 +27,7 @@
 #   updated which is verified by checking task messaging works (checks for
 #   "(received)succeeded" in the logs).
 
-export REQUIRE_PLATFORM='loc:remote comms:tcp'
+export REQUIRE_PLATFORM='loc:remote fs:indep comms:?(tcp|ssh)'
 . "$(dirname "$0")/test_header"
 set_test_number 6
 
@@ -68,7 +68,7 @@ workflow_run_ok "${TEST_NAME_BASE}-restart" \
     cylc play --debug --no-detach "${WORKFLOW_NAME}"
 LOG="${WORKFLOW_RUN_DIR}/log/scheduler/log"
 grep_ok "remote file install complete" "${LOG}"
-grep_ok "\[1/starter running job:01 flows:1\] (received)succeeded" "${LOG}"
+grep_ok "\[1/starter/01:running\] (received)succeeded" "${LOG}"
 ls "${WORKFLOW_RUN_DIR}/log/remote-install" > 'ls.out'
 cmp_ok ls.out <<__RLOGS__
 01-start-${CYLC_TEST_INSTALL_TARGET}.log

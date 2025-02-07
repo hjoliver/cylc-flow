@@ -1,0 +1,20 @@
+# Start this with --start-task=1800/a.
+# Task a's script should spawn x.
+# The log should show a clock-trigger check before x runs.
+
+[scheduler]
+    [[events]]
+        inactivity timeout = PT30S
+        abort on inactivity timeout = True
+
+[scheduling]
+    initial cycle point = 1800
+    [[graph]]
+        R1 = """
+            a => b
+            @wall_clock => x => b
+        """
+[runtime]
+    [[a]]
+        script = cylc set --pre=all "${CYLC_WORKFLOW_ID}//1800/x"
+    [[b, x]]

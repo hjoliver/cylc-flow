@@ -39,8 +39,10 @@ Note:
   in the installed workflow to ensure the change can be safely applied.
 """
 
+import asyncio
+from pathlib import Path
 import sys
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Union
 
 if TYPE_CHECKING:
     from optparse import Values
@@ -50,7 +52,7 @@ from cylc.flow.exceptions import (
     ContactFileExists,
     CylcError,
 )
-from cylc.flow.id_cli import parse_id
+from cylc.flow.id_cli import parse_id_async
 from cylc.flow.loggingutil import set_timestamps
 from cylc.flow.option_parsers import (
     WORKFLOW_ID_ARG_DOC,
@@ -59,10 +61,11 @@ from cylc.flow.option_parsers import (
     log_subcommand,
     cleanup_sysargv
 )
-from cylc.flow.scheduler_cli import PLAY_OPTIONS, scheduler_cli
+from cylc.flow.scheduler_cli import PLAY_OPTIONS, cylc_play
 from cylc.flow.scripts.validate import (
     VALIDATE_OPTIONS,
-    _main as cylc_validate
+    VALIDATE_AGAINST_SOURCE_OPTION,
+    run as cylc_validate,
 )
 from cylc.flow.scripts.reinstall import (
     REINSTALL_CYLC_ROSE_OPTIONS,
@@ -70,11 +73,13 @@ from cylc.flow.scripts.reinstall import (
     reinstall_cli as cylc_reinstall,
 )
 from cylc.flow.scripts.reload import (
-    reload_cli as cylc_reload
+    run as cylc_reload
 )
 from cylc.flow.terminal import cli_function
-from cylc.flow.workflow_files import detect_old_contact_file
-
+from cylc.flow.workflow_files import (
+    detect_old_contact_file,
+    get_workflow_run_dir,
+)
 
 CYLC_ROSE_OPTIONS = COP.get_cylc_rose_options()
 VR_OPTIONS = combine_options(
@@ -96,6 +101,7 @@ def get_option_parser() -> COP:
     )
     for option in VR_OPTIONS:
         parser.add_option(*option.args, **option.kwargs)
+    parser.set_defaults(is_validate=True)
     return parser
 
 
@@ -124,16 +130,37 @@ def check_tvars_and_workflow_stopped(
 
 @cli_function(get_option_parser)
 def main(parser: COP, options: 'Values', workflow_id: str):
-    sys.exit(vro_cli(parser, options, workflow_id))
+    ret = asyncio.run(vr_cli(parser, options, workflow_id))
+    if isinstance(ret, str):
+        # NOTE: cylc_play must be called from sync code (not async code)
+        cylc_play(options, ret, parse_workflow_id=False)
+    elif ret is False:
+        sys.exit(1)
 
 
-def vro_cli(parser: COP, options: 'Values', workflow_id: str):
-    """Run Cylc (re)validate - reinstall - reload in sequence."""
+async def vr_cli(
+    parser: COP, options: 'Values', workflow_id: str
+) -> Union[bool, str]:
+    """Validate and reinstall and optionally reload workflow.
+
+    Runs:
+    * Validate
+    * Reinstall
+    * Reload (if the workflow is already running)
+
+    Returns:
+        The workflow_id or a True/False outcome.
+
+        workflow_id: If the workflow is stopped and requires restarting.
+        True: If workflow is running and does not require restarting.
+        False: If this command should "exit 1".
+
+    """
     # Attempt to work out whether the workflow is running.
     # We are trying to avoid reinstalling then subsequently being
     # unable to play or reload because we cannot identify workflow state.
     unparsed_wid = workflow_id
-    workflow_id, *_ = parse_id(
+    workflow_id, *_ = await parse_id_async(
         workflow_id,
         constraint='workflows',
     )
@@ -161,26 +188,38 @@ def vro_cli(parser: COP, options: 'Values', workflow_id: str):
     if not check_tvars_and_workflow_stopped(
         workflow_running, options.templatevars, options.templatevars_file
     ):
-        return 1
+        return False
 
-    # Force on the against_source option:
-    options.against_source = True   # Make validate check against source.
+    # Save the location of the existing workflow run dir in the
+    # against source option:
+    options.against_source = Path(get_workflow_run_dir(workflow_id))
+
+    # Run cylc validate
     log_subcommand('validate --against-source', workflow_id)
-    cylc_validate(parser, options, workflow_id)
+    await cylc_validate(parser, options, workflow_id)
+
+    # Unset options that do not apply after validation:
+    delattr(options, 'against_source')
+    delattr(options, 'is_validate')
 
     log_subcommand('reinstall', workflow_id)
-    reinstall_ok = cylc_reinstall(options, workflow_id, print_reload_tip=False)
+    reinstall_ok = await cylc_reinstall(
+        options, workflow_id,
+        [],
+        print_reload_tip=False
+    )
     if not reinstall_ok:
         LOG.warning(
             'No changes to source: No reinstall or'
             f' {"reload" if workflow_running else "play"} required.'
         )
-        return 1
+        return False
 
     # Run reload if workflow is running or paused:
     if workflow_running:
         log_subcommand('reload', workflow_id)
-        cylc_reload(options, workflow_id)
+        await cylc_reload(options, workflow_id)
+        return True
 
     # run play anyway, to play a stopped workflow:
     else:
@@ -189,12 +228,10 @@ def vro_cli(parser: COP, options: 'Values', workflow_id: str):
             'play',
             unparsed_wid,
             options,
-            compound_script_opts=VR_OPTIONS,
-            script_opts=(
-                PLAY_OPTIONS + CYLC_ROSE_OPTIONS
-                + parser.get_std_options()
-            ),
+            compound_script_opts=[*VR_OPTIONS, VALIDATE_AGAINST_SOURCE_OPTION],
+            script_opts=(*PLAY_OPTIONS, *parser.get_std_options()),
             source='',  # Intentionally blank
         )
+
         log_subcommand(*sys.argv[1:])
-        scheduler_cli(options, workflow_id)
+        return workflow_id

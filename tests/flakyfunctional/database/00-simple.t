@@ -46,10 +46,10 @@ UTC_mode|0
 cycle_point_format|
 cylc_version|$(cylc --version)
 fcp|
-icp|
+icp|1
 is_paused|0
 n_restart|0
-run_mode|
+run_mode|live
 startcp|
 stop_clock_time|
 stop_task|

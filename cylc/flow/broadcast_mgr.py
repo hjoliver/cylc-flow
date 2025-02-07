@@ -30,11 +30,12 @@ from cylc.flow.broadcast_report import (
 from cylc.flow.cfgspec.workflow import SPEC
 from cylc.flow.cycling.loader import get_point, standardise_point_string
 from cylc.flow.exceptions import PointParsingError
-from cylc.flow.parsec.util import listjoin
+from cylc.flow.parsec.util import listjoin, pdeepcopy, poverride
 from cylc.flow.parsec.validate import BroadcastConfigValidator
 
 if TYPE_CHECKING:
     from cylc.flow.id import Tokens
+    from cylc.flow.task_proxy import TaskProxy
 
 
 ALL_CYCLE_POINTS_STRS = ["*", "all-cycle-points", "all-cycles"]
@@ -179,6 +180,18 @@ class BroadcastMgr:
                     addict(ret, self.broadcasts[cycle][namespace])
         return ret
 
+    def get_updated_rtconfig(self, itask: 'TaskProxy') -> dict:
+        """Retrieve updated rtconfig for a single task proxy"""
+        overrides = self.get_broadcast(
+            itask.tokens
+        )
+        if overrides:
+            rtconfig = pdeepcopy(itask.tdef.rtconfig)
+            poverride(rtconfig, overrides, prepend=True)
+        else:
+            rtconfig = itask.tdef.rtconfig
+        return rtconfig
+
     def load_db_broadcast_states(self, row_idx, row):
         """Load broadcast variables from runtime DB broadcast states row."""
         if row_idx == 0:
@@ -267,8 +280,16 @@ class BroadcastMgr:
         bad_namespaces = []
 
         with self.lock:
-            for setting in settings:
-                for point_string in point_strings:
+            for setting in settings or []:
+                # Coerce setting to cylc runtime object,
+                # i.e. str to  DurationFloat.
+                coerced_setting = deepcopy(setting)
+                BroadcastConfigValidator().validate(
+                    coerced_setting,
+                    SPEC['runtime']['__MANY__'],
+                )
+
+                for point_string in point_strings or []:
                     # Standardise the point and check its validity.
                     bad_point = False
                     try:
@@ -279,26 +300,23 @@ class BroadcastMgr:
                             bad_point = True
                     if not bad_point and point_string not in self.broadcasts:
                         self.broadcasts[point_string] = {}
-                    for namespace in namespaces:
+                    for namespace in namespaces or []:
                         if namespace not in self.linearized_ancestors:
                             bad_namespaces.append(namespace)
                         elif not bad_point:
                             if namespace not in self.broadcasts[point_string]:
                                 self.broadcasts[point_string][namespace] = {}
+
                             # Keep saved/reported setting as workflow
-                            # config format.
+                            # config format:
                             modified_settings.append(
-                                (point_string, namespace, deepcopy(setting))
+                                (point_string, namespace, setting)
                             )
-                            # Coerce setting to cylc runtime object,
-                            # i.e. str to  DurationFloat.
-                            BroadcastConfigValidator().validate(
-                                setting,
-                                SPEC['runtime']['__MANY__']
-                            )
+
+                            # Apply the broadcast with the "coerced" format:
                             addict(
                                 self.broadcasts[point_string][namespace],
-                                setting
+                                coerced_setting,
                             )
 
         # Log the broadcast

@@ -28,8 +28,9 @@ use 'cylc view -i,--inline WORKFLOW' for comparison.
 import asyncio
 from ansimarkup import parse as cparse
 from copy import deepcopy
-from optparse import Values
+from pathlib import Path
 import sys
+from typing import TYPE_CHECKING
 
 from cylc.flow import LOG, __version__ as CYLC_VERSION
 from cylc.flow.config import WorkflowConfig
@@ -51,10 +52,15 @@ from cylc.flow.option_parsers import (
     ICP_OPTION,
 )
 from cylc.flow.profiler import Profiler
+from cylc.flow.scheduler_cli import RUN_MODE
 from cylc.flow.task_proxy import TaskProxy
 from cylc.flow.templatevars import get_template_vars
 from cylc.flow.terminal import cli_function
-from cylc.flow.scheduler_cli import RUN_MODE
+from cylc.flow.run_modes import RunMode
+from cylc.flow.workflow_files import get_workflow_run_dir
+
+if TYPE_CHECKING:
+    from cylc.flow.option_parsers import Values
 
 
 VALIDATE_RUN_MODE = deepcopy(RUN_MODE)
@@ -96,7 +102,6 @@ VALIDATE_OPTIONS = [
     ),
     VALIDATE_RUN_MODE,
     VALIDATE_ICP_OPTION,
-    VALIDATE_AGAINST_SOURCE_OPTION,
 ]
 
 
@@ -107,9 +112,11 @@ def get_option_parser():
         argdoc=[WORKFLOW_ID_OR_PATH_ARG_DOC],
     )
 
-    validate_options = parser.get_cylc_rose_options() + VALIDATE_OPTIONS
-
-    for option in validate_options:
+    for option in [
+        *parser.get_cylc_rose_options(),
+        *VALIDATE_OPTIONS,
+        VALIDATE_AGAINST_SOURCE_OPTION,
+    ]:
         parser.add_option(*option.args, **option.kwargs)
 
     parser.set_defaults(is_validate=True)
@@ -123,21 +130,17 @@ ValidateOptions = Options(
     {
         'check_circular': False,
         'profile_mode': False,
-        'run_mode': 'live'
+        'run_mode': RunMode.LIVE.value
     }
 )
 
 
 @cli_function(get_option_parser)
 def main(parser: COP, options: 'Values', workflow_id: str) -> None:
-    _main(parser, options, workflow_id)
+    asyncio.run(run(parser, options, workflow_id))
 
 
-def _main(parser: COP, options: 'Values', workflow_id: str) -> None:
-    asyncio.run(wrapped_main(parser, options, workflow_id))
-
-
-async def wrapped_main(
+async def run(
     parser: COP, options: 'Values', workflow_id: str
 ) -> None:
     """cylc validate CLI."""
@@ -152,6 +155,12 @@ async def wrapped_main(
         src=True,
         constraint='workflows',
     )
+
+    # Save the location of the existing workflow run dir in the
+    # against source option:
+    if getattr(options, 'against_source', False):
+        options.against_source = Path(get_workflow_run_dir(workflow_id))
+
     cfg = WorkflowConfig(
         workflow_id,
         flow_file,
@@ -181,7 +190,8 @@ async def wrapped_main(
             continue
         except Exception as exc:
             raise WorkflowConfigError(
-                'failed to instantiate task %s: %s' % (name, exc))
+                'failed to instantiate task %s: %s' % (name, exc)
+            ) from None
 
         # force trigger evaluation now
         try:
@@ -189,17 +199,21 @@ async def wrapped_main(
         except TriggerExpressionError as exc:
             err = str(exc)
             if '@' in err:
-                print(f"ERROR, {name}: xtriggers can't be in conditional"
-                      f" expressions: {err}",
-                      file=sys.stderr)
+                print(
+                    f"ERROR, {name}: xtriggers can't be in conditional"
+                    f" expressions: {err}",
+                    file=sys.stderr,
+                )
             else:
-                print('ERROR, %s: bad trigger: %s' % (name, err),
-                      file=sys.stderr)
-            raise WorkflowConfigError("ERROR: bad trigger")
+                print(
+                    'ERROR, %s: bad trigger: %s' % (name, err), file=sys.stderr
+                )
+            raise WorkflowConfigError("ERROR: bad trigger") from None
         except Exception as exc:
             print(str(exc), file=sys.stderr)
             raise WorkflowConfigError(
-                '%s: failed to evaluate triggers.' % name)
+                '%s: failed to evaluate triggers.' % name
+            ) from None
         if cylc.flow.flags.verbosity > 0:
             print('  + %s ok' % itask.identity)
 
