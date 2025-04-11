@@ -1,0 +1,10 @@
+This branch allows setting xtriggers for all tasks that
+depend on the same xtrigger function signature.
+  cylc set --pre=XTRIGGER/label
+
+Not sure if that's what we want, or to set by label?
+
+   xf = xfile(file="/tmp/a%(point)s", _=%(point)s)
+
+Backing out for now, for group trigger development.
+(to just set the target task's dependence on an xtrigger)
