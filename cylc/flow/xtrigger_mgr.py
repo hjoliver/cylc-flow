@@ -572,9 +572,6 @@ class XtriggerManager:
         sig, results = row
         self.sat_xtrig[sig] = json.loads(results)
         # Tell the datastore this xtrigger is satisfied.
-        self.data_store_mgr.delta_task_xtrigger(sig, True)
-
-        # Tell the datastore this xtrigger is satisfied.
         self.data_store_mgr.delta_xtrigger(sig, True)
 
     def _get_xtrigs(self, itask: 'TaskProxy', unsat_only: bool = False,
