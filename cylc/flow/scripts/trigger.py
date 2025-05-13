@@ -17,67 +17,51 @@
 
 """cylc trigger [OPTIONS] ARGS
 
-Force a group of tasks to run, respecting any dependencies within the group.
+Force one or more tasks to run, respecting dependencies within the group.
 
-This command automatically identifies and satisfies the task (and xtrigger)
-prerequisites of group start tasks, to start the flow; and the off-group
-task (and xtrigger) prerequisites of other group members, to prevent a stall.
-It leaves in-group prerequisites to be satisfied by the flow.
+This command provides a convenient way to rerun a past sub-graph. It erases
+the flow history of the group (by default) to allow rerun in the same flow;
+it satisfies off-group task and xtrigger prerequisites to start the flow and
+prevent a stall; and it leaves in-group prerequisites to the triggered flow.
 
-By default, it removes the flow history of target tasks to allow rerun in the
-same flow. Alternatively, use the `--flow` option to trigger a new flow.
+Triggering a task that is not yet queued, queues it. Triggering a queued task
+runs it. You many need to trigger unqueued tasks twice to run them immediately.
 
-Triggering a task that is not yet queued will queue it; triggering a queued
-task will run it - so un-queued tasks may need to be triggered twice.
+Preparing, submitted, or running tasks will be ignored: they already triggered.
 
-Tasks can't be triggered if already preparing, submitted, or running a job.
+If you trigger tasks when the workflow is paused, only group start tasks will
+run immediately. The flow will continue when you resume the workflow.
 
-If the workflow is paused, group start tasks will run immediately. The rest
-of the group will run when the workflow is unpaused.
+Note that the flow will only continue from group start tasks if you erase the
+original flow (the default) or use `--flow` options to start a new flow.
 
-Use `-flow=all` to trigger without erasing flow history or starting a new flow,
-e.g. to trigger a task twice with `--wait` to complete different outputs.
-
-Group trigger automatically handles flow history and off-group prerequisites.
-For a lower-level way to rerun a sub-graph of tasks, see `cylc set`.
+See `cylc set` for the lower-level flow-based approach to rerunning sub-graphs.
 
 Examples:
-  # trigger task foo in cycle 1234 in test
-  $ cylc trigger test//1234/foo
+  # trigger task foo in cycle 1, in workflow "test"
+  $ cylc trigger test//1/foo
 
-  # trigger all failed tasks in test
-  $ cylc trigger 'test//*:failed'
+  # trigger all failed tasks in workfow "test"
+  $ cylc trigger 'test//*:failed'  # (quotes required)
 
-  # start a new flow by triggering 1234/foo in test
-  $ cylc trigger --flow=new test//1234/foo
+  # start a new flow from 1/foo
+  # (beware of off-flow prerequisites downstream of 1/foo)
+  $ cylc trigger --flow=new test//1/foo
 
-  # rerun (same flow) `a => b & c` ignoring off-group prerequisite `off => b`
-  $ cylc trigger test //1234/a //1234/b //1234/c
+  # rerun sub-graph "a => b & c" in the same flow, ignoring "off => b"
+  $ cylc trigger test //1/a //1/b //1/c
 
-  # rerun (same flow) `a => b & c` ignoring `off => b`, the flow-native way
-  $ cylc remove test //1234/a //1234/b //1234/c  # erase flow history
-  $ cylc trigger test//1234/a  # trigger initial task
-  $ cylc set --pre=1234/off test//1234/b  # satisfy off-flow prerequisites
+Triggering and flow numbers:
+  Waiting n=0 tasks already belong to a flow; if triggered:
+  * by default, they run in the same flow, or
+  * with --flow=all, they will be assigned all active flows, or
+  * with --flow=INT or --flow=new, the original and new flows will be merged
+  * (--flow=none is ignored for n=0 tasks)
 
-Cylc queues:
-  Queues limit how many tasks can be active (preparing, submitted, running) at
-  once. Tasks that are ready to run will remained queued until the active task
-  count drops below the queue limit.
-
-Flows:
-  Waiting tasks in the active window (n=0) already belong to a flow.
-  * by default, if triggered, they run in the same flow
-  * or with --flow=all, they are assigned all active flows
-  * or with --flow=INT or --flow=new, the original and new flows are merged
-  * (--flow=none is ignored for active tasks)
-
-  Inactive tasks (n>0) do not already belong to a flow.
+  Inactive tasks (n>0) do not already belong to a flow; if triggered:
   * by default they are assigned all active flows
   * otherwise, they are assigned the --flow value
 
-  Note --flow=new increments the global flow counter with each use. If it takes
-  multiple commands to start a new flow use the actual flow number
-  after the first command (you can read it from the scheduler log).
 """
 
 from functools import partial

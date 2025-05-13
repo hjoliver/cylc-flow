@@ -33,7 +33,7 @@ Static data elements are generated on workflow start/restart/reload, which
 includes workflow, task, and family definition objects.
 
 The cycle point nodes/edges (i.e. task/family proxies) generation is triggered
-individually on transition to active task pool. Each active task is generated
+individually on transition to n=0. Each active task is generated
 along with any children and parents via a graph walk out to a specified maximum
 graph distance (n_edge_distance), that can be externally altered (via API).
 Collectively this forms the N-Distance-Window on the workflow graph.
@@ -42,7 +42,7 @@ Pruning of data-store elements is done using the collection/set of nodes
 generated at the boundary of an active node's graph walk and registering active
 node's parents against them. Once active, these boundary nodes act as the prune
 triggers for the associated parent nodes. Set operations are used to do a diff
-between the nodes of active paths (paths whose node is in the active task pool)
+between the nodes of active paths (paths whose node is in n=0)
 and the nodes of flagged paths (whose boundary node(s) have become active).
 
 Updates are created by the event/task/job managers.

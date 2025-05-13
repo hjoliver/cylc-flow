@@ -2044,67 +2044,63 @@ class TaskPool:
             # Nothing to do!
             return
 
-        # Set active (n=0) tasks
+        # For active tasks, default to the task's current flow assignment.
         if itasks:
-            # For active tasks, default to the task's current flow assignment.
             flow_nums = self.get_flow_nums(flow, flow_descr)
-
-        for itask in itasks:
-            # TODO can flow be 'none' now?
-            if flow == ['none'] and itask.flow_nums != set():
-                LOG.error(
-                    f"[{itask}] ignoring 'flow=none' set: task already has"
-                    f" {repr_flow_nums(itask.flow_nums, full=True)}"
-                )
-                continue
-
-            if prereqs:
-                valid_prereqs = self._get_valid_prereqs(
-                    clean_pre, itask.tdef, itask.point)
-                valid_xtrigs = self._get_valid_xtrigs(
-                    clean_xtr, itask.tdef, itask.point)
-                if not (set_all or valid_prereqs or valid_xtrigs):
+            for itask in itasks:
+                if flow == ['none'] and itask.flow_nums != set():
+                    LOG.error(
+                        f"[{itask}] ignoring 'flow=none' set: task already has"
+                        f" {repr_flow_nums(itask.flow_nums, full=True)}"
+                    )
                     continue
 
-                self.merge_flows(itask, flow_nums)
-                self._set_prereqs_itask(
-                    itask, valid_prereqs, valid_xtrigs, set_all)
-                no_op = False
-            else:
-                # Outputs (may be empty list)
-                # Spawn as if seq xtrig of parentless task was satisfied,
-                # with associated task producing these outputs.
-                self.merge_flows(itask, flow_nums)
-                self.check_spawn_psx_task(itask)
-                self._set_outputs_itask(itask, outputs)
-                no_op = False
+                if prereqs:
+                    valid_prereqs = self._get_valid_prereqs(
+                        clean_pre, itask.tdef, itask.point)
+                    valid_xtrigs = self._get_valid_xtrigs(
+                        clean_xtr, itask.tdef, itask.point)
+                    if not (set_all or valid_prereqs or valid_xtrigs):
+                        continue
 
-        # Spawn and set inactive tasks.
-        if inactive_tasks:
-            # For inactive tasks, default to all current flows.
-            flow_nums = self.get_flow_nums(flow or [FLOW_ALL], flow_descr)
-
-        for tdef, point in inactive_tasks:
-            if prereqs:
-                valid_prereqs = self._get_valid_prereqs(
-                    clean_pre, tdef, point)
-                valid_xtrigs = self._get_valid_xtrigs(clean_xtr, tdef, point)
-                if not (set_all or valid_prereqs or valid_xtrigs):
-                    continue
-
-                self._set_prereqs_tdef(
-                    point, tdef, valid_prereqs, valid_xtrigs, flow_nums,
-                    flow_wait, set_all)
-                no_op = False
-            else:
-                # Outputs (may be empty list)
-                trans = self._get_task_proxy_db_outputs(
-                    point, tdef, flow_nums,
-                    flow_wait=flow_wait, transient=True
-                )
-                if trans is not None:
-                    self._set_outputs_itask(trans, outputs)
+                    self.merge_flows(itask, flow_nums)
+                    self._set_prereqs_itask(
+                        itask, valid_prereqs, valid_xtrigs, set_all)
                     no_op = False
+                else:
+                    # Outputs (may be empty list)
+                    # Spawn as if seq xtrig of parentless task was satisfied,
+                    # with associated task producing these outputs.
+                    self.merge_flows(itask, flow_nums)
+                    self.check_spawn_psx_task(itask)
+                    self._set_outputs_itask(itask, outputs)
+                    no_op = False
+
+        # For inactive tasks, default to all current flows.
+        if inactive_tasks:
+            flow_nums = self.get_flow_nums(flow or [FLOW_ALL], flow_descr)
+            for tdef, point in inactive_tasks:
+                if prereqs:
+                    valid_prereqs = self._get_valid_prereqs(
+                        clean_pre, tdef, point)
+                    valid_xtrigs = self._get_valid_xtrigs(
+                        clean_xtr, tdef, point)
+                    if not (set_all or valid_prereqs or valid_xtrigs):
+                        continue
+
+                    self._set_prereqs_tdef(
+                        point, tdef, valid_prereqs, valid_xtrigs, flow_nums,
+                        flow_wait, set_all)
+                    no_op = False
+                else:
+                    # Outputs (may be empty list)
+                    trans = self._get_task_proxy_db_outputs(
+                        point, tdef, flow_nums,
+                        flow_wait=flow_wait, transient=True
+                    )
+                    if trans is not None:
+                        self._set_outputs_itask(trans, outputs)
+                        no_op = False
 
         if not no_op:
             # for "cylc play --start-tasks" compute runahead after spawning
@@ -2193,8 +2189,7 @@ class TaskPool:
                 get_skip_mode_outputs(itask)
             )
         else:
-            # --out=skip is a shortcut to setting all the outputs that
-            # skip mode would.
+            # --out=skip sets all the outputs that skip mode would.
             skips: Set[str] = set()
             if RunMode.SKIP.value in outputs:
                 # Check for broadcasts to task:
@@ -2238,7 +2233,6 @@ class TaskPool:
         """
         # task prerequisites
         itask.force_satisfy(prereqs, set_all)
-
         # xtriggers, including "all"
         self.xtrigger_mgr.force_satisfy(itask, xtrigs)
 
@@ -2247,8 +2241,6 @@ class TaskPool:
             and self.runahead_limit_point is not None
             and itask.point <= self.runahead_limit_point
         ):
-            # Release from runahead, and queue it.
-            # TODO? self.rh_release_and_queue(itask)
             self.spawn_to_rh_limit(
                 itask.tdef,
                 itask.tdef.next_point(itask.point),
@@ -2273,11 +2265,8 @@ class TaskPool:
             return None
 
         self.db_add_new_flow_rows(itask)
-
-        # TODO check flow-wait (see master force_trigger_tasks)
         self._set_prereqs_itask(itask, prereqs, xtrigs, set_all)
         self.add_to_pool(itask)
-
         return itask
 
     def _get_active_flow_nums(self) -> 'FlowNums':
@@ -2309,8 +2298,7 @@ class TaskPool:
         active tasks.
 
         """
-        # TODO check is None possible or should be prevented getting here?
-        if flow is None or flow == [FLOW_NONE]:
+        if flow == [FLOW_NONE]:
             return set()
         if flow == [FLOW_ALL]:
             return self._get_active_flow_nums()

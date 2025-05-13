@@ -1106,9 +1106,7 @@ class Scheduler:
         return len(unkillable)
 
     def remove_tasks(
-        self,
-        items: Iterable[str],
-        flow_nums: 'FlowNums',
+        self, items: Iterable[str], flow_nums: 'FlowNums'
     ) -> None:
         """Remove tasks (`cylc remove` command).
 
@@ -1253,8 +1251,6 @@ class Scheduler:
         or only off-group prerequisites) will run immediately. In-group
         prerequisites will be respected.
 
-s       TODO: xtriggers need to be ignored within the group (currently only
-        works for group start tasks).
         """
         active, inactive, _ = self.pool.filter_task_proxies(
             items, inactive=True, warn_no_active=False,
@@ -1277,13 +1273,13 @@ s       TODO: xtriggers need to be ignored within the group (currently only
             # Compute prerequisites from the tdef in case active tasks were
             # spawned before a reload (which could alter prerequisites).
 
-            # Non group start tasks, and final-status group start tasks, will
-            # be removed and triggered from scratch (so only the tdef matters).
+            # Remove non group start and final-status group start tasks, and
+            # trigger them from scratch (so only the tdef matters).
 
             # Waiting group start tasks are not removed, but a reload would
             # replace them, so using the tdef is fine.
             # Preparing, submitted, or running group start tasks are already
-            # already active, so we leave them be.
+            # active, so leave them be.
             if not any(
                 (trg.task_name, str(trg.get_point(itask.point))) in group_ids
                 for trg in itask.tdef.get_triggers(itask.point)
