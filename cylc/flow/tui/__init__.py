@@ -87,12 +87,12 @@ TASK_ICONS = {
 
 # unicode modifiers for special task states
 TASK_MODIFIERS = {
-    'held': '\u030E',
-    'queued': '\u033F',
-    'runahead': '\u0340',
-    'xtriggered': '\u1DC9',
-    'wallclock': '\u135D',
-    'retry': '\u20D7',
+    'held': ('\u030E','\u2016', 'h'),
+    'queued': ('\u033F', '\u2261', 'q' ),
+    'runahead': ('\u0340', '\u21E5', 'a' ),
+    'xtriggered': ('\u1DC9', '\u00D7', 'x'),
+    'wallclock': ('\u135D', '\u0063', 'c' ),
+    'retry': ('\u20D7', '\u27F2', 'r' )
 }
 
 # unicode job icon

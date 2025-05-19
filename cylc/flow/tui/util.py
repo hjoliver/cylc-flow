@@ -40,6 +40,7 @@ from cylc.flow.tui import (
 from cylc.flow.util import deserialise_set
 from cylc.flow.wallclock import get_unix_time_from_time_string
 
+from cylc.flow.tui import globals
 
 # the Tui user, note this is always the same as the workflow owner
 # (Tui doesn't do multi-user stuff)
@@ -113,19 +114,23 @@ def get_task_icon(
         may be a string, tuple or list, see urwid docs.
 
     """
+    opt = globals.modifier_index
     ret = []
     if is_held:
-        ret.append((colour, TASK_MODIFIERS['held']))
+        ret.append((colour, TASK_MODIFIERS['held'][opt]))
     elif is_runahead:
-        ret.append((colour, TASK_MODIFIERS['runahead']))
+        ret.append((colour, TASK_MODIFIERS['runahead'][opt]))
     elif is_queued:
-        ret.append((colour, TASK_MODIFIERS['queued']))
+        ret.append((colour, TASK_MODIFIERS['queued'][opt]))
     elif is_retry:
-        ret.append((colour, TASK_MODIFIERS['retry']))
+        ret.append((colour, TASK_MODIFIERS['retry'][opt]))
     elif is_wallclock:
-        ret.append((colour, TASK_MODIFIERS['wallclock']))
+        ret.append((colour, TASK_MODIFIERS['wallclock'][opt]))
     elif is_xtriggered:
-        ret.append((colour, TASK_MODIFIERS['xtriggered']))
+        ret.append((colour, TASK_MODIFIERS['xtriggered'][opt]))
+    else:
+        if opt != 0:
+            ret.append((colour, ' '))
     if (
         status == TASK_STATUS_RUNNING
         and start_time

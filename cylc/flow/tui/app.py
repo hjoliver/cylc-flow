@@ -57,6 +57,7 @@ from cylc.flow.workflow_status import (
     WorkflowStatus,
 )
 
+from cylc.flow.tui import globals
 
 # default workflow / task filters
 # (i.e. show everything)
@@ -546,6 +547,12 @@ class TuiApp:
 
         return True
 
+    def change_modifiers(self):
+        """Increment character set used for task state modifers."""
+        globals.modifier_index += 1
+        if globals.modifier_index == 3:
+            globals.modifier_index = 0
+
     def filter_by_task_state(self, filtered_state=None):
         """Filter tasks.
 
@@ -670,7 +677,12 @@ BINDINGS.bind(
     'Context',
     (TuiApp.open_overlay, overlay.context)
 )
-
+BINDINGS.bind(
+    ('m',),
+    '',
+    'Toggle characters used for task modifiers',
+    (TuiApp.change_modifiers,)
+)
 BINDINGS.add_group(
     'tree',
     'Expand/Collapse nodes',
