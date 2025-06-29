@@ -1532,12 +1532,11 @@ class TaskPool:
                         suicide.append(t)
 
         for c_task in suicide:
-            self.remove(c_task, self.__class__.SUICIDE_MSG)
-
-        if suicide:
-            # Update DB now in case of very quick respawn attempt.
-            # See https://github.com/cylc/cylc-flow/issues/6066
+            self.task_queue_mgr.remove_task(c_task)
+            c_task.state.outputs.set_message_complete("suicide")
+            self.workflow_db_mgr.put_update_task_outputs(c_task)
             self.workflow_db_mgr.process_queued_ops()
+            self.remove(c_task, self.__class__.SUICIDE_MSG)
 
         self.remove_if_complete(itask, output)
 
@@ -1794,19 +1793,10 @@ class TaskPool:
             submit_num=submit_num,
             flow_wait=flow_wait,
         )
-        if itask is None:
-            return None
-
         if (
-            prev_status is not None
-            and not itask.state.outputs.get_completed_outputs()
+            itask is None or
+            itask.state.outputs._completed.get("suicide", False)
         ):
-            # If itask has any history in this flow but no completed outputs
-            # we can infer it has just been deliberately removed (N.B. not
-            # by `cylc remove`), so don't immediately respawn it.
-            # TODO (follow-up work):
-            # - this logic fails if task removed after some outputs completed
-            LOG.debug(f"Not respawning {point}/{name} - task was removed")
             return None
 
         if prev_status in TASK_STATUSES_FINAL:

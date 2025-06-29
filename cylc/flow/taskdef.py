@@ -213,6 +213,7 @@ class TaskDef:
         # optional/required is None until defined by the graph
         for output in SORT_ORDERS:
             self.outputs[output] = (output, None)
+        self.outputs["suicide"] = ("suicide", None)
 
     def set_required_output(self, output, required):
         """Set outputs to required or optional."""
