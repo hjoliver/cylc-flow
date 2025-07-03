@@ -18,12 +18,15 @@
 
 """cylc set [OPTIONS] ARGS
 
-Satisfy task (including xtrigger) prerequisites and complete task outputs.
+Complete task outputs, and satisfy task and xtrigger prerequisites.
 
 By default this command completes required outputs, plus the "submitted",
 "started", and "succeeded" outputs even if they are optional.
 
-Task Outputs:
+Setting prerequisites promotes target tasks to the n=0 active window; setting
+outputs also sets the prerequisites of any tasks that depend on those outputs.
+
+Setting Outputs:
   Completing task outputs may affect its state, and it will satisfy the
   prerequisites of any other tasks that depend on those outputs.
 
@@ -44,7 +47,7 @@ Task Outputs:
     # <name> = <message>
     x = "file x completed"
 
-Task Prerequisites:
+Setting Task Prerequisites:
   Satisfying a task's prerequisite contributes to its readiness to run.
 
   Satisfying any prerequisite of an inactive task promotes it to the active
@@ -55,7 +58,7 @@ Task Prerequisites:
     * --pre=<cycle>/<task-name>[:output]  # satisfy a single prerequisite
     * --pre=all  # satisfy all task (not xtrigger) prerequisites
 
-Xtrigger prerequisites:
+Setting Xtrigger Prerequisites:
   To satisfy an xtrigger prerequisite use --pre with the word "xtrigger" in
   place of the cycle point, and the xtrigger name in place of the task name.
 
@@ -65,6 +68,20 @@ Xtrigger prerequisites:
 
   (The full format is "xtrigger/<xtrigger-name>[:succeeded]" but "succeeded"
   is the only xtrigger output and the default, so it can be omitted.)
+
+Flow numbers of tasks affected by the set command are determined as follows
+  Active tasks (n=0) already have flow numbers assigned.
+   * default (--flow not used): keep the existing flow numbers
+   * --flow="all": merge all active (including existing) flow numbers
+   * --flow=INT or "new": merge the new and existing flow numbers
+   * --flow="none": ERROR (active tasks already have flows assigned)
+  Inactive tasks (n>0) do not have flow numbers assigned:
+   * default (--flow not used): assign all active flow numbers
+   * --flow="all": assign all active flow numbers (same as default)
+   * --flow=INT or "new": assign the given flow numbers
+   * --flow="none": action the command but with no flow numbers assigned (if
+     a task becomes fully satisfied with no flow numbers, it will run as a
+     no-flow task; no downstream activity will flow on from it).
 
 CLI Completion:
   Cylc can auto-complete prerequisite and output names for tasks in the n=0
@@ -127,7 +144,7 @@ from cylc.flow.terminal import (
     cli_function,
     flatten_cli_lists
 )
-from cylc.flow.flow_mgr import add_flow_opts
+from cylc.flow.flow_mgr import add_flow_opts_for_trigger_and_set
 
 
 if TYPE_CHECKING:
@@ -204,7 +221,7 @@ def get_option_parser() -> COP:
         action="append", default=None, dest="prerequisites"
     )
 
-    add_flow_opts(parser)
+    add_flow_opts_for_trigger_and_set(parser)
     return parser
 
 

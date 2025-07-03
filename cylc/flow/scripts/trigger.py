@@ -51,16 +51,17 @@ Examples:
   # rerun sub-graph "a => b & c" in the same flow, ignoring "off => b"
   $ cylc trigger test //1/a //1/b //1/c
 
-Triggering and flow numbers:
-  Waiting n=0 tasks already belong to a flow; if triggered:
-  * by default, they run in the same flow, or
-  * with --flow=all, they will be assigned all active flows, or
-  * with --flow=INT or --flow=new, the original and new flows will be merged
-  * (--flow=none is ignored for n=0 tasks)
-
-  Inactive tasks (n>0) do not already belong to a flow; if triggered:
-  * by default they are assigned all active flows
-  * otherwise, they are assigned the --flow value
+ Flow numbers of triggered tasks are determined as follows:
+  Active tasks (n=0) already have flow numbers assigned.
+   * default (--flow not used): run with the existing flow numbers
+   * --flow="all": merge all active (including existing) flow numbers
+   * --flow=INT or "new": merge the new and existing flow numbers
+   * --flow="none": ERROR (active tasks already have flows assigned)
+  Inactive tasks (n>0) do not have flow numbers assigned:
+   * default (--flow not used): run with all active flow numbers
+   * --flow="all": run with all active flow numbers (same as default)
+   * --flow=INT or "new": run with the given flow numbers
+   * --flow="none": run as no-flow (no downstream activity will flow on).
 
 """
 
@@ -75,7 +76,7 @@ from cylc.flow.option_parsers import (
     CylcOptionParser as COP,
 )
 from cylc.flow.terminal import cli_function
-from cylc.flow.flow_mgr import add_flow_opts
+from cylc.flow.flow_mgr import add_flow_opts_for_trigger_and_set
 
 
 if TYPE_CHECKING:
@@ -107,14 +108,14 @@ mutation (
 
 def get_option_parser() -> COP:
     parser = COP(
-        __doc__,
+        str(__doc__),
         comms=True,
         multitask=True,
         multiworkflow=True,
         argdoc=[FULL_ID_MULTI_ARG_DOC],
     )
 
-    add_flow_opts(parser)
+    add_flow_opts_for_trigger_and_set(parser)
 
     parser.add_option(
         "--on-resume",

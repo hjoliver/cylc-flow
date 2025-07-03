@@ -47,7 +47,6 @@ from cylc.flow.exceptions import (
 )
 import cylc.flow.flags
 from cylc.flow.flow_mgr import (
-    FLOW_ALL,
     FLOW_NEW,
     FLOW_NONE,
     repr_flow_nums,
@@ -252,7 +251,7 @@ class TaskPool:
 
         Add every parentless task out to the runahead limit.
         """
-        flow_num = self.flow_mgr.get_flow_num(
+        flow_num = self.flow_mgr.get_flow(
             meta=f"original flow from {self.config.start_point}")
         self.compute_runahead()
         for name in self.task_name_list:
@@ -2044,12 +2043,15 @@ class TaskPool:
             # Nothing to do!
             return
 
-        # For active tasks, default to the task's current flow assignment.
+        # Get integer flow numbers from CLI inputs.
+        flow_nums = self.get_flow_nums(flow, flow_descr)
+
+        # Set active tasks.
         warnings_flow_none = []
         if itasks:
-            flow_nums = self.get_flow_nums(flow, flow_descr)
             for itask in itasks:
-                if flow == ['none'] and itask.flow_nums != set():
+                if flow == [FLOW_NONE] and not itask.flow_nums:
+                    # Exclude --flow=none for active tasks.
                     warnings_flow_none.append(
                         f"{itask.identity}: "
                         f"{repr_flow_nums(itask.flow_nums, full=True)}"
@@ -2084,9 +2086,12 @@ class TaskPool:
                 f'"trigger --flow=none": \n  * {msg}'
             )
 
-        # For inactive tasks, default to all current flows.
+        # Set inactive tasks.
         if inactive_tasks:
-            flow_nums = self.get_flow_nums(flow or [FLOW_ALL], flow_descr)
+            if not flow_nums and flow != [FLOW_NONE]:
+                # Default to all active flows.
+                flow_nums = self._get_active_flow_nums()
+
             for tdef, point in inactive_tasks:
                 if prereqs:
                     valid_prereqs = self._get_valid_prereqs(
@@ -2297,24 +2302,20 @@ class TaskPool:
         flow: List[str],
         meta: Optional[str] = None,
     ) -> Set[int]:
-        """Return flow numbers corresponding to user command options.
+        """Return a set of int flow numbers for set/trigger command options.
 
-        Arg should have been validated already during command validation.
-
-        In the default case (--flow option not provided), stick with the
-        existing flows (so return empty set) - NOTE this only applies for
-        active tasks.
+        Return empty set for FLOW_NONE (no-flow) and default (empty) inputs
+        (inpretation depends on context: no-flow or all active flows).
 
         """
         if flow == [FLOW_NONE]:
             return set()
-        if flow == [FLOW_ALL]:
-            return self._get_active_flow_nums()
+
         if flow == [FLOW_NEW]:
-            return {self.flow_mgr.get_flow_num(meta=meta)}
-        # else specific flow numbers:
+            return {self.flow_mgr.get_flow(meta=meta)}
+
         return {
-            self.flow_mgr.get_flow_num(flow_num=int(n), meta=meta)
+            self.flow_mgr.get_flow(flow_num=int(n), meta=meta)
             for n in flow
         }
 
