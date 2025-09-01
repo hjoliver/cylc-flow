@@ -28,6 +28,7 @@ from typing import (
 )
 
 import cylc.flow.flags
+from cylc.flow import LOG
 from cylc.flow.exceptions import GraphParseError
 from cylc.flow.param_expand import GraphExpander
 from cylc.flow.task_id import TaskID
@@ -307,6 +308,7 @@ class GraphParser:
               i. Replace families with members (any or all semantics).
              ii. Record parsed dependency information for each right-side node.
         """
+        #import pudb; pu.db
         # Strip comments, whitespace, and blank lines.
         non_blank_lines = []
         bad_lines = []
@@ -812,9 +814,10 @@ class GraphParser:
                     pass
                 else:
                     if optional != prev_optional:
-                        raise GraphParseError(
-                            f"Output {name}:{output} can't be both required"
-                            " and optional")
+                        LOG.warning(f"Output {name}:{output} is optional")
+                        #raise GraphParseError(
+                        #    f"Output {name}:{output} can't be both required"
+                        #    " and optional")
             else:
                 # optionality not fixed yet (only family default)
                 if fam_member:
