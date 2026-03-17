@@ -850,23 +850,31 @@ class TaskPool:
             if self.runahead_limit_point is None:
                 return
 
-        is_xtrig_sequential = False
-        while point is not None and (point <= self.runahead_limit_point):
-            if tdef.is_parentless(point, cutoff=self.config.start_point):
-                ntask, is_in_pool, is_xtrig_sequential = (
-                    self.get_or_spawn_task(point, tdef, flow_nums)
-                )
-                if ntask is not None:
-                    if not is_in_pool:
-                        self.add_to_pool(ntask)
-                    self.rh_release_and_queue(ntask)
-                if is_xtrig_sequential:
-                    break
-            point = tdef.next_point(point)
+        # Spawn this instance
+        if tdef.is_parentless(point, cutoff=self.config.start_point):
+            ntask, is_in_pool, is_xtrig_sequential = (
+                self.get_or_spawn_task(point, tdef, flow_nums)
+            )
+            if ntask is not None:
+                if not is_in_pool:
+                    self.add_to_pool(ntask)
+                self.rh_release_and_queue(ntask)
+            if is_xtrig_sequential:
+                return  # TODO?
 
-        # Once more for the runahead-limited task (don't release it).
-        if not is_xtrig_sequential:
-            self.spawn_if_parentless(tdef, point, flow_nums)
+        # spawn next parentless instance, wherever it is.
+        point = tdef.next_point_parentless(point)
+        if point is None:
+            return
+        ntask, is_in_pool, _ = (
+            self.get_or_spawn_task(point, tdef, flow_nums)
+        )
+        if ntask is not None and not is_in_pool:
+            self.add_to_pool(ntask)
+            # if still below the limit, call again.
+            if point <= self.runahead_limit_point:
+                self.rh_release_and_queue(ntask)
+                self.spawn_to_rh_limit(tdef, point, flow_nums)
 
     def spawn_if_parentless(self, tdef, point, flow_nums):
         """Spawn a task if parentless, regardless of runahead limit."""

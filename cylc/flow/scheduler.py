@@ -1717,11 +1717,10 @@ class Scheduler:
             await self.update_data_structure()
 
         if has_updated:
-            if not self.is_reloaded:
+            if not self.is_reloaded and self.is_stalled:
                 # (A reload cannot un-stall workflow by itself)
-                if self.is_stalled:
-                    self.is_stalled = False
-                    self.update_data_store()
+                self.is_stalled = False
+                self.update_data_store()
             self.is_reloaded = False
 
             # Reset workflow and task updated flags.
