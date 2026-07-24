@@ -1,5 +1,6 @@
 # THIS FILE IS PART OF THE CYLC WORKFLOW ENGINE.
-# Copyright (C) NIWA & British Crown (Met Office) & Contributors.
+# Copyright (C) Earth Sciences New Zealand & British Crown (Met Office)
+# & Contributors.
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -450,7 +451,7 @@ async def _scheduler_cli_1(
     _print_startup_message(options)
 
     # re-execute on another host if required
-    _distribute(workflow_id_raw, workflow_id, options)
+    await _distribute(workflow_id_raw, workflow_id, options)
 
     # setup the scheduler
     # NOTE: asyncio.run opens an event loop, runs your coro,
@@ -651,7 +652,7 @@ def _print_startup_message(options):
         LOG.warning(SUITERC_DEPR_MSG)
 
 
-def _distribute(
+async def _distribute(
     workflow_id_raw: str, workflow_id: str, options: 'Values'
 ) -> None:
     """Re-invoke this command on a different host if requested.
@@ -667,7 +668,7 @@ def _distribute(
 
     """
     # Check whether a run host is explicitly specified, else select one.
-    host = options.host or select_workflow_host()[0]
+    host = options.host or (await select_workflow_host())[0]
     if is_remote_host(host):
         # Protect command args from second shell interpretation
         cmd = list(map(quote, sys.argv[1:]))
@@ -701,7 +702,7 @@ def _distribute(
         # NOTE: has the potential to raise NoHostsError, however, this will
         # most likely have been raised during host-selection
         sys.exit(
-            cylc_server_cmd(cmd, host=host)
+            await cylc_server_cmd(cmd, host=host)
         )
 
 
@@ -739,29 +740,23 @@ def cylc_play(options: 'Values', id_: str, parse_workflow_id=True) -> None:
     """Implement cylc play.
 
     Raises:
-        CylcError:
-            If this function is called whilst an asyncio event loop is running.
+        RuntimeError:
+            If this function is called whilst an asyncio event loop is running
+            (if this happens then there is a bug within Cylc).
 
             Because the scheduler process can be daemonised, this must not be
             called whilst an asyncio event loop is active as memory associated
             with this event loop will also exist in the new fork leading to
             potentially strange problems.
 
+            I.e. don't call this from within an async func or asyncio.run().
+
             See https://github.com/cylc/cylc-flow/issues/6291
 
     """
-    try:
-        # try opening an event loop to make sure there isn't one already open
-        asyncio.get_running_loop()
-    except RuntimeError:
-        # start/restart/resume the workflow
-        scheduler, workflow_id = asyncio.run(
-            _scheduler_cli_1(options, id_, parse_workflow_id=parse_workflow_id)
-        )
-        _scheduler_cli_2(options, scheduler)
-        asyncio.run(_scheduler_cli_3(options, workflow_id, scheduler))
-    else:
-        # if this line every gets hit then there is a bug within Cylc
-        raise CylcError(
-            'cylc_play called whilst asyncio event loop is running'
-        ) from None
+    # start/restart/resume the workflow
+    scheduler, workflow_id = asyncio.run(
+        _scheduler_cli_1(options, id_, parse_workflow_id=parse_workflow_id)
+    )
+    _scheduler_cli_2(options, scheduler)
+    asyncio.run(_scheduler_cli_3(options, workflow_id, scheduler))

@@ -1,5 +1,6 @@
 # THIS FILE IS PART OF THE CYLC WORKFLOW ENGINE.
-# Copyright (C) NIWA & British Crown (Met Office) & Contributors.
+# Copyright (C) Earth Sciences New Zealand & British Crown (Met Office)
+# & Contributors.
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -1006,7 +1007,7 @@ with Conf('global.cylc', desc='''
                 beyond which Cylc will not attempt to start new schedulers on
                 a host.
 
-                .. _psutil: https://psutil.readthedocs.io/en/latest/
+                .. _psutil: https://psutil.readthedocs.io/
 
                 This should be a multiline string containing Python expressions
                 to rank and/or filter hosts. All `psutil`_ attributes are
@@ -1401,6 +1402,25 @@ with Conf('global.cylc', desc='''
 
                         .. versionadded:: {versionadded}
                     """)
+    with Conf('template variables', desc='''
+        Define template variables for all workflows.
+
+        Any template variables defined here will be made available to all
+        workflows. Use this to define site-specific things.
+        Workflow-specific template variables can be set via ``--set`` and
+        ``--set-file`` options to workflow parsing commands, or in a
+        ``rose-suite.conf`` file via the cylc-rose plugin.
+
+        .. versionadded:: 8.7.0
+    '''):
+        Conf('<key>', VDR.V_TEMPLATE_VARIABLE, 'None', desc='''
+            A template variable in Python syntax.
+
+            .. rubric:: Examples:
+
+            * ``SITE = "my-site"``
+            * ``PLATFORMS = {"hpc": "my-hpc", "cluster": "my-cluster}``
+        ''')
     with Conf('platforms', desc='''
         Platforms allow you to define compute resources available at your
         site.
@@ -1477,6 +1497,38 @@ with Conf('global.cylc', desc='''
 
                 .. versionadded:: 8.0.0
             ''')
+
+            with Conf('profiler', desc='''
+                Configure the Cylc job profiler.
+
+                This tool can capture CPU and memory information from
+                job runners which use cgroups such as PBS and Slurm.
+
+                .. versionadded:: 8.7.0
+            '''):
+                Conf('activate', VDR.V_BOOLEAN, False, desc='''
+                    Enable the Cylc profiler for this platform.
+                ''')
+                Conf('cgroups path', VDR.V_STRING,
+                     default='/sys/fs/cgroup',
+                     desc='''
+                     Configure the path to the cgroups filesystem.
+
+                     The default value is the standard
+                     location for cgroups on Linux and should work in
+                     most circumstances
+                     ''')
+                Conf('polling interval', VDR.V_INTERVAL,
+                     default="PT10S",
+                     desc='''
+                     Configure the profiler polling interval.
+
+                     The interval at which the profiler will
+                     poll the cgroups filesystem for resource usage data.
+                     The default value of 10 seconds should be sufficient for
+                     most use cases, but can be adjusted as needed.
+                ''')
+
             Conf('job runner', VDR.V_STRING, 'background', desc=f'''
                 The system used to run jobs on the platform.
 

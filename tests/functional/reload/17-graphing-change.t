@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # THIS FILE IS PART OF THE CYLC WORKFLOW ENGINE.
-# Copyright (C) NIWA & British Crown (Met Office) & Contributors.
+# Copyright (C) Earth Sciences New Zealand & British Crown (Met Office)
+# & Contributors.
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -20,7 +21,7 @@
 #-------------------------------------------------------------------------------
 set_test_number 12
 
-# shellcheck disable=SC2317
+# shellcheck disable=SC2317 disable=SC2329
 grep_workflow_log_n_times() {
     TEXT="$1"
     N_TIMES="$2"

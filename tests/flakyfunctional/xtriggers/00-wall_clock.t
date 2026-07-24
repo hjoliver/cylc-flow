@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # THIS FILE IS PART OF THE CYLC WORKFLOW ENGINE.
-# Copyright (C) NIWA & British Crown (Met Office) & Contributors.
+# Copyright (C) Earth Sciences New Zealand & British Crown (Met Office)
+# & Contributors.
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -18,7 +19,7 @@
 # Test clock xtriggers
 . "$(dirname "$0")/test_header"
 
-# shellcheck disable=SC2317
+# shellcheck disable=SC2317 disable=SC2329
 run_workflow() {
   cylc play --no-detach --debug "$1" \
     -s "START='$2'" -s "HOUR='$3'" -s "OFFSET='$4'"

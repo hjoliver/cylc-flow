@@ -1,5 +1,6 @@
 # THIS FILE IS PART OF THE CYLC WORKFLOW ENGINE.
-# Copyright (C) NIWA & British Crown (Met Office) & Contributors.
+# Copyright (C) Earth Sciences New Zealand & British Crown (Met Office)
+# & Contributors.
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -930,8 +931,14 @@ class TaskEventsManager():
             )
             return False
 
+        # Ignore non-expire messages if task is waiting with a retry lined up.
+        # Waiting tasks normally advance to a new state due to any message, but
+        # the retry implies late arrival after task failure (e.g. a delayed
+        # poll result). Task expire messages are internal, so excluded from
+        # this.
         if (
             itask.state(TASK_STATUS_WAITING)
+            and message != TASK_OUTPUT_EXPIRED
             # Polling in live mode only:
             and itask.run_mode == RunMode.LIVE
             and (

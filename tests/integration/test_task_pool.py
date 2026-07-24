@@ -1,5 +1,6 @@
 # THIS FILE IS PART OF THE CYLC WORKFLOW ENGINE.
-# Copyright (C) NIWA & British Crown (Met Office) & Contributors.
+# Copyright (C) Earth Sciences New Zealand & British Crown (Met Office)
+# & Contributors.
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -42,6 +43,7 @@ from cylc.flow.data_store_mgr import TASK_PROXIES
 from cylc.flow.exceptions import WorkflowConfigError
 from cylc.flow.flow_mgr import FLOW_NONE
 from cylc.flow.id import TaskTokens, Tokens
+from cylc.flow.run_modes import RunMode
 from cylc.flow.task_events_mgr import TaskEventsManager
 from cylc.flow.task_outputs import (
     TASK_OUTPUT_FAILED,
@@ -1165,6 +1167,7 @@ async def test_future_trigger_final_point(
     async with start(schd):
         for itask in schd.pool.get_tasks():
             schd.pool.spawn_on_output(itask, "succeeded")
+        await schd._main_loop()
         assert log_filter(
             regex=(
                 ".*1/baz.*not spawned: a prerequisite is beyond"
@@ -2289,7 +2292,9 @@ async def test_reload_xtriggers(flow, scheduler, start):
         }
 
 
-@pytest.mark.parametrize('expire_type', ['clock-expire', 'manual'])
+@pytest.mark.parametrize(
+    'expire_type', ['clock-expire', 'manual-expire', 'expire-trigger']
+)
 async def test_expire_dequeue_with_retries(
     flow, scheduler, start, expire_type
 ):
@@ -2298,48 +2303,91 @@ async def test_expire_dequeue_with_retries(
     See https://github.com/cylc/cylc-flow/issues/6284
     """
     conf = {
+        'scheduler': {
+            'experimental': {
+                'expire triggers': True,
+            },
+        },
         'scheduling': {
             'initial cycle point': '2000',
-
             'graph': {
                 'R1': 'foo'
             },
         },
         'runtime': {
             'foo': {
-                'execution retry delays': 'PT0S'
-            }
-        }
+                'execution retry delays': 'PT0S',
+                'outputs': {
+                    'x': 'xxx',
+                },
+            },
+        },
     }
 
     if expire_type == 'clock-expire':
+        # configure foo to clock-expire
         conf['scheduling']['special tasks'] = {'clock-expire': 'foo(PT0S)'}
-        method = lambda schd: schd.pool.clock_expire_tasks()
+
+        # run the clock-expire logic
+        def method(schd):
+            schd.pool.clock_expire_tasks()
+
+    elif expire_type == 'manual-expire':
+        # run the "cylc set" command to expire "foo"
+        def method(schd):
+            schd.pool.set_prereqs_and_outputs(
+                {TaskTokens('20000101T0000Z', 'foo')},
+                prereqs=[],
+                outputs=['expired'],
+                flow=['1'],
+            )
+
     else:
-        method = lambda schd: schd.pool.set_prereqs_and_outputs(
-            {TaskTokens('20000101T0000Z', 'foo')},
-            prereqs=[],
-            outputs=['expired'],
-            flow=['1'],
-        )
+        # configure the task to be expire-triggered once "bar" succeeds
+        conf['scheduling']['graph']['R1'] = '''
+            foo:x => bar
+            foo:x & bar => !foo
+        '''
+
+        # run the "cylc set" command to succeed "bar"
+        def method(schd):
+            schd.pool.set_prereqs_and_outputs(
+                {TaskTokens('20000101T0000Z', 'bar')},
+                prereqs=[],
+                outputs=['succeeded'],
+                flow=['1'],
+            )
 
     id_ = flow(conf)
-    schd = scheduler(id_)
+    schd = scheduler(id_, run_mode='live')
     schd: Scheduler
     async with start(schd):
-        itask = schd.pool.get_tasks()[0]
+        foo = schd.pool._get_task_by_id('20000101T0000Z/foo')
+        assert foo
+
+        # fake a real submission failure
+        # NOTE: yes, all of these things are needed for a valid test!
+        # Try removing the "force=True" added in this commit and ensure the
+        # "clock-expire" test fails before changing anything here!
+        foo.submit_num += 1
+        foo.run_mode = RunMode.LIVE
+        schd.task_job_mgr._set_retry_timers(foo, foo.tdef.rtconfig)
+        schd.task_events_mgr.process_message(foo, 0, 'started')
+        schd.task_events_mgr.process_message(foo, 0, 'xxx')
+        schd.task_events_mgr.process_message(foo, 0, 'failed')
+        schd.task_events_mgr._retry_task(foo, 0)
 
         # the task should start as "waiting(queued)"
-        assert itask.state(TASK_STATUS_WAITING, is_queued=True)
+        assert foo.state(TASK_STATUS_WAITING, is_queued=True)
 
         # expire the task via whichever method we are testing
         method(schd)
 
         # the task should enter the "expired" state
-        assert itask.state(TASK_STATUS_EXPIRED, is_queued=False)
+        assert foo.state(TASK_STATUS_EXPIRED, is_queued=False)
 
         # the task should also have been removed from the queue
-        assert not schd.pool.task_queue_mgr.remove_task(itask)
+        assert not schd.pool.task_queue_mgr.remove_task(foo)
 
 
 async def test_clock_expire_with_sequential_xtriggers(
@@ -2518,6 +2566,11 @@ async def test_start_tasks(
         submitted_tasks = capture_submission(schd)
         assert submitted_tasks == set()
 
+        # This test expects tasks to be spawned to the runahead limit for
+        # historical reasons - pre GitHub #7237. We can remove this call
+        # if we change test expectations below.
+        schd.pool.spawn_to_runahead_limit()
+
         # It should start up with:
         # - 2050/foo and 2051/foo (spawned to runahead limit)
         # - 2050/bar waiting on its (unsatisfied) clock-trigger
@@ -2533,20 +2586,14 @@ async def test_start_tasks(
             }
         )
 
-        # Check xtriggers
-        for itask in itasks:
-            schd.pool.xtrigger_mgr.call_xtriggers_async(itask)
-            schd.pool.rh_release_and_queue(itask)
+        await schd._main_loop()
 
-        # Release tasks that are ready to run.
-        schd.release_tasks_to_run()
-
-        # It should submit 2050/foo, 2051/foo, 2050/baz
+        # It should submit 2050/foo, 2050/baz
         # It should not submit 2050/bar (waiting on clock trigger)
+        # It should not submit 2051/foo (runahead limited)
         assert (
             set(itask.identity for itask in submitted_tasks) == {
                 "2050/foo",
-                "2051/foo",
                 "2050/baz",
             }
         )
@@ -2642,3 +2689,29 @@ async def test_add_to_pool(
         schd.pool.add_to_pool(a_1)
 
         assert "1/a not added to n=0: already exists" in caplog.text
+
+
+async def test_parentless_spawning(flow, scheduler, run, complete):
+    """Check that parentless spawning works even if parented in some cycles.
+
+    Parentless spawning could be blocked if a parented cycle ended up at
+    the runahead limit. See https://github.com/cylc/cylc-flow/pull/7237.
+
+    """
+    cfg = {
+        'scheduling': {
+            'cycling mode': 'integer',
+            'initial cycle point': '1',
+            'runahead limit': 'P0',
+            'graph': {
+                'P1': 'b',
+                'R1/2/P0': 'a => b',
+            }
+        },
+    }
+    id_ = flow(cfg)
+    schd = scheduler(id_, paused_start=False)
+    async with run(schd):
+        await complete(schd, "2/b")
+        # The task pool should not be empty now.
+        assert len(schd.pool.get_tasks())

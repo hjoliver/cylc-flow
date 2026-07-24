@@ -1,5 +1,6 @@
 # THIS FILE IS PART OF THE CYLC WORKFLOW ENGINE.
-# Copyright (C) NIWA & British Crown (Met Office) & Contributors.
+# Copyright (C) Earth Sciences New Zealand & British Crown (Met Office)
+# & Contributors.
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -604,6 +605,20 @@ def test_multiple_exclusions_extensive(set_cycling_type):
     assert sequence.get_prev_point(point_4) == point_1
 
 
+def test_get_nearest_prev_point_exclusions(set_cycling_type):
+    """Another test for get_nearest_prev_point() for sequences with exclusions.
+
+    https://github.com/cylc/cylc-flow/issues/7268
+    """
+    set_cycling_type(ISO8601_CYCLING_TYPE)
+    P = ISO8601Point
+    seq = ISO8601Sequence('T00 ! 2025-01-01T00Z', '2025-01-01T00Z')
+    assert seq.get_nearest_prev_point(P('2025-01-01T09Z')) is None
+    assert seq.get_nearest_prev_point(P('2025-01-02T09Z')) == P(
+        '2025-01-02T00Z'
+    )
+
+
 def test_exclusion_zero_duration_warning(set_cycling_type, caplog, log_filter):
     """It should not log zero-duration warnings for exclusion points.
 
@@ -641,7 +656,6 @@ def test_simple(set_cycling_type):
         str(p_start),
         str(p_stop),
     )
-    sequence.set_offset(-ISO8601Interval("PT10M"))
     point = sequence.get_next_point(ISO8601Point("20100808T0000"))
     assert point == ISO8601Point("20100808T0010")
     output = []

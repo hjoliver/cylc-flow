@@ -1,5 +1,6 @@
 # THIS FILE IS PART OF THE CYLC WORKFLOW ENGINE.
-# Copyright (C) NIWA & British Crown (Met Office) & Contributors.
+# Copyright (C) Earth Sciences New Zealand & British Crown (Met Office)
+# & Contributors.
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -590,7 +591,14 @@ class TaskJobManager:
         submit-failed."""
         itask.waiting_on_job_prep = False
         itask.local_job_file_path = None
-        self._prep_submit_task_job_error(itask, '(remote init)', '')
+        self._prep_submit_task_job_error(
+            itask,
+            '(remote init)',
+            PlatformError(
+                f"{PlatformError.MSG_INIT} (no hosts were reachable)",
+                itask.platform['name'],
+            ),
+        )
         # Now that all hosts on all platforms in platform
         # group selected in task config are exhausted we
         # clear bad_hosts for all the hosts we have
@@ -598,12 +606,6 @@ class TaskJobManager:
         self.bad_hosts -= set(itask.platform['hosts'])
         self.bad_hosts -= self.bad_hosts_to_clear
         self.bad_hosts_to_clear.clear()
-        LOG.critical(
-            PlatformError(
-                f"{PlatformError.MSG_INIT} (no hosts were reachable)",
-                itask.platform['name'],
-            )
-        )
 
     def _create_job_log_path(self, itask):
         """Create job log directory for a task job, etc.
@@ -1247,7 +1249,7 @@ class TaskJobManager:
                     msg = '(no platforms available)'
                     # Clear all hosts from all platforms in group from
                     # bad_hosts:
-                    self.bad_hosts -= exc.hosts_consumed
+                    self.bad_hosts -= exc.bad_hosts
                     self._set_retry_timers(itask, rtconfig)
                 # Provide dummy platform otherwise it will incorrectly show as
                 # the default localhost platform in the data store:

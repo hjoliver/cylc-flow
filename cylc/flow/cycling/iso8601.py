@@ -1,5 +1,6 @@
 # THIS FILE IS PART OF THE CYLC WORKFLOW ENGINE.
-# Copyright (C) NIWA & British Crown (Met Office) & Contributors.
+# Copyright (C) Earth Sciences New Zealand & British Crown (Met Office)
+# & Contributors.
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -445,21 +446,6 @@ class ISO8601Sequence(SequenceBase):
         """Return the interval between points in this sequence."""
         return self.step
 
-    def get_offset(self):
-        """Deprecated: return the offset used for this sequence."""
-        return self.offset
-
-    def set_offset(self, i_offset):
-        """Deprecated: alter state to i_offset the entire sequence."""
-        self.recurrence += interval_parse(str(i_offset))
-        self._cached_first_point_values = {}
-        self._cached_next_point_values = {}
-        self._cached_valid_point_booleans = {}
-        self._cached_recent_valid_points = []
-        self.value = str(self.recurrence) + '!' + str(self.exclusions)
-        if self.exclusions:
-            self.value += '!' + str(self.exclusions)
-
     # lru_cache'd see __init__()
     def _is_on_sequence(self, point):
         """Return True if point is on-sequence."""
@@ -525,7 +511,7 @@ class ISO8601Sequence(SequenceBase):
                 break
             recurrence_cycle_point = ISO8601Point(str(recurrence_iso_point))
             if self.exclusions and recurrence_cycle_point in self.exclusions:
-                break
+                continue
             prev_cycle_point = recurrence_cycle_point
 
         if prev_cycle_point is None:
@@ -535,9 +521,6 @@ class ISO8601Sequence(SequenceBase):
                 self.recurrence, WorkflowSpecifics.DUMP_FORMAT,
                 prev_cycle_point, point
             )
-        # Check all exclusions
-        if self.exclusions and prev_cycle_point in self.exclusions:
-            return self.get_prev_point(prev_cycle_point)
         return prev_cycle_point
 
     def get_next_point(self, point):

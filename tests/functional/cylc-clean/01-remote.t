@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # THIS FILE IS PART OF THE CYLC WORKFLOW ENGINE.
-# Copyright (C) NIWA & British Crown (Met Office) & Contributors.
+# Copyright (C) Earth Sciences New Zealand & British Crown (Met Office)
+# & Contributors.
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -123,7 +124,7 @@ dump_std "$TEST_NAME"
 
 TEST_NAME="run-dir-not-exist-post-clean.local"
 # (Could use the function `exists_ok` here instead, but this keeps it consistent with the remote test below)
-if [[ ! -a "$WORKFLOW_RUN_DIR" ]]; then
+if [[ ! -e "$WORKFLOW_RUN_DIR" ]]; then
     ok "$TEST_NAME"
 else
     fail "$TEST_NAME"
