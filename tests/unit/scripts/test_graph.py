@@ -293,7 +293,8 @@ def test_null(null_config):
     """Ensure that an empty graph is handled elegantly."""
     opts = SimpleNamespace(
         namespaces=False,
-        grouping=False,
+        grouping=[],
+        group_after_icp=[],
         show_suicide=False,
         flatten_icp_dependence=False,
     )
@@ -301,7 +302,8 @@ def test_null(null_config):
 
     opts = SimpleNamespace(
         namespaces=True,
-        grouping=False,
+        grouping=[],
+        group_after_icp=[],
         show_suicide=False,
         flatten_icp_dependence=False,
     )

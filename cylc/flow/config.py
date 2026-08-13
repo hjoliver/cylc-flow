@@ -2061,11 +2061,42 @@ class WorkflowConfig:
             stop_point = get_point(stop_point_str).standardise()
         return stop_point
 
+    def _get_closed_family_map(self, grouping):
+        """From requested family grouping, return closed family map."""
+        if grouping is None:
+            grouping = []
+        elif grouping == ['<all>']:
+            grouping = [
+                fam for
+                fam in self.runtime["first-parent descendants"].keys()
+                if fam != "root"
+            ]
+        else:
+            for bad in (
+                set(grouping).difference(
+                    self.runtime["first-parent descendants"].keys()
+                )
+            ):
+                LOG.warning(f"Ignoring undefined family {bad}")
+                grouping.remove(bad)
+        # For nested closed families, only consider the outermost one
+        fpd = self.runtime['first-parent descendants']
+        clf_map = {}
+        for name in grouping:
+            if all(
+                name not in fpd[i]
+                for i in grouping
+            ):
+                clf_map[name] = fpd[name]
+
+        return clf_map
+
     def get_graph_raw(
         self,
         start_point_str=None,
         stop_point_str=None,
         grouping=None,
+        group_after_icp=None,
         flatten_icp_dependence=False,
         sort=True,
     ):
@@ -2087,49 +2118,23 @@ class WorkflowConfig:
             self.cfg['scheduling']['initial cycle point']
         )
         stop_point = self._get_stop_point(start_point, stop_point_str)
-
         actual_first_point = self.get_actual_first_point(start_point)
-
-        if grouping is None:
-            grouping = []
-        elif grouping == ['<all>']:
-            grouping = [
-                fam for
-                fam in self.runtime["first-parent descendants"].keys()
-                if fam != "root"
-            ]
-        else:
-            for bad in (
-                set(grouping).difference(
-                    self.runtime["first-parent descendants"].keys()
-                )
-            ):
-                LOG.warning(f"Ignoring undefined family {bad}")
-                grouping.remove(bad)
 
         is_validate = getattr(
             self.options, 'is_validate', False)  # this is for _check_circular
-        if is_validate:
-            grouping = []
+        clf_map = self._get_closed_family_map(grouping)
 
-        # Now define the concrete graph edges (pairs of nodes) for plotting.
+        clf_map_after_icp = self._get_closed_family_map(group_after_icp)
+        for item in clf_map_after_icp:
+            with suppress(KeyError):
+                del clf_map[item]
 
         workflow_final_point = get_point(
             self.cfg['scheduling']['final cycle point'])
 
+        # Now define the concrete graph edges (pairs of nodes) for plotting.
         # For the computed stop point, store VIS_N_POINTS of each sequence,
         # and then cull later to the first VIS_N_POINTS over all sequences.
-
-        # For nested closed families, only consider the outermost one
-        fpd = self.runtime['first-parent descendants']
-        clf_map = {}
-        for name in grouping:
-            if all(
-                name not in fpd[i]
-                for i in grouping
-            ):
-                clf_map[name] = fpd[name]
-
         gr_edges = {}
         start_point_offset_cache = {}
         point_offset_cache = None
@@ -2216,10 +2221,17 @@ class WorkflowConfig:
                     if is_validate:
                         gr_edges[point].append((l_id, r_id))
                     else:
-                        lstr, rstr = self._close_families(l_id, r_id, clf_map)
+                        lstuff, rstuff = self._get_id_str(l_id, r_id)
+                        closed = False
+                        if point != self.initial_point and clf_map_after_icp:
+                            lstr, rstr, closed = self._close_families(
+                                lstuff, rstuff, clf_map_after_icp)
+                        if not closed:
+                            lstr, rstr, _ = self._close_families(
+                                lstuff, rstuff, clf_map)
                         gr_edges[point].append(
+                            # Increment the cycle point.
                             (lstr, rstr, None, suicide, cond))
-                # Increment the cycle point.
                 point = sequence.get_next_point_on_sequence(point)
 
         del clf_map
@@ -2256,11 +2268,8 @@ class WorkflowConfig:
         return ret
 
     @staticmethod
-    def _close_families(l_id, r_id, clf_map):
-        """Turn (name, point) to 'name.point' for edge.
-
-        Replace close family members with family nodes if relevant.
-        """
+    def _get_id_str(l_id, r_id):
+        """Turn (name, point) to 'name.point' for edge."""
         lret = None
         lname, lpoint = None, None
         if l_id:
@@ -2278,6 +2287,35 @@ class WorkflowConfig:
                 task=rname,
             ).relative_id
 
+        lret = None
+        lname, lpoint = None, None
+        if l_id:
+            lname, lpoint = l_id
+            lret = Tokens(
+                cycle=str(lpoint),
+                task=lname,
+            ).relative_id
+        rret = None
+        rname, rpoint = None, None
+        if r_id:
+            rname, rpoint = r_id
+            rret = Tokens(
+                cycle=str(rpoint),
+                task=rname,
+            ).relative_id
+        return (lname, lpoint, lret), (rname, rpoint, rret)
+
+    @staticmethod
+    def _close_families(lstuff, rstuff, clf_map):
+        """Turn (name, point) to 'name.point' for edge.
+
+        And replace closed family members with family nodes if relevant.
+
+        """
+        lname, lpoint, lret = lstuff
+        rname, rpoint, rret = rstuff
+        closed = False
+
         for fam_name, fam_members in clf_map.items():
             if lname in fam_members and rname in fam_members:
                 # l and r are both members
@@ -2289,6 +2327,7 @@ class WorkflowConfig:
                     cycle=str(rpoint),
                     task=fam_name,
                 ).relative_id
+                closed = True
                 break
             elif lname in fam_members:
                 # l is a member
@@ -2296,14 +2335,16 @@ class WorkflowConfig:
                     cycle=str(lpoint),
                     task=fam_name,
                 ).relative_id
+                closed = True
             elif rname in fam_members:
                 # r is a member
                 rret = Tokens(
                     cycle=str(rpoint),
                     task=fam_name,
                 ).relative_id
+                closed = True
 
-        return lret, rret
+        return lret, rret, closed
 
     def _load_graph(self):
         """Parse and load dependency graph."""

@@ -19,7 +19,11 @@
 
 """cylc graph [OPTIONS] ARGS
 
-Produces graphical and textual representations of workflow dependencies.
+Generate graphical and textual representations of workflow dependencies.
+
+Note that dependence on initial R1 tasks in all cycles of a graph can make a
+mess of graph visualations. To clean this up, ensure your R1 tasks are in a
+family and use the --flatten-icp, --group, and --group-after-icp options.
 
 Examples:
     # generate a graphical representation of workflow dependencies
@@ -129,6 +133,7 @@ def get_nodes_and_edges(
             start,
             stop,
             grouping=opts.grouping,
+            group_after_icp=opts.group_after_icp,
             show_suicide=opts.show_suicide,
             flatten_icp_dependence=opts.flatten_icp_dependence,
         )
@@ -140,6 +145,7 @@ def _get_graph_nodes_edges(
     start_point_str=None,
     stop_point_str=None,
     grouping=None,
+    group_after_icp=None,
     show_suicide=False,
     flatten_icp_dependence=False,
 ) -> Tuple[List[Node], List[Edge]]:
@@ -148,6 +154,7 @@ def _get_graph_nodes_edges(
         start_point_str,
         stop_point_str,
         grouping,
+        group_after_icp=group_after_icp,
         flatten_icp_dependence=flatten_icp_dependence,
     )
     if not graph:
@@ -265,11 +272,14 @@ def format_graphviz(
                 )
             if r1:
                 cycle_label = 'R1'
+                style = ', style="dashed"'
             else:
                 cycle_label = cycle
+                style = ''
 
             dot_lines.extend(
-                rf'{indent}"{cycle}/{task}" [label="{task}\n{cycle_label}"]'
+                rf'{indent}"{cycle}/{task}" '
+                rf'[label="{task}\n{cycle_label}"{style}]'
                 for task in tasks
             )
             if opts.cycles and not r1:
@@ -491,9 +501,18 @@ def get_option_parser() -> COP:
 
     parser.add_option(
         '-g', '--group',
-        help="task family to group. Can be used multiple times. "
+        help="Task family to group. Can be used multiple times. "
         "Use '<all>' to specify all families above root.",
         action='append', default=[], dest='grouping')
+
+    parser.add_option(
+        '--group-after-icp',
+        help="Task family to group after the initial cycle point. With "
+        "--flatten-icp this can allow you to view an initial R1 graph "
+        "along with cleaner visualization of subsequent cycles. "
+        "Can be used multiple times. "
+        "Use '<all>' to specify all families above root.",
+        action='append', default=[], dest='group_after_icp')
 
     parser.add_option(
         '-c', '--cycles',
