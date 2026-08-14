@@ -111,3 +111,106 @@ async def test_flatten_icp(flow, tmp_path):
         '"R1.2002/start" -> "2002/foo"',  # NOTE: ICP dep flattened
         '"R1.2003/start" -> "2003/foo"',  # NOTE: ICP dep flattened
     }
+
+
+async def test_group(flow, tmp_path):
+    """It should group a family in all cycles.
+
+    Tests the "--group" option.
+    """
+    id_ = flow({
+        'scheduling': {
+            'cycling mode': 'integer',
+            'initial cycle point': '1',
+            'final cycle point': '2',
+            'graph': {
+                'P1': 'PREP',
+            },
+        },
+        'runtime': {
+            'PREP': {},
+            'prep_1': {'inherit': 'PREP'},
+            'prep_2': {'inherit': 'PREP'},
+        }
+    })
+    graph_file = tmp_path / 'graph.dot'
+
+    await _main(
+        Opts(output=str(graph_file)),
+        id_,
+        '1',
+        '2',
+    )
+    with open(graph_file, 'r') as graph_file_:
+        nodes = {
+            line.strip().split(' ')[0]
+            for line in graph_file_
+            if 'label' in line
+        }
+
+    assert nodes == {
+        '"1/prep_1"',
+        '"1/prep_2"',
+        '"2/prep_1"',
+        '"2/prep_2"'
+    }
+
+    await _main(
+        Opts(output=str(graph_file), grouping=["PREP"]),
+        id_,
+        '1',
+        '2',
+    )
+    with open(graph_file, 'r') as graph_file_:
+        nodes = {
+            line.strip().split(' ')[0]
+            for line in graph_file_
+            if 'label' in line
+        }
+
+    assert nodes == {
+        '"1/PREP"',
+        '"2/PREP"'
+    }
+
+
+async def test_group_after_icp(flow, tmp_path):
+    """It should group a family after, but not in, the ICP.
+
+    Tests the "--group-after-icp" option.
+    """
+    id_ = flow({
+        'scheduling': {
+            'cycling mode': 'integer',
+            'initial cycle point': '1',
+            'final cycle point': '2',
+            'graph': {
+                'P1': 'PREP',
+            },
+        },
+        'runtime': {
+            'PREP': {},
+            'prep_1': {'inherit': 'PREP'},
+            'prep_2': {'inherit': 'PREP'},
+        }
+    })
+    graph_file = tmp_path / 'graph.dot'
+
+    await _main(
+        Opts(output=str(graph_file), group_after_icp=["PREP"]),
+        id_,
+        '1',
+        '2',
+    )
+    with open(graph_file, 'r') as graph_file_:
+        nodes = {
+            line.strip().split(' ')[0]
+            for line in graph_file_
+            if 'label' in line
+        }
+
+    assert nodes == {
+        '"1/prep_1"',
+        '"1/prep_2"',
+        '"2/PREP"'
+    }
